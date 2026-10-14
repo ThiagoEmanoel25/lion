@@ -5,6 +5,8 @@ import '@xyflow/react/dist/style.css';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNode,AutomationNodeKind,AutomationValidation} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
+import {useAgents} from '../agents/api/queries';
+import type {AiAgent} from '../../shared/types/api';
 import './flow-builder.css';
 
 type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unknown>};
@@ -46,7 +48,7 @@ function toFlow(definition:AutomationDefinition){
 function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
 
 export function PlaybookEditorPage(){
-  const {id=''}=useParams();const playbook=usePlaybook(id);const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
+  const {id=''}=useParams();const playbook=usePlaybook(id);const agents=useAgents();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
   const [nodes,setNodes]=useState<FlowNode[]>([]);const [edges,setEdges]=useState<FlowEdge[]>([]);const [start,setStart]=useState('');const [settings,setSettings]=useState(emptyDefinition.settings);
   const [selectedNodeId,setSelectedNodeId]=useState<string|null>(null);const [selectedEdgeId,setSelectedEdgeId]=useState<string|null>(null);const [version,setVersion]=useState(0);const [loadedKey,setLoadedKey]=useState('');
   const [dirty,setDirty]=useState(false);const [result,setResult]=useState<AutomationValidation|null>(null);const [notice,setNotice]=useState<{tone:'success'|'error'|'info';text:string}|null>(null);const flowRef=useRef<ReactFlowInstance<FlowNode,FlowEdge>|null>(null);
@@ -83,7 +85,7 @@ export function PlaybookEditorPage(){
         {!nodes.length&&<div className="canvas-empty"><span>◇</span><b>Monte sua jornada</b><p>Arraste um gatilho para começar.</p></div>}
       </section>
       <aside className="flow-inspector">
-        {selectedNode?<NodeInspector node={selectedNode} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>:selectedEdge?<EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>:<FlowInspector definition={definition} result={result} version={version} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>} 
+        {selectedNode?<NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>:selectedEdge?<EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>:<FlowInspector definition={definition} result={result} version={version} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>}
       </aside>
     </div>
   </div>
@@ -93,7 +95,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
   switch(kind){
     case 'trigger':return {event:'message.received'};
     case 'message':return {text:'Olá! Como posso ajudar?'};
-    case 'agent':return {prompt:'Entenda a intenção e responda com objetividade.',confidenceThreshold:.7};
+    case 'agent':return {agentId:'',prompt:''};
     case 'condition':return {};
     case 'delay':return {seconds:300};
     case 'webhook':return {url:'',method:'POST'};
@@ -111,13 +113,13 @@ function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown
   if(kind==='outcome'&&typeof config.type!=='string'){config.type=typeof config.outcome==='string'&&['QUALIFIED','APPOINTMENT','SALE','RESOLVED','HANDOFF','DISQUALIFIED'].includes(config.outcome.toUpperCase())?config.outcome.toUpperCase():'RESOLVED';delete config.outcome}
   return config
 }
-function NodeInspector({node,isStart,onName,onConfig,onStart,onRemove}:{node:FlowNode;isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onStart:()=>void;onRemove:()=>void}){
+function NodeInspector({node,agents,agentsLoading,isStart,onName,onConfig,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const config=node.data.config;
   return <><header><span className={`palette-icon ${kind}`}>{kindMeta[kind].icon}</span><div><small>BLOCO SELECIONADO</small><b>{kindMeta[kind].label}</b></div></header><div className="inspector-form">
     <label>Nome<input value={node.data.name} onChange={event=>onName(event.target.value)} /></label>
     {kind==='trigger'&&<label>Evento<select value={String(config.event??'message.received')} onChange={event=>onConfig('event',event.target.value)}><option value="message.received">Mensagem recebida</option><option value="tag.added">Etiqueta adicionada</option><option value="conversation.created">Conversa criada</option></select></label>}
     {kind==='message'&&<label>Mensagem<textarea rows={5} value={String(config.text??'')} onChange={event=>onConfig('text',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label>}
-    {kind==='agent'&&<><label>Instruções do agente<textarea rows={6} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Explique o objetivo, limites e tom da resposta." /></label><label>Confiança mínima <div className="range-field"><input type="range" min="0" max="1" step="0.05" value={Number(config.confidenceThreshold??.7)} onChange={event=>onConfig('confidenceThreshold',Number(event.target.value))}/><b>{Math.round(Number(config.confidenceThreshold??.7)*100)}%</b></div></label></>}
+    {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
     {kind==='condition'&&<div className="config-callout"><b>Configure as rotas nas conexões</b><p>Selecione cada saída no canvas para definir condição, rota padrão e prioridade.</p></div>}
     {kind==='delay'&&<label>Tempo em segundos<input type="number" min="1" max="2592000" step="1" value={Number(config.seconds??300)} onChange={event=>onConfig('seconds',Number(event.target.value))}/><small>Entre 1 segundo e 30 dias.</small></label>}
     {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH</option><option value="DELETE">DELETE</option></select></label></>}

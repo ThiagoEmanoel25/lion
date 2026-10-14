@@ -3,7 +3,7 @@
 ## Implementado
 
 - Monorepo com aplicação web, API e pacotes compartilhados.
-- Modelo PostgreSQL multi-tenant com 24 entidades e índices de isolamento/consulta.
+- Modelo PostgreSQL multi-tenant com isolamento por workspace e índices de consulta.
 - Autenticação JWT, sessões revogáveis e RBAC server-side.
 - Workspaces, membros, canais, contatos, inbox, mensagens, atribuição e handoff.
 - Playbooks versionados, publicação explícita e trilha de execução.
@@ -15,14 +15,21 @@
 - Editor visual de fluxos com dez tipos de nó, condições, rota padrão, prioridades, validação, simulação, versões e publicação.
 - Runtime NestJS/BullMQ isolado para sessões Baileys, envio e recebimento idempotentes.
 - Credenciais e chaves Signal cifradas com AES-256-GCM e protegidas por lock distribuído por canal.
-- Dados de demonstração quando a API ainda não está conectada.
+- Dashboard e Resultados alimentados por métricas reais, períodos de 7/30/90 dias e exportação CSV.
+- Inbox real com busca, filtros, paginação, polling, atribuição, handoff, envio e timeline de execução.
+- CRM de contatos com edição, responsável, etapas, etiquetas, campos personalizados e importação CSV validada.
+- Login, refresh token e proteção das rotas do frontend conectados ao provedor de sessão atual.
+- Agentes de IA configuráveis, teste controlado, fontes de conhecimento e handoff explícito quando o provedor está indisponível.
+- Webhooks genéricos de entrada com HMAC, idempotência, rate limit, mapeamento, logs e replay.
+- Configurações reais de workspace, equipe, convites, departamentos, horários e auditoria.
+- Cobranças e assinaturas com plano, cotas, uso, projeção, histórico, CSV e enforcement server-side.
 
 ## Verificado
 
 - Prisma Client gerado com sucesso.
-- Typecheck da API e do web aprovado.
-- Build de produção da API e do web aprovado.
-- 20 testes automatizados aprovados entre API, compilador de fluxos, runtime, criptografia, normalização de mensagens e web.
+- Typecheck dos três workspaces aprovado.
+- Build de produção dos três workspaces aprovado.
+- 49 testes automatizados aprovados: 31 na API, 10 no runtime e 8 no web.
 - `npm audit --omit=dev`: zero vulnerabilidades de produção.
 
 ## Ambiente local validado
@@ -43,6 +50,6 @@
 
 1. Executar testes E2E com um número WhatsApp dedicado e medir estabilidade/reconexão.
 2. Adicionar retrieval vetorial e ingestão de documentos ao nó de agente.
-3. Concluir a migração das telas restantes para as queries modulares da API.
+3. Implementar os módulos ainda fora do corte: Kanban, disparos em massa, Facebook/Meta Ads e tutoriais.
 4. Adicionar testes de isolamento entre tenants e da jornada completa.
 5. Implementar adapter Meta Cloud API antes de clientes que exijam SLA oficial.

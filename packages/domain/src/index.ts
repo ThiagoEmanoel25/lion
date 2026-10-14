@@ -11,7 +11,7 @@ export class DomainError extends Error {
 
 export const permissions={
   OWNER:['*'],
-  ADMIN:['workspace.manage','members.manage','channel.manage','conversation.*','playbook.*','analytics.read','billing.read'],
+  ADMIN:['workspace.manage','members.manage','channel.manage','conversation.*','contact.*','playbook.*','analytics.read','audit.read','billing.read'],
   SUPERVISOR:['conversation.*','contact.*','playbook.*','analytics.read','knowledge.*'],
   AGENT:['conversation.read','conversation.reply','conversation.assign.self','contact.read','contact.update'],
   VIEWER:['conversation.read','contact.read','analytics.read']
