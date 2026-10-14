@@ -1,0 +1,1 @@
+import {useQuery} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {BillingOverview} from '../../../shared/types/api';export function useBillingOverview(){return useQuery({queryKey:['billing','overview'],queryFn:()=>api<BillingOverview>('/v1/billing/overview'),refetchInterval:60_000})}
