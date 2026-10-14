@@ -5,12 +5,17 @@ import {DomainError} from '@nexo/domain';
 import {audit} from '../../core/audit.js';
 import {normalizePhone,parseContactsCsv} from './csv.js';
 import {assertWorkspaceQuota} from '../billing/service.js';
+import {enqueue} from '../../core/outbox.js';
 
 const contactInclude={owner:{select:{id:true,name:true,email:true}},tags:{include:{tag:true},orderBy:{tag:{name:'asc' as const}}}};
 
 async function validateReferences(prisma:any,workspaceId:string,ownerId:string|null|undefined,tagIds:string[]|undefined){
   if(ownerId){const member=await prisma.membership.findFirst({where:{workspaceId,userId:ownerId}});if(!member)throw new DomainError('INVALID_OWNER','O responsável não pertence a este workspace.',422)}
   if(tagIds?.length){const unique=new Set(tagIds);const count=await prisma.tag.count({where:{workspaceId,id:{in:[...unique]}}});if(count!==unique.size)throw new DomainError('INVALID_TAG','Uma ou mais etiquetas não pertencem a este workspace.',422)}
+}
+
+async function enqueueAddedTags(tx:any,workspaceId:string,contactId:string,tagIds:string[]){
+  for(const tagId of tagIds)await enqueue(tx,{workspaceId,aggregate:'Contact',aggregateId:contactId,type:'automation.trigger.requested',payload:{event:'tag.added',contactId,tagId}});
 }
 
 export const contactRoutes:FastifyPluginAsync=async app=>{
@@ -41,13 +46,13 @@ export const contactRoutes:FastifyPluginAsync=async app=>{
 
   app.post('/v1/contacts',{preHandler:[app.requirePermission('contact.update')]},async(request,reply)=>{
     const input=CreateContactInput.parse(request.body);await assertWorkspaceQuota(app.prisma,request.auth.workspaceId,'contacts');await validateReferences(app.prisma,request.auth.workspaceId,input.ownerId,input.tagIds);const {tagIds,customFields,...fields}=input;
-    try{const contact=await app.prisma.contact.create({data:{...fields,phone:normalizePhone(fields.phone),customFields:customFields as Prisma.InputJsonValue,workspaceId:request.auth.workspaceId,tags:{create:tagIds.map(tagId=>({tagId}))}},include:contactInclude});await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'contact.created',targetType:'Contact',targetId:contact.id,ip:request.ip});return reply.status(201).send(contact)}catch(error:any){if(error?.code==='P2002')throw new DomainError('CONTACT_EXISTS','Já existe um contato com este telefone.',409);throw error}
+    try{const contact=await app.prisma.$transaction(async tx=>{const created=await tx.contact.create({data:{...fields,phone:normalizePhone(fields.phone),customFields:customFields as Prisma.InputJsonValue,workspaceId:request.auth.workspaceId,tags:{create:tagIds.map(tagId=>({tagId}))}},include:contactInclude});await enqueueAddedTags(tx,request.auth.workspaceId,created.id,tagIds);await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'contact.created',targetType:'Contact',targetId:created.id,ip:request.ip});return created});return reply.status(201).send(contact)}catch(error:any){if(error?.code==='P2002')throw new DomainError('CONTACT_EXISTS','Já existe um contato com este telefone.',409);throw error}
   });
 
   app.patch('/v1/contacts/:id',{preHandler:[app.requirePermission('contact.update')]},async request=>{
-    const {id}=request.params as {id:string};const input=UpdateContactInput.parse(request.body);const current=await app.prisma.contact.findFirst({where:{id,workspaceId:request.auth.workspaceId}});if(!current)throw new DomainError('NOT_FOUND','Contato não encontrado.',404);
+    const {id}=request.params as {id:string};const input=UpdateContactInput.parse(request.body);const current=await app.prisma.contact.findFirst({where:{id,workspaceId:request.auth.workspaceId},include:{tags:{select:{tagId:true}}}});if(!current)throw new DomainError('NOT_FOUND','Contato não encontrado.',404);
     await validateReferences(app.prisma,request.auth.workspaceId,input.ownerId,input.tagIds);const {tagIds,customFields,...fields}=input;
-    try{const contact=await app.prisma.contact.update({where:{id},data:{...fields,email:fields.email||null,phone:fields.phone?normalizePhone(fields.phone):undefined,customFields:customFields as Prisma.InputJsonValue|undefined,tags:tagIds?{deleteMany:{},create:tagIds.map(tagId=>({tagId}))}:undefined},include:contactInclude});await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'contact.updated',targetType:'Contact',targetId:id,changes:JSON.parse(JSON.stringify(input)) as Prisma.InputJsonValue,ip:request.ip});return contact}catch(error:any){if(error?.code==='P2002')throw new DomainError('CONTACT_EXISTS','Já existe um contato com este telefone.',409);throw error}
+    try{return await app.prisma.$transaction(async tx=>{const contact=await tx.contact.update({where:{id},data:{...fields,email:fields.email||null,phone:fields.phone?normalizePhone(fields.phone):undefined,customFields:customFields as Prisma.InputJsonValue|undefined,tags:tagIds?{deleteMany:{},create:tagIds.map(tagId=>({tagId}))}:undefined},include:contactInclude});if(tagIds){const previous=new Set(current.tags.map(item=>item.tagId));await enqueueAddedTags(tx,request.auth.workspaceId,id,tagIds.filter(tagId=>!previous.has(tagId)))}await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'contact.updated',targetType:'Contact',targetId:id,changes:JSON.parse(JSON.stringify(input)) as Prisma.InputJsonValue,ip:request.ip});return contact})}catch(error:any){if(error?.code==='P2002')throw new DomainError('CONTACT_EXISTS','Já existe um contato com este telefone.',409);throw error}
   });
 
   app.post('/v1/contacts/import',{preHandler:[app.requirePermission('contact.update')]},async(request,reply)=>{

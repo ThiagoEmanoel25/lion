@@ -37,4 +37,6 @@ curl http://localhost:3333/ready
 
 Em ambientes já provisionados use `npm run db:deploy`; `db:migrate` é reservado ao desenvolvimento de novas migrações.
 
-O canal padrão do piloto usa Baileys em um runtime isolado com Redis/BullMQ. Baileys é uma integração não oficial com o WhatsApp Web e não elimina risco de bloqueio da conta; o limite de provedor mantém aberta a migração para a Cloud API oficial. OpenAI e Stripe permanecem atrás de adapters e, sem credenciais, usam implementações de desenvolvimento explicitamente identificadas.
+O canal padrão do piloto usa Baileys em um runtime isolado com Redis/BullMQ. Baileys é uma integração não oficial com o WhatsApp Web e não elimina risco de bloqueio da conta; o limite de provedor mantém aberta a migração para a Cloud API oficial. Sem uma chave OpenAI, os agentes fazem handoff explícito. Stripe ainda não possui adapter comercial e nenhuma cobrança é simulada.
+
+O smoke test navegável está em `scripts/navigation-smoke.mjs`. Ele usa Chrome via CDP e pressupõe API e web locais ativos; por padrão valida desktop e aceita `VIEWPORT_WIDTH`/`VIEWPORT_HEIGHT` para conferir responsividade.

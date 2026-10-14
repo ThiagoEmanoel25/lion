@@ -45,7 +45,24 @@ export const ChangeConversationModeInput = z.object({mode:z.enum(['AI','HUMAN','
 export const ChangeConversationStatusInput = z.object({status:z.enum(['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED','ASSIGNED','RESOLVED']),reason:z.string().trim().min(1).max(240)});
 export const CreatePlaybookInput = z.object({name:z.string().min(3).max(120),description:z.string().max(500).optional(),template:z.enum(['qualification','reactivation','support'])});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','condition','delay','agent','webhook','assign','tag','handoff','outcome']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome']);
+export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
+const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
+export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
+export const AutomationMessageConfigSchema=z.object({text:z.string().trim().min(1).max(4096)}).strict();
+export const AutomationImageConfigSchema=z.object({url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional()}).strict();
+export const AutomationAudioConfigSchema=z.object({url:HttpsUrlSchema,ptt:z.boolean().optional()}).strict();
+export const AutomationStickerConfigSchema=z.object({url:HttpsUrlSchema}).strict();
+export const AutomationButtonConfigSchema=z.object({id:z.string().trim().min(1).max(256),label:z.string().trim().min(1).max(20)}).strict();
+export const AutomationButtonsConfigSchema=z.object({text:z.string().trim().min(1).max(1024),footer:z.string().trim().max(60).optional(),buttons:z.array(AutomationButtonConfigSchema).min(1).max(3)}).strict().superRefine((value,ctx)=>{
+  const ids=new Set<string>();
+  const labels=new Set<string>();
+  value.buttons.forEach((button,index)=>{
+    if(ids.has(button.id))ctx.addIssue({code:z.ZodIssueCode.custom,path:['buttons',index,'id'],message:'O identificador do botão deve ser único.'});
+    if(labels.has(button.label))ctx.addIssue({code:z.ZodIssueCode.custom,path:['buttons',index,'label'],message:'O texto do botão deve ser único.'});
+    ids.add(button.id);labels.add(button.label);
+  });
+});
 export const AutomationNodeSchema=z.object({id:z.string().trim().min(1).max(80),kind:AutomationNodeKindSchema,name:z.string().trim().min(1).max(120),config:z.record(z.string(),z.unknown()).default({}),position:z.object({x:z.number().finite(),y:z.number().finite()})});
 export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(['equals','not_equals','contains','not_contains','exists','not_exists','greater_than','less_than']),value:z.unknown().optional()});
 export const AutomationEdgeSchema=z.object({id:z.string().trim().min(1).max(80),source:z.string().trim().min(1).max(80),target:z.string().trim().min(1).max(80),label:z.string().trim().max(80).optional(),condition:AutomationEdgeConditionSchema.optional(),isDefault:z.boolean().default(false),priority:z.number().int().min(0).max(1000).default(0)});

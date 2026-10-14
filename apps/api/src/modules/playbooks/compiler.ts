@@ -1,5 +1,13 @@
-import { AutomationDefinitionSchema } from '@nexo/contracts';
-import type { z } from 'zod';
+import {
+  AutomationAudioConfigSchema,
+  AutomationButtonsConfigSchema,
+  AutomationDefinitionSchema,
+  AutomationImageConfigSchema,
+  AutomationMessageConfigSchema,
+  AutomationStickerConfigSchema,
+  AutomationTriggerConfigSchema
+} from '@nexo/contracts';
+import type { z, ZodTypeAny } from 'zod';
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;
 type AutomationEdge = AutomationDefinition['edges'][number];
@@ -12,9 +20,24 @@ const outcomeKinds = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'H
 function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): AutomationIssue[] {
   const config = node.config;
   const error = (code: string, message: string): AutomationIssue => ({ level: 'error', code, message, nodeId: node.id });
+  const validateConfig = (schema: ZodTypeAny, code: string, label: string): AutomationIssue[] => {
+    const parsed = schema.safeParse(config);
+    if (parsed.success) return [];
+    return parsed.error.issues.map(issue => error(code, `${label}: ${issue.path.join('.') || 'configuração'} — ${issue.message}`));
+  };
   switch (node.kind) {
+    case 'trigger':
+      return validateConfig(AutomationTriggerConfigSchema, 'INVALID_TRIGGER_CONFIG', 'Gatilho inválido');
     case 'message':
-      return typeof config.text === 'string' && config.text.trim() ? [] : [error('MESSAGE_TEXT_REQUIRED', 'O nó de mensagem precisa de um texto.')];
+      return validateConfig(AutomationMessageConfigSchema, 'MESSAGE_TEXT_REQUIRED', 'Mensagem inválida');
+    case 'image':
+      return validateConfig(AutomationImageConfigSchema, 'INVALID_IMAGE_CONFIG', 'Imagem inválida');
+    case 'audio':
+      return validateConfig(AutomationAudioConfigSchema, 'INVALID_AUDIO_CONFIG', 'Áudio inválido');
+    case 'sticker':
+      return validateConfig(AutomationStickerConfigSchema, 'INVALID_STICKER_CONFIG', 'Figurinha inválida');
+    case 'buttons':
+      return validateConfig(AutomationButtonsConfigSchema, 'INVALID_BUTTONS_CONFIG', 'Botões inválidos');
     case 'delay':
       return typeof config.seconds === 'number' && Number.isInteger(config.seconds) && config.seconds >= 1 && config.seconds <= 2_592_000 ? [] : [error('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 30 dias.')];
     case 'agent':

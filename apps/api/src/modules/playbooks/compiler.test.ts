@@ -44,6 +44,39 @@ describe('validateAutomation', () => {
     expect(result.valid).toBe(false);
     expect(result.issues).toContainEqual(expect.objectContaining({ code: 'MESSAGE_TEXT_REQUIRED', nodeId: 'yes' }));
   });
+
+  it('aceita imagem, áudio, figurinha e botões com configuração segura', () => {
+    const mediaNodes = [
+      { id: 'image', kind: 'image', name: 'Imagem', config: { url: 'https://cdn.test/image.jpg', caption: 'Olá {{contact.name}}' }, position: { x: 100, y: 0 } },
+      { id: 'audio', kind: 'audio', name: 'Áudio', config: { url: 'https://cdn.test/audio.ogg', ptt: true }, position: { x: 200, y: 0 } },
+      { id: 'sticker', kind: 'sticker', name: 'Figurinha', config: { url: 'https://cdn.test/sticker.webp' }, position: { x: 300, y: 0 } },
+      { id: 'buttons', kind: 'buttons', name: 'Botões', config: { text: 'Escolha', buttons: [{ id: 'yes', label: 'Sim' }, { id: 'no', label: 'Não' }] }, position: { x: 400, y: 0 } }
+    ];
+    const definition = {
+      start: 'start',
+      nodes: [validDefinition.nodes[0], ...mediaNodes, validDefinition.nodes[3]],
+      edges: [
+        { id: 'm1', source: 'start', target: 'image' },
+        { id: 'm2', source: 'image', target: 'audio' },
+        { id: 'm3', source: 'audio', target: 'sticker' },
+        { id: 'm4', source: 'sticker', target: 'buttons' },
+        { id: 'm5', source: 'buttons', target: 'done' }
+      ],
+      settings: { maxSteps: 10, timeoutSeconds: 60 }
+    };
+    expect(validateAutomation(definition).valid).toBe(true);
+  });
+
+  it('rejeita mídia sem HTTPS e botões duplicados', () => {
+    const definition = structuredClone(validDefinition);
+    const baseNode = definition.nodes[2]!;
+    definition.nodes[2] = { ...baseNode, kind: 'buttons', config: { text: 'Escolha', buttons: [{ id: 'same', label: 'Sim' }, { id: 'same', label: 'Sim' }] } } as never;
+    const buttons = validateAutomation(definition);
+    expect(buttons.issues).toContainEqual(expect.objectContaining({ code: 'INVALID_BUTTONS_CONFIG', nodeId: 'yes' }));
+    definition.nodes[2] = { ...baseNode, kind: 'image', config: { url: 'http://cdn.test/image.jpg' } } as never;
+    const image = validateAutomation(definition);
+    expect(image.issues).toContainEqual(expect.objectContaining({ code: 'INVALID_IMAGE_CONFIG', nodeId: 'yes' }));
+  });
 });
 
 describe('simulateAutomation', () => {

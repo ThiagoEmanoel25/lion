@@ -30,6 +30,7 @@
 - Typecheck dos três workspaces aprovado.
 - Build de produção dos três workspaces aprovado.
 - 49 testes automatizados aprovados: 31 na API, 10 no runtime e 8 no web.
+- Smoke test autenticado aprovado nas 11 rotas principais em desktop e viewport móvel, sem erros de console ou HTTP.
 - `npm audit --omit=dev`: zero vulnerabilidades de produção.
 
 ## Ambiente local validado

@@ -140,6 +140,41 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'continue';
       }
 
+      case 'image':
+      case 'audio':
+      case 'sticker':
+      case 'buttons': {
+        const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { channel: true } });
+        if (!conversation || conversation.workspaceId !== workspaceId) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
+        if (conversation.channel.provider !== 'baileys' || conversation.channel.status !== 'CONNECTED') throw new NodeExecutionError('CHANNEL_UNAVAILABLE', 'O canal Baileys precisa estar conectado para enviar a mensagem.');
+        const rawUrl = typeof node.config.url === 'string' ? renderTemplate(node.config.url, context).trim() : '';
+        if (node.kind !== 'buttons' && !rawUrl.startsWith('https://')) throw new NodeExecutionError('MEDIA_HTTPS_REQUIRED', 'A mídia precisa usar uma URL HTTPS.');
+        const body = node.kind === 'image'
+          ? (typeof node.config.caption === 'string' ? renderTemplate(node.config.caption, context) : null)
+          : node.kind === 'buttons' ? renderTemplate(stringConfig(node, 'text'), context) : null;
+        const buttons = node.kind === 'buttons' && Array.isArray(node.config.buttons)
+          ? node.config.buttons.map(item => {
+              const button = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+              return {
+                id: typeof button.id === 'string' ? button.id : '',
+                label: typeof button.label === 'string' ? renderTemplate(button.label, context) : ''
+              };
+            })
+          : undefined;
+        const messageType = node.kind === 'audio' ? 'AUDIO' : node.kind === 'buttons' ? 'TEMPLATE' : 'IMAGE';
+        const providerPayload = node.kind === 'buttons'
+          ? { kind: 'buttons', buttons, ...(typeof node.config.footer === 'string' && node.config.footer.trim() ? { footer: renderTemplate(node.config.footer, context) } : {}) }
+          : node.kind === 'sticker' ? { kind: 'sticker' }
+          : node.kind === 'audio' ? { kind: 'audio', ptt: node.config.ptt === true }
+          : { kind: 'image' };
+        await this.prisma.$transaction(async tx => {
+          const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: messageType, status: 'PENDING', body, mediaUrl: rawUrl || null, providerPayload: asJson(providerPayload), authorType: 'automation', authorId: executionId } });
+          await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
+          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { messageId: message.id, kind: node.kind });
+        });
+        return 'continue';
+      }
+
       case 'delay': {
         const seconds = node.config.seconds;
         if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1 || seconds > 2_592_000) throw new NodeExecutionError('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 30 dias.');
@@ -181,7 +216,9 @@ export class AutomationEngineService implements OnModuleDestroy {
             const tag = await tx.tag.upsert({ where: { workspaceId_name: { workspaceId, name } }, create: { workspaceId, name }, update: {} });
             tagId = tag.id;
           }
+          const alreadyTagged = await tx.contactTag.count({ where: { contactId: conversation.contactId, tagId: tagId! } });
           await tx.contactTag.upsert({ where: { contactId_tagId: { contactId: conversation.contactId, tagId: tagId! } }, create: { contactId: conversation.contactId, tagId: tagId! }, update: {} });
+          if (!alreadyTagged) await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Contact', aggregateId: conversation.contactId, type: 'automation.trigger.requested', payload: { event: 'tag.added', conversationId, contactId: conversation.contactId, tagId: tagId! } } });
           await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { tagId });
         });
         return 'continue';

@@ -20,19 +20,19 @@ const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], n
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
   qualification: AutomationDefinitionSchema.parse({
     start: 'trigger',
-    nodes: [node('trigger', 'trigger', 'Nova mensagem', 80, 160), node('welcome', 'message', 'Boas-vindas', 300, 160, { text: 'Olá! Como posso ajudar?' }), node('qualify', 'condition', 'Lead qualificado?', 520, 160), node('outcome', 'outcome', 'Lead qualificado', 740, 100, { type: 'QUALIFIED' }), node('handoff', 'handoff', 'Transferir para humano', 740, 240)],
-    edges: [{ id: 'e1', source: 'trigger', target: 'welcome' }, { id: 'e2', source: 'welcome', target: 'qualify' }, { id: 'e3', source: 'qualify', target: 'outcome', label: 'qualificado', condition: { field: 'lead.qualified', operator: 'equals', value: true }, priority: 0 }, { id: 'e4', source: 'qualify', target: 'handoff', label: 'outros', isDefault: true }],
+    nodes: [node('trigger', 'trigger', 'Nova mensagem', 80, 160, { event: 'message.received' }), node('welcome', 'message', 'Boas-vindas', 300, 160, { text: 'Olá! Como posso ajudar?' }), node('qualify', 'condition', 'Lead qualificado?', 520, 160), node('outcome', 'outcome', 'Lead qualificado', 740, 100, { type: 'QUALIFIED' }), node('handoff', 'handoff', 'Transferir para humano', 740, 240)],
+    edges: [{ id: 'e1', source: 'trigger', target: 'welcome' }, { id: 'e2', source: 'welcome', target: 'qualify' }, { id: 'e3', source: 'qualify', target: 'outcome', label: 'qualificado', condition: { field: 'contact.stage', operator: 'equals', value: 'qualified' }, priority: 0 }, { id: 'e4', source: 'qualify', target: 'handoff', label: 'outros', isDefault: true }],
     settings: { maxSteps: 30, timeoutSeconds: 300 }
   }),
   reactivation: AutomationDefinitionSchema.parse({
     start: 'trigger',
-    nodes: [node('trigger', 'trigger', 'Etiqueta adicionada', 80, 160), node('wait', 'delay', 'Aguardar 24h', 300, 160, { seconds: 86400 }), node('message', 'message', 'Retomar conversa', 520, 160, { text: 'Olá! Podemos retomar nossa conversa?' }), node('outcome', 'outcome', 'Reativação enviada', 740, 160, { type: 'QUALIFIED' })],
+    nodes: [node('trigger', 'trigger', 'Etiqueta adicionada', 80, 160, { event: 'tag.added' }), node('wait', 'delay', 'Aguardar 24h', 300, 160, { seconds: 86400 }), node('message', 'message', 'Retomar conversa', 520, 160, { text: 'Olá! Podemos retomar nossa conversa?' }), node('outcome', 'outcome', 'Reativação enviada', 740, 160, { type: 'QUALIFIED' })],
     edges: [{ id: 'e1', source: 'trigger', target: 'wait' }, { id: 'e2', source: 'wait', target: 'message' }, { id: 'e3', source: 'message', target: 'outcome' }],
     settings: { maxSteps: 20, timeoutSeconds: 300 }
   }),
   support: AutomationDefinitionSchema.parse({
     start: 'trigger',
-    nodes: [node('trigger', 'trigger', 'Nova mensagem', 80, 160), node('classify', 'condition', 'Assunto conhecido?', 300, 160), node('answer', 'agent', 'Responder com a base', 520, 100, { prompt: 'Responda somente com base no conhecimento aprovado.' }), node('outcome', 'outcome', 'Atendimento resolvido', 740, 100, { type: 'RESOLVED' }), node('handoff', 'handoff', 'Transferir para equipe', 520, 240)],
+    nodes: [node('trigger', 'trigger', 'Nova mensagem', 80, 160, { event: 'message.received' }), node('classify', 'condition', 'Assunto conhecido?', 300, 160), node('answer', 'agent', 'Responder com a base', 520, 100, { prompt: 'Responda somente com base no conhecimento aprovado.' }), node('outcome', 'outcome', 'Atendimento resolvido', 740, 100, { type: 'RESOLVED' }), node('handoff', 'handoff', 'Transferir para equipe', 520, 240)],
     edges: [{ id: 'e1', source: 'trigger', target: 'classify' }, { id: 'e2', source: 'classify', target: 'answer', label: 'conhecido', condition: { field: 'intent.known', operator: 'equals', value: true }, priority: 0 }, { id: 'e3', source: 'classify', target: 'handoff', label: 'sensível', isDefault: true }, { id: 'e4', source: 'answer', target: 'outcome' }],
     settings: { maxSteps: 30, timeoutSeconds: 300 }
   })

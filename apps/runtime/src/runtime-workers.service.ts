@@ -8,6 +8,8 @@ import { WhatsAppSessionManager } from './whatsapp/session-manager.service.js';
 import { outboundMessageId } from './whatsapp/message-id.js';
 import { AutomationEngineService } from './automation/automation-engine.service.js';
 import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.js';
+import { interactivePayload, regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
+import { matchesAutomationTrigger } from './automation/trigger.js';
 
 @Injectable()
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
@@ -79,12 +81,20 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       ? contact.externalRef
       : `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`;
     try {
-      const result = await socket.sendMessage(jid, { text: message.body ?? '' }, {
-        messageId: outboundMessageId(message.clientRequestId ?? message.id)
-      });
+      const messageId = outboundMessageId(message.clientRequestId ?? message.id);
+      const content = regularOutboundContent(message);
+      const externalId = content
+        ? (await socket.sendMessage(jid, content, { messageId }))?.key.id
+        : await sendInteractiveButtons({
+            socket,
+            jid,
+            messageId,
+            text: message.body ?? '',
+            ...interactivePayload(message.providerPayload)
+          });
       await this.prisma.message.update({
         where: { id: message.id },
-        data: { externalId: result?.key.id ?? message.externalId, status: 'SENT', sentAt: new Date(), errorCode: null }
+        data: { externalId: externalId ?? message.externalId, status: 'SENT', sentAt: new Date(), errorCode: null }
       });
     } catch (error) {
       await this.prisma.message.update({
@@ -100,13 +110,16 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested', 'automation.execution.requested', 'automation.inbound.received', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested', 'automation.execution.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; executionId?: string; conversationId?: string; sourceId?:string; content?:string|null };
-      const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId) : event.type === 'automation.inbound.received' ? Boolean(payload.conversationId) : event.type === 'knowledge.index.requested'?Boolean(payload.sourceId):Boolean(payload.executionId);
+      const payload = event.payload as { messageId?: string; executionId?: string; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null };
+      const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
+        : event.type === 'automation.inbound.received' ? Boolean(payload.conversationId)
+        : event.type === 'automation.trigger.requested' ? Boolean(payload.event && (payload.conversationId || payload.contactId))
+        : event.type === 'knowledge.index.requested'?Boolean(payload.sourceId):Boolean(payload.executionId);
       if (!valid) {
         await this.prisma.outboxEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } });
         continue;
@@ -121,15 +134,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         };
         if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
-        } else if (event.type === 'automation.inbound.received') {
-          const conversation = await this.prisma.conversation.findUnique({where:{id:payload.conversationId!},include:{channel:{include:{activePlaybook:{include:{activeVersion:true}}}}}});
-          const version = conversation?.channel.activePlaybook?.activeVersion;
-          if (conversation && version) {
-            let execution = await this.prisma.execution.findFirst({where:{conversationId:conversation.id,playbookVersionId:version.id,status:{in:['RUNNING','WAITING']}}});
-            if(!execution&&await this.canStartExecution(conversation.workspaceId))execution=await this.prisma.execution.create({data:{workspaceId:conversation.workspaceId,conversationId:conversation.id,playbookVersionId:version.id,context:{trigger:{messageId:payload.messageId,event:'message.received'}}}});
-            if(execution)await automationQueue.add('start',{executionId:execution.id,action:'start'},commonOptions);
-            else await this.prisma.$transaction([this.prisma.conversation.update({where:{id:conversation.id},data:{mode:'HUMAN',status:'QUEUED'}}),this.prisma.auditLog.create({data:{workspaceId:conversation.workspaceId,action:'billing.execution_quota_handoff',targetType:'Conversation',targetId:conversation.id,changes:{reason:'executionsMonthly'}}})]);
-          }
+        } else if (event.type === 'automation.inbound.received' || event.type === 'automation.trigger.requested') {
+          await this.startTriggeredExecution(automationQueue, {
+            triggerEvent: event.type === 'automation.inbound.received' ? 'message.received' : payload.event!,
+            conversationId: payload.conversationId,
+            contactId: payload.contactId,
+            messageId: payload.messageId,
+            tagId: payload.tagId,
+            jobOptions: commonOptions
+          });
         } else if (event.type === 'automation.execution.requested') {
           await automationQueue.add('start', { executionId: payload.executionId!, action: 'start' }, commonOptions);
         } else {
@@ -147,6 +160,36 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.relayingOutbox = false;
     }
+  }
+
+  private async startTriggeredExecution(automationQueue: Queue<AutomationJob>, input: {triggerEvent:string;conversationId?:string;contactId?:string;messageId?:string;tagId?:string;jobOptions:Record<string,unknown>}) {
+    const include = { contact: { include: { tags: { include: { tag: true } } } }, channel: { include: { activePlaybook: { include: { activeVersion: true } } } } } as const;
+    const conversation = input.conversationId
+      ? await this.prisma.conversation.findUnique({ where: { id: input.conversationId }, include })
+      : await this.prisma.conversation.findFirst({ where: { contactId: input.contactId!, status: { not: 'RESOLVED' }, channel: { activePlaybookId: { not: null } } }, include, orderBy: { updatedAt: 'desc' } });
+    const version = conversation?.channel.activePlaybook?.activeVersion;
+    if (!conversation || !version) return;
+    if (!matchesAutomationTrigger(version.definition, input.triggerEvent, input.tagId)) return;
+    const active = await this.prisma.execution.findFirst({ where: { conversationId: conversation.id, playbookVersionId: version.id, status: { in: ['RUNNING', 'WAITING'] } } });
+    if (active) return;
+    if (!await this.canStartExecution(conversation.workspaceId)) {
+      await this.prisma.$transaction([
+        this.prisma.conversation.update({where:{id:conversation.id},data:{mode:'HUMAN',status:'QUEUED'}}),
+        this.prisma.auditLog.create({data:{workspaceId:conversation.workspaceId,action:'billing.execution_quota_handoff',targetType:'Conversation',targetId:conversation.id,changes:{reason:'executionsMonthly'}}})
+      ]);
+      return;
+    }
+    const execution = await this.prisma.execution.create({ data: {
+      workspaceId: conversation.workspaceId,
+      conversationId: conversation.id,
+      playbookVersionId: version.id,
+      context: {
+        trigger: { event: input.triggerEvent, messageId: input.messageId ?? null, tagId: input.tagId ?? null },
+        contact: { id: conversation.contact.id, name: conversation.contact.name, phone: conversation.contact.phone, email: conversation.contact.email, stage: conversation.contact.stage, customFields: conversation.contact.customFields, tags: conversation.contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })) },
+        conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode }
+      }
+    } });
+    await automationQueue.add('start', { executionId: execution.id, action: 'start' }, input.jobOptions);
   }
 
   private async canStartExecution(workspaceId:string){const subscription=await this.prisma.subscription.findFirst({where:{workspaceId,status:{in:['active','trialing']}},orderBy:{currentPeriodEnd:'desc'}});const raw=subscription?.limits&&typeof subscription.limits==='object'&&!Array.isArray(subscription.limits)?subscription.limits as Record<string,unknown>:{};const configured=[raw.executionsMonthly,raw.executions,raw.conversations].find(value=>typeof value==='number'&&value>=0);const limit=typeof configured==='number'?Math.floor(configured):subscription?.plan==='growth'?5_000:subscription?.plan==='scale'?50_000:500;const from=subscription?.currentPeriodStart??new Date(Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth(),1));return await this.prisma.execution.count({where:{workspaceId,startedAt:{gte:from}}})<limit}
