@@ -108,6 +108,10 @@ model Workspace {
   usageRecords UsageRecord[]
   auditLogs    AuditLog[]
   subscriptions Subscription[]
+  departments Department[]
+  invites      WorkspaceInvite[]
+  aiAgents      AiAgent[]
+  inboundWebhookEndpoints InboundWebhookEndpoint[]
 }
 
 model User {
@@ -122,6 +126,7 @@ model User {
   memberships  Membership[]
   sessions     Session[]
   assignedConversations Conversation[] @relation("ConversationAssignee")
+  ownedContacts Contact[] @relation("ContactOwner")
 }
 
 model Membership {
@@ -129,11 +134,54 @@ model Membership {
   workspaceId String
   userId      String
   role        MembershipRole
+  isActive    Boolean @default(true)
   createdAt   DateTime @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departments DepartmentMember[]
   @@unique([workspaceId, userId])
   @@index([userId])
+}
+
+model WorkspaceInvite {
+  id          String @id @default(cuid())
+  workspaceId String
+  email       String
+  name        String?
+  role        MembershipRole
+  tokenHash   String @unique
+  status      String @default("PENDING")
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdById String
+  createdAt   DateTime @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@index([workspaceId, status, createdAt])
+  @@index([workspaceId, email])
+}
+
+model Department {
+  id          String @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  color       String @default("#17765b")
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members     DepartmentMember[]
+  @@unique([workspaceId, name])
+  @@index([workspaceId, isActive])
+}
+
+model DepartmentMember {
+  departmentId String
+  membershipId String
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  @@id([departmentId, membershipId])
+  @@index([membershipId])
 }
 
 model Session {
@@ -167,6 +215,7 @@ model Channel {
   webhookEvents   RawWebhookEvent[]
   whatsappAuth    WhatsAppAuthState?
   whatsappKeys    WhatsAppAuthKey[]
+  inboundWebhookEndpoints InboundWebhookEndpoint[]
   @@index([workspaceId, status])
   @@index([workspaceId, activePlaybookId])
 }
@@ -194,6 +243,7 @@ model WhatsAppAuthKey {
 model Contact {
   id          String @id @default(cuid())
   workspaceId String
+  ownerId     String?
   externalRef String?
   name        String?
   phone       String
@@ -205,11 +255,13 @@ model Contact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User? @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   conversations Conversation[]
   tags        ContactTag[]
   outcomes    Outcome[]
   @@unique([workspaceId, phone])
   @@index([workspaceId, stage, updatedAt])
+  @@index([workspaceId, ownerId, updatedAt])
 }
 
 model Tag {
@@ -296,6 +348,7 @@ model Playbook {
   versions    PlaybookVersion[] @relation("PlaybookVersions")
   activeVersion PlaybookVersion? @relation("ActivePlaybookVersion", fields: [activeVersionId], references: [id])
   channels      Channel[] @relation("ChannelActivePlaybook")
+  inboundWebhookEndpoints InboundWebhookEndpoint[]
   @@index([workspaceId, status])
 }
 
@@ -360,7 +413,37 @@ model KnowledgeSource {
   updatedAt   DateTime @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   chunks      KnowledgeChunk[]
+  agents      AgentKnowledgeSource[]
   @@index([workspaceId, status])
+}
+
+model AiAgent {
+  id                  String   @id @default(cuid())
+  workspaceId         String
+  name                String
+  description         String?
+  provider            String   @default("openai")
+  model               String
+  objective           String
+  systemPrompt        String
+  tone                String   @default("professional")
+  confidenceThreshold Float    @default(0.7)
+  handoffMessage      String
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  knowledgeSources    AgentKnowledgeSource[]
+  @@index([workspaceId, isActive, updatedAt])
+}
+
+model AgentKnowledgeSource {
+  agentId  String
+  sourceId String
+  agent    AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  source   KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  @@id([agentId, sourceId])
+  @@index([sourceId])
 }
 
 model KnowledgeChunk {
@@ -389,9 +472,37 @@ model RawWebhookEvent {
   error       String?
   receivedAt  DateTime @default(now())
   processedAt DateTime?
+  webhookEndpointId String?
+  replayedFromId String?
+  executionId String?
   channel     Channel? @relation(fields: [channelId], references: [id])
+  webhookEndpoint InboundWebhookEndpoint? @relation(fields: [webhookEndpointId], references: [id], onDelete: SetNull)
   @@unique([provider, externalId])
+  @@unique([webhookEndpointId, externalId])
   @@index([status, receivedAt])
+  @@index([webhookEndpointId, receivedAt])
+}
+
+model InboundWebhookEndpoint {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  playbookId      String
+  channelId       String
+  publicId        String   @unique
+  name            String
+  encryptedSecret String
+  secretHint      String
+  mapping         Json
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  playbook        Playbook @relation(fields: [playbookId], references: [id], onDelete: Restrict)
+  channel         Channel @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  events          RawWebhookEvent[]
+  @@index([workspaceId, isActive])
+  @@index([playbookId])
+  @@index([channelId])
 }
 
 model OutboxEvent {

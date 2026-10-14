@@ -18,7 +18,7 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
     case 'delay':
       return typeof config.seconds === 'number' && Number.isInteger(config.seconds) && config.seconds >= 1 && config.seconds <= 2_592_000 ? [] : [error('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 30 dias.')];
     case 'agent':
-      return typeof config.prompt === 'string' && config.prompt.trim() ? [] : [error('AGENT_PROMPT_REQUIRED', 'O agente precisa de instruções.')];
+      return typeof config.agentId === 'string' && config.agentId.trim() ? [] : [error('AGENT_REQUIRED', 'Selecione um agente de IA configurado.')];
     case 'webhook': {
       if (typeof config.url !== 'string') return [error('WEBHOOK_URL_REQUIRED', 'O webhook precisa de uma URL HTTPS.')];
       try {
