@@ -1,0 +1,3 @@
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {Contact,Page} from '../../../shared/types/api';
+export function useContacts(search=''){return useQuery({queryKey:['contacts',search],queryFn:()=>api<Page<Contact>>(`/v1/contacts${search?`?search=${encodeURIComponent(search)}`:''}`)})}
+export function useCreateContact(){const client=useQueryClient();return useMutation({mutationFn:(input:{name:string;phone:string;email?:string;source?:string})=>api<Contact>('/v1/contacts',{method:'POST',body:JSON.stringify(input)}),onSuccess:()=>client.invalidateQueries({queryKey:['contacts']})})}

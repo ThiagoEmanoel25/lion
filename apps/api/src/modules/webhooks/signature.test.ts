@@ -1,0 +1,3 @@
+import {describe,it,expect} from 'vitest';import {createHmac,timingSafeEqual} from 'node:crypto';
+function verify(raw:string,signature:string,secret:string){const expected='sha256='+createHmac('sha256',secret).update(raw).digest('hex');return expected.length===signature.length&&timingSafeEqual(Buffer.from(expected),Buffer.from(signature))}
+describe('Meta webhook signature',()=>{it('aceita assinatura correta',()=>{const raw='{"ok":true}',secret='secret';expect(verify(raw,'sha256='+createHmac('sha256',secret).update(raw).digest('hex'),secret)).toBe(true)});it('rejeita assinatura adulterada',()=>expect(verify('{}','sha256='+'0'.repeat(64),'secret')).toBe(false))});

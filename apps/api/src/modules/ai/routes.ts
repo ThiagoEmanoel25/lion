@@ -1,0 +1,3 @@
+import type {FastifyPluginAsync} from 'fastify';import {z} from 'zod';import {AgentRuntime,DevelopmentModelProvider} from './runtime.js';
+const simulate=z.object({message:z.string().min(1).max(4096),conversationId:z.string(),playbookVersionId:z.string(),context:z.record(z.string(),z.unknown()).default({})});
+export const aiRoutes:FastifyPluginAsync=async app=>{app.post('/v1/ai/simulate',{preHandler:[app.requirePermission('playbook.write')]},async request=>{const input=simulate.parse(request.body);const runtime=new AgentRuntime(app.prisma,new DevelopmentModelProvider());return runtime.decide({...input,workspaceId:request.auth.workspaceId})})};

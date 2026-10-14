@@ -1,0 +1,28 @@
+{
+  "name": "nexo-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -n api,runtime,web -c green,yellow,cyan \"npm run dev -w @nexo/api\" \"npm run dev -w @nexo/runtime\" \"npm run dev -w @nexo/web\"",
+    "dev:api": "npm run dev -w @nexo/api",
+    "dev:web": "npm run dev -w @nexo/web",
+    "dev:runtime": "npm run dev -w @nexo/runtime",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @nexo/api",
+    "db:migrate": "npm run db:migrate -w @nexo/api",
+    "db:deploy": "npm run db:deploy -w @nexo/api",
+    "db:seed": "npm run db:seed -w @nexo/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "fast-jwt": "^6.3.4",
+    "deepmerge-ts": "^8.0.0"
+  },
+  "engines": {"node": ">=22"}
+}
