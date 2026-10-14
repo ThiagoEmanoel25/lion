@@ -1,3 +1,11 @@
-import {NavLink,Outlet} from 'react-router-dom';import {useSession} from '../lib/session';
-const items=[['/','⌂','Visão geral'],['/inbox','◫','Inbox'],['/contacts','◎','Contatos'],['/playbooks','◇','Playbooks'],['/knowledge','▤','Conhecimento'],['/analytics','↗','Resultados'],['/settings','⚙','Configurações']];
-export function Layout(){const {session,logout}=useSession();return <div className="shell"><aside className="sidebar"><header><span className="logo">N</span><div><b>Nexo</b><small>conversas que avançam</small></div></header><nav>{items.map(([to,icon,label])=><NavLink key={to} to={to} end={to==='/'}><span>{icon}</span>{label}{label==='Inbox'&&<em>8</em>}</NavLink>)}</nav><div className="quota"><div><span>Conversas do plano</span><b>64%</b></div><i><u /></i><small>1.284 de 2.000 usadas</small></div><footer><span className="avatar">{session?.user.name.slice(0,2).toUpperCase()??'TM'}</span><div><b>{session?.user.name??'Modo demonstração'}</b><small>{session?.workspace.role??'Administrador'}</small></div>{session&&<button onClick={logout}>Sair</button>}</footer></aside><main><div className="topbar"><span>Clínica Aurora</span><div><i /> WhatsApp conectado</div></div><Outlet /></main></div>}
+import {NavLink,Outlet} from 'react-router-dom';
+import {useSession} from '../app/providers/SessionProvider';
+import './layout.css';
+
+const groups=[
+  {label:'PRINCIPAL',items:[['/','⌂','Dashboard'],['/inbox','▢','Chats ao vivo'],['/contacts','◎','Contatos']]},
+  {label:'OPERAÇÕES',items:[['/playbooks','◇','Fluxos'],['/agents','✦','Agentes de IA'],['/connections','⌁','Conexões'],['/inbound-webhooks','⌘','Webhooks de entrada'],['/knowledge','▤','Conhecimento']]},
+  {label:'GESTÃO',items:[['/analytics','↗','Resultados'],['/billing','▣','Cobranças e assinaturas'],['/settings','⚙','Configurações']]}
+] as const;
+
+export function Layout(){const {session,logout}=useSession();return <div className="shell"><aside className="sidebar"><header><span className="logo">N</span><div><b>Nexo</b><small>conversas que avançam</small></div></header><nav>{groups.map(group=><section className="nav-group" key={group.label}><small>{group.label}</small>{group.items.map(([to,icon,label])=><NavLink key={to} to={to} end={to==='/'}><span>{icon}</span>{label}</NavLink>)}</section>)}</nav><footer><span className="avatar">{session?.user.name.slice(0,2).toUpperCase()??'--'}</span><div><b>{session?.user.name}</b><small>{session?.workspace.role}</small></div><button onClick={()=>void logout()}>Sair</button></footer></aside><main><div className="topbar"><span>{session?.workspace.name}</span><div><i/> Sessão protegida</div></div><Outlet/></main></div>}

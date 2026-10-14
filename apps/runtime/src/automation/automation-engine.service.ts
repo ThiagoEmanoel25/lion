@@ -6,6 +6,7 @@ import { AutomationDefinitionSchema } from '@nexo/contracts';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
 import { renderTemplate, selectNextEdge, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
 const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
@@ -31,7 +32,7 @@ const stringConfig = (node: AutomationNode, key: string) => {
 export class AutomationEngineService implements OnModuleDestroy {
   private readonly queue: Queue<AutomationJob>;
 
-  constructor(private readonly prisma: PrismaService, private readonly redis: RedisService) {
+  constructor(private readonly prisma: PrismaService, private readonly redis: RedisService, private readonly agents: AgentRuntimeService) {
     this.queue = new Queue<AutomationJob>(AUTOMATION_QUEUE, { connection: this.redis });
   }
 
@@ -230,13 +231,19 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'agent': {
-        const reason = 'AGENT_PROVIDER_NOT_CONFIGURED: nenhum provedor de IA foi configurado no runtime.';
-        await this.prisma.$transaction([
-          this.prisma.conversation.update({ where: { id: conversationId }, data: { mode: 'HUMAN', status: 'QUEUED' } }),
-          this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'FAILED', reason, finishedAt: new Date() } }),
-          this.prisma.execution.update({ where: { id: executionId }, data: { status: 'FAILED', currentNode: node.id, finishedAt: new Date() } })
-        ]);
-        return 'terminal';
+        const agentId = typeof node.config.agentId === 'string' ? node.config.agentId : '';
+        const inbound = await this.prisma.message.findFirst({where:{conversationId,direction:'INBOUND'},orderBy:{createdAt:'desc'},select:{body:true}});
+        const decision = agentId ? await this.agents.decide({workspaceId,agentId,message:inbound?.body??'',nodePrompt:typeof node.config.prompt==='string'?node.config.prompt:undefined,referenceId:executionId}) : {kind:'handoff' as const,confidence:1,reason:'AGENT_NOT_CONFIGURED: selecione um agente no bloco.',knowledgeChunks:0,unavailable:true};
+        if(decision.kind==='handoff'){
+          await this.prisma.$transaction([
+            this.prisma.conversation.update({where:{id:conversationId},data:{mode:'HUMAN',status:'QUEUED'}}),
+            this.prisma.executionStep.update({where:{id:step.id},data:{status:'SUCCEEDED',output:{handoff:true,reason:decision.reason,confidence:decision.confidence,agentId:decision.agentId??null,unavailable:decision.unavailable??false},finishedAt:new Date()}}),
+            this.prisma.execution.update({where:{id:executionId},data:{status:'SUCCEEDED',currentNode:node.id,finishedAt:new Date()}})
+          ]);return 'terminal';
+        }
+        const conversation=await this.prisma.conversation.findUnique({where:{id:conversationId},include:{channel:true}});
+        if(!conversation||conversation.channel.provider!=='baileys'||conversation.channel.status!=='CONNECTED')throw new NodeExecutionError('CHANNEL_UNAVAILABLE','O canal precisa estar conectado para enviar a resposta do agente.');
+        await this.prisma.$transaction(async tx=>{const message=await tx.message.create({data:{workspaceId,conversationId,direction:'OUTBOUND',type:'TEXT',status:'PENDING',body:decision.text!,authorType:'ai_agent',authorId:decision.agentId}});await tx.outboxEvent.create({data:{workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});await this.finishInTransaction(tx,executionId,step.id,nextNodeId,{...context,agent:{confidence:decision.confidence,agentId:decision.agentId}},{messageId:message.id,confidence:decision.confidence,agentId:decision.agentId,knowledgeChunks:decision.knowledgeChunks})});return 'continue';
       }
     }
   }
