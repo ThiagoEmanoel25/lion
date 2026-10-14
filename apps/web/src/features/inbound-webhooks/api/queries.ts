@@ -1,0 +1,16 @@
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
+import {api} from '../../../shared/api/client';
+import type {Channel,Page,Playbook} from '../../../shared/types/api';
+export type WebhookMapping={phonePath:string;namePath?:string;emailPath?:string;source:string;variables:Record<string,string>};
+export type InboundWebhook={id:string;publicId:string;path:string;name:string;playbookId:string;playbookName?:string;channelId:string;channelName?:string;secretHint:string;mapping:WebhookMapping;isActive:boolean;eventCount?:number;createdAt:string;updatedAt:string};
+export type WebhookSecretResult=InboundWebhook&{secret:string};
+export type WebhookLog={id:string;externalId:string;status:'RECEIVED'|'PROCESSING'|'PROCESSED'|'FAILED'|'DEAD';attempts:number;error:string|null;payload:unknown;executionId:string|null;replayedFromId:string|null;receivedAt:string;processedAt:string|null};
+export type WebhookInput={name:string;playbookId:string;channelId:string;mapping:WebhookMapping;isActive?:boolean};
+export function useInboundWebhooks(){return useQuery({queryKey:['inbound-webhooks'],queryFn:()=>api<InboundWebhook[]>('/v1/inbound-webhooks'),refetchInterval:15_000})}
+export function useWebhookDependencies(){return useQuery({queryKey:['inbound-webhooks','dependencies'],queryFn:async()=>{const [playbooks,channels]=await Promise.all([api<Playbook[]>('/v1/playbooks'),api<Channel[]>('/v1/channels')]);return {playbooks:playbooks.filter(item=>item.status==='PUBLISHED'),channels}}})}
+export function useCreateInboundWebhook(){const client=useQueryClient();return useMutation({mutationFn:(input:WebhookInput)=>api<WebhookSecretResult>('/v1/inbound-webhooks',{method:'POST',body:JSON.stringify(input)}),onSuccess:()=>void client.invalidateQueries({queryKey:['inbound-webhooks']})})}
+export function useUpdateInboundWebhook(){const client=useQueryClient();return useMutation({mutationFn:({id,...input}:{id:string}&Partial<WebhookInput>)=>api<InboundWebhook>(`/v1/inbound-webhooks/${id}`,{method:'PATCH',body:JSON.stringify(input)}),onSuccess:()=>void client.invalidateQueries({queryKey:['inbound-webhooks']})})}
+export function useDisableInboundWebhook(){const client=useQueryClient();return useMutation({mutationFn:(id:string)=>api<void>(`/v1/inbound-webhooks/${id}`,{method:'DELETE'}),onSuccess:()=>void client.invalidateQueries({queryKey:['inbound-webhooks']})})}
+export function useRotateWebhookSecret(){const client=useQueryClient();return useMutation({mutationFn:(id:string)=>api<{secret:string;secretHint:string}>(`/v1/inbound-webhooks/${id}/rotate-secret`,{method:'POST'}),onSuccess:()=>void client.invalidateQueries({queryKey:['inbound-webhooks']})})}
+export function useWebhookLogs(id:string|null){return useQuery({queryKey:['inbound-webhooks',id,'logs'],queryFn:()=>api<Page<WebhookLog>>(`/v1/inbound-webhooks/${id}/logs?limit=50`),enabled:Boolean(id),refetchInterval:10_000})}
+export function useReplayWebhook(){const client=useQueryClient();return useMutation({mutationFn:({id,eventId}:{id:string;eventId:string})=>api(`/v1/inbound-webhooks/${id}/logs/${eventId}/replay`,{method:'POST'}),onSuccess:(_,value)=>void client.invalidateQueries({queryKey:['inbound-webhooks',value.id,'logs']})})}

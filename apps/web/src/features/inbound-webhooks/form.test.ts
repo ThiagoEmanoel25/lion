@@ -1,0 +1,2 @@
+import {describe,expect,it} from 'vitest';import {parseWebhookVariables} from './form';
+describe('webhook variable mapping',()=>{it('aceita mapa de caminhos',()=>expect(parseWebhookVariables('{"leadScore":"lead.score"}')).toEqual({leadScore:'lead.score'}));it.each(['[]','null','{"score": 2}','{"":"lead.id"}'])('rejeita configuração inválida: %s',value=>expect(()=>parseWebhookVariables(value)).toThrow())});
