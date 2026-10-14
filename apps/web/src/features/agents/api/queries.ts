@@ -1,0 +1,7 @@
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {AiAgent,AiAgentInput,AiAgentTest} from '../../../shared/types/api';
+export function useAgents(){return useQuery({queryKey:['ai-agents'],queryFn:()=>api<AiAgent[]>('/v1/ai/agents')})}
+export function useProviderStatus(){return useQuery({queryKey:['ai-provider-status'],queryFn:()=>api<{providers:Array<{name:string;configured:boolean}>}>('/v1/ai/provider-status')})}
+export function useCreateAgent(){const client=useQueryClient();return useMutation({mutationFn:(input:AiAgentInput)=>api<AiAgent>('/v1/ai/agents',{method:'POST',body:JSON.stringify(input)}),onSuccess:()=>client.invalidateQueries({queryKey:['ai-agents']})})}
+export function useUpdateAgent(){const client=useQueryClient();return useMutation({mutationFn:({id,input}:{id:string;input:Partial<AiAgentInput>})=>api<AiAgent>(`/v1/ai/agents/${id}`,{method:'PATCH',body:JSON.stringify(input)}),onSuccess:()=>client.invalidateQueries({queryKey:['ai-agents']})})}
+export function useDeleteAgent(){const client=useQueryClient();return useMutation({mutationFn:(id:string)=>api<void>(`/v1/ai/agents/${id}`,{method:'DELETE'}),onSuccess:()=>client.invalidateQueries({queryKey:['ai-agents']})})}
+export function useTestAgent(){return useMutation({mutationFn:({id,message}:{id:string;message:string})=>api<AiAgentTest>(`/v1/ai/agents/${id}/test`,{method:'POST',body:JSON.stringify({message})})})}

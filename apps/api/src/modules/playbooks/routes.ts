@@ -14,6 +14,7 @@ import { DomainError } from '@nexo/domain';
 import { audit } from '../../core/audit.js';
 import { enqueue } from '../../core/outbox.js';
 import { simulateAutomation, validateAutomation, type AutomationDefinition } from './compiler.js';
+import { assertWorkspaceQuota } from '../billing/service.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
@@ -125,6 +126,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
   app.post('/v1/playbooks/:id/executions', { preHandler: [app.requirePermission('playbook.write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const input = StartPlaybookExecutionInput.parse(request.body);
+    await assertWorkspaceQuota(app.prisma, request.auth.workspaceId, 'executionsMonthly');
     const result = await app.prisma.$transaction(async tx => {
       const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { activeVersion: true } });
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
