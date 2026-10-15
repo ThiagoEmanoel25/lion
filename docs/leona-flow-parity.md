@@ -9,7 +9,7 @@ Auditoria do cliente público do Leona realizada em 15/10/2026. Este documento s
 | Gatilho | Início | Pronto | Inicia por mensagem recebida, conversa criada ou etiqueta adicionada. |
 | Mensagem | Mensagem | Parcial | Texto e variáveis funcionam. Imagem, áudio e figurinha funcionam como blocos próprios. Ainda faltam conteúdo múltiplo ordenado, upload, vídeo, arquivo, contato, variação por IA e atraso de digitação. |
 | Menu interativo | Menu | Parcial | Runtime pronto: botões (até 3) ou lista (até 10), espera a escolha, uma saída por opção, saída por inatividade (0 = 2 dias, máx. 31) e resposta salva em variável. Falta o editor do bloco igual ao Leona para ligar as saídas por opção. |
-| Condicional | Condicional | Parcial | Ramifica por campo, operador, prioridade e rota padrão. Ainda faltam grupos de regras AND/OR no próprio bloco e os atalhos de condição do Leona. |
+| Condicional | Condicional | Pronto | Editor com Regra Lógica (todas/qualquer) e catálogo de condições: etiqueta, dia da semana, hora, data, janela de 24h, status do atendimento, atendente, nome, número, email, campo personalizado e variável do fluxo. O runtime avalia sobre o estado atual da conversa, no fuso do workspace. |
 | Intervalo inteligente | Intervalo inteligente | Parcial | Intervalo real em segundos, minutos, horas ou dias, com retomada pela fila e limite de 31 dias. Ainda faltam data exata e janelas semanais. |
 | Etiquetas | Etiquetas | Pronto | Adiciona ou remove várias etiquetas; permite selecionar existentes e criar por nome ao adicionar. |
 | Integração | Integração | Pronto para HTTP básico | GET, POST e PUT, cabeçalhos, corpo com variáveis e resposta salva no contexto. Ainda faltam saídas visuais separadas de sucesso e erro. |

@@ -2,13 +2,14 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'reac
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Building2,CircleCheck,Clock,Code,GitBranch,Headset,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Building2,ChevronLeft,CircleCheck,Clock,Code,GitBranch,Headset,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
+import {CONDITION_GROUPS,CUSTOM_FIELD_PREFIX,WEEKDAY_LABELS,itemForRule,ruleError,searchConditionItems,valueKind,type ConditionOperator,type ConditionRule} from './condition-catalog';
 import './flow-builder.css';
 
 type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unknown>};
@@ -121,6 +122,7 @@ export function PlaybookEditorPage(){
   function updateSelected(patch:Partial<FlowNodeData>){if(!selectedNodeId)return;setNodes(current=>current.map(node=>node.id===selectedNodeId?{...node,data:{...node.data,...patch}}:node));setDirty(true);setResult(null)}
   function updateConfig(key:string,value:unknown){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,[key]:value}})}
   function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,...patch}})}
+  function saveCondition(name:string,config:Record<string,unknown>){updateSelected({name,config});setInspectorOpen(false)}
   function saveMenu(name:string,config:Record<string,unknown>){
     if(!selectedNode)return;const nodeId=selectedNode.id;const options=menuOptionsOf(config);const labels=new Map(options.map(option=>[option.id,option.label]));const hasTimeout=Number(config.timeoutSeconds??0)>0;
     updateSelected({name,config});
@@ -169,6 +171,8 @@ export function PlaybookEditorPage(){
         {selectedNode
           ? selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='condition'
+              ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
             : <NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} tags={contactMeta.data?.tags??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
           : selectedEdge
             ? <EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>
@@ -220,7 +224,6 @@ function JsonHeadersField({value,onChange}:{value:unknown;onChange:(value:Record
 }
 function NodeInspector({node,agents,agentsLoading,tags,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;tags:ContactMeta['tags'];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
-  const conditionRules=Array.isArray(config.rules)?config.rules as Array<NonNullable<AutomationEdge['condition']>>:[];
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
   const customTags=Array.isArray(config.tags)?config.tags.filter((value):value is string=>typeof value==='string'):[];
   const delayUnit=['seconds','minutes','hours','days'].includes(String(config.unit))?String(config.unit):'seconds';const delayFactor=delayUnit==='days'?86400:delayUnit==='hours'?3600:delayUnit==='minutes'?60:1;
@@ -233,7 +236,6 @@ function NodeInspector({node,agents,agentsLoading,tags,isStart,onName,onConfig,o
     {kind==='audio'&&<><label>URL HTTPS do áudio<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/audio.ogg" /></label><label className="check-field"><input type="checkbox" checked={config.ptt===true} onChange={event=>onConfig('ptt',event.target.checked)}/> Enviar como mensagem de voz</label></>}
     {kind==='sticker'&&<><label>URL HTTPS da figurinha<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/figurinha.webp" /></label><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
     {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
-    {kind==='condition'&&<><label>Combinação<select value={String(config.logic??'all')} onChange={event=>onConfig('logic',event.target.value)}><option value="all">Todas as condições (E)</option><option value="any">Qualquer condição (OU)</option></select></label><div className="condition-rule-list">{conditionRules.map((rule,index)=>{const needsValue=!['exists','not_exists'].includes(rule.operator);const update=(patch:Partial<typeof rule>)=>onConfig('rules',conditionRules.map((item,itemIndex)=>itemIndex===index?{...item,...patch}:item));return <div key={index}><b>Condição {index+1}</b><label>Campo<input value={rule.field} onChange={event=>update({field:event.target.value})} placeholder="Ex.: contact.stage" /></label><label>Operador<select value={rule.operator} onChange={event=>update({operator:event.target.value as typeof rule.operator})}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="not_contains">Não contém</option><option value="exists">Existe</option><option value="not_exists">Não existe</option><option value="greater_than">Maior que</option><option value="less_than">Menor que</option></select></label>{needsValue&&<label>Valor<input value={String(rule.value??'')} onChange={event=>update({value:event.target.value})}/></label>}<button type="button" onClick={()=>onConfig('rules',conditionRules.filter((_,itemIndex)=>itemIndex!==index))}>Remover condição</button></div>})}</div><button type="button" className="add-button-option" onClick={()=>onConfig('rules',[...conditionRules,{field:'',operator:'equals',value:''}])} disabled={conditionRules.length>=20}>+ Adicionar condição</button><div className="config-callout"><b>Duas saídas</b><p>Ligue “Condição atendida” ao caminho positivo e “Caso contrário” à rota alternativa.</p></div></>}
     {kind==='delay'&&<><div className="duration-fields"><label>Duração<input type="number" min="1" max={delayUnit==='days'?31:2678400} step="1" value={Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))} onChange={event=>onConfig('seconds',Number(event.target.value)*delayFactor)}/></label><label>Unidade<select value={delayUnit} onChange={event=>{const unit=event.target.value;const factor=unit==='days'?86400:unit==='hours'?3600:unit==='minutes'?60:1;onConfigs({unit,seconds:Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))*factor})}}><option value="seconds">Segundos</option><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select></label></div><p className="field-help">O fluxo pausa e retoma automaticamente. Limite total: 31 dias.</p></>}
     {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH (legado)</option><option value="DELETE">DELETE (legado)</option></select></label><JsonHeadersField value={config.headers} onChange={value=>onConfig('headers',value)}/>{String(config.method??'POST')!=='GET'&&<label>Corpo da requisição<textarea rows={5} value={String(config.body??'')} onChange={event=>onConfig('body',event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><small>JSON ou texto; variáveis com {'{{caminho}}'}.</small></label>}<label>Salvar resposta na variável<input value={String(config.responseVariable??'')} onChange={event=>onConfig('responseVariable',event.target.value||undefined)} placeholder="integration.response" /></label><p className="field-help">Respostas JSON são convertidas em objeto; respostas comuns ficam como texto.</p></>}
     {kind==='assign'&&<><label>Fila<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Comercial" /></label><div className="config-separator"><span>ou</span></div><label>ID do responsável<input value={String(config.assigneeId??'')} onChange={event=>onConfig('assigneeId',event.target.value)} placeholder="ID do usuário no workspace" /></label><p className="field-help">Preencha ao menos uma fila ou um responsável.</p></>}
@@ -363,6 +365,72 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
         </li>)}</ol>}
     {show(errors.options)}
     <label>Campo para salvar a resposta do usuário<input value={saveAs} onChange={event=>setSaveAs(event.target.value)} placeholder="Ex.: escolha_menu" maxLength={120} aria-invalid={Boolean(submitted&&errors.saveAs)}/><small>Deixe em branco para não salvar a resposta.</small>{show(errors.saveAs)}</label>
+    <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer>
+  </div></>
+}
+type ConditionMember={id:string;name:string};
+function ConditionValue({rule,tags,members,onChange}:{rule:ConditionRule;tags:ContactMeta['tags'];members:ConditionMember[];onChange:(patch:Partial<ConditionRule>)=>void}){
+  const item=itemForRule(rule);const kind=valueKind(item,rule.operator);
+  const list=Array.isArray(rule.value)?rule.value as unknown[]:[];
+  const toggle=(value:unknown)=>onChange({value:list.includes(value)?list.filter(entry=>entry!==value):[...list,value]});
+  const pair=Array.isArray(rule.value)?rule.value as string[]:['',''];
+  const setPair=(index:0|1,value:string)=>onChange({value:index===0?[value,pair[1]??'']:[pair[0]??'',value]});
+  return <>
+    {item.key==='custom'&&<label>Chave do campo<input value={rule.field.slice(CUSTOM_FIELD_PREFIX.length)} onChange={event=>onChange({field:CUSTOM_FIELD_PREFIX+event.target.value.trim()})} placeholder="Ex.: plano"/></label>}
+    {item.key==='variable'&&<label>Caminho da variável<input value={rule.field} onChange={event=>onChange({field:event.target.value.trim()})} placeholder="Ex.: menu.choice"/></label>}
+    {kind==='tags'&&(tags.length?<div className="condition-checks">{tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={list.includes(tag.id)} onChange={()=>toggle(tag.id)}/><i style={{background:tag.color}}/>{tag.name}</label>)}</div>:<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>)}
+    {kind==='members'&&(members.length?<div className="condition-checks">{members.map(member=><label key={member.id} className="check-field"><input type="checkbox" checked={list.includes(member.id)} onChange={()=>toggle(member.id)}/>{member.name}</label>)}</div>:<p className="field-help">Nenhum membro no workspace.</p>)}
+    {kind==='weekdays'&&<div className="condition-weekdays" role="group" aria-label="Dias da semana">{WEEKDAY_LABELS.map((label,day)=><button type="button" key={label} aria-pressed={list.includes(day)} className={list.includes(day)?'active':''} onClick={()=>toggle(day)}>{label}</button>)}</div>}
+    {kind==='timeRange'&&<><div className="duration-fields"><label>De<input type="time" value={pair[0]??''} onChange={event=>setPair(0,event.target.value)}/></label><label>Até<input type="time" value={pair[1]??''} onChange={event=>setPair(1,event.target.value)}/></label></div><p className="field-help">Se o início for depois do fim, vale a virada da noite (ex.: 22:00 até 06:00). Usa o fuso do workspace.</p></>}
+    {kind==='date'&&<label>Data<input type="date" value={typeof rule.value==='string'?rule.value:''} onChange={event=>onChange({value:event.target.value})}/></label>}
+    {kind==='dateRange'&&<div className="duration-fields"><label>De<input type="date" value={pair[0]??''} onChange={event=>setPair(0,event.target.value)}/></label><label>Até<input type="date" value={pair[1]??''} onChange={event=>setPair(1,event.target.value)}/></label></div>}
+    {kind==='boolean'&&<label>Situação<select value={rule.value===false?'false':'true'} onChange={event=>onChange({value:event.target.value==='true'})}><option value="true">Dentro da janela de 24h</option><option value="false">Fora da janela de 24h</option></select></label>}
+    {kind==='text'&&<label>Valor<input value={String(rule.value??'')} onChange={event=>onChange({value:event.target.value})}/></label>}
+  </>
+}
+function ConditionEditor({node,tags,members,onSave,onCancel}:{node:FlowNode;tags:ContactMeta['tags'];members:ConditionMember[];onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const initial=node.data.config;
+  const [name,setName]=useState(node.data.name);
+  const [logic,setLogic]=useState<'all'|'any'>(initial.logic==='any'?'any':'all');
+  const [rules,setRules]=useState<ConditionRule[]>(()=>Array.isArray(initial.rules)?initial.rules as ConditionRule[]:[]);
+  const [picking,setPicking]=useState(false);
+  const [query,setQuery]=useState('');
+  const [submitted,setSubmitted]=useState(false);
+  const results=searchConditionItems(query);
+  const errors=rules.map(ruleError);
+  const listError=rules.length===0?'Adicione ao menos uma condição.':'';
+  const updateRule=(index:number,patch:Partial<ConditionRule>)=>setRules(rules.map((rule,itemIndex)=>itemIndex===index?{...rule,...patch}:rule));
+  function save(){setSubmitted(true);if(listError||errors.some(Boolean))return;onSave(name.trim()||kindMeta.condition.label,{...initial,logic,rules})}
+
+  if(picking)return <><header className="condition-picker-head"><button type="button" className="condition-back" aria-label="Voltar para as condições" onClick={()=>setPicking(false)}><ChevronLeft size={18}/></button><div><b>Adicionar condição ao fluxo</b><small>Defina as condições e regra lógica para que o fluxo continue pela saída superior deste bloco:</small></div></header>
+  <div className="inspector-form condition-picker">
+    <label htmlFor="condition-search">Selecionar condição</label>
+    <div className="condition-search"><Search size={16} aria-hidden="true"/><input id="condition-search" autoFocus type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Buscar condição..."/></div>
+    {results.length===0&&<p className="palette-empty">Nenhuma condição encontrada para “{query}”.</p>}
+    {CONDITION_GROUPS.map(group=>{const items=results.filter(item=>item.group===group);return items.length?<section key={group} className={`condition-group group-${group.toLowerCase()}`}><b>{group}</b>{items.map(item=><button type="button" key={item.key} onClick={()=>{setRules([...rules,item.create()]);setPicking(false);setQuery('')}}>{item.label}</button>)}</section>:null})}
+  </div></>;
+
+  return <><header><span className="palette-icon condition"><GitBranch size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Condicional</b></div></header>
+  <div className="inspector-form condition-editor">
+    <label>Nome do bloco<input value={name} onChange={event=>setName(event.target.value)} maxLength={120}/></label>
+    <fieldset className="condition-logic"><legend>Regra Lógica</legend>
+      <label className="radio-field"><input type="radio" name="condition-logic" checked={logic==='all'} onChange={()=>setLogic('all')}/> <span>Regra corresponde a <strong>todas</strong> as condições (e)</span></label>
+      <label className="radio-field"><input type="radio" name="condition-logic" checked={logic==='any'} onChange={()=>setLogic('any')}/> <span>Regra corresponde a <strong>qualquer</strong> condição (ou)</span></label>
+    </fieldset>
+    <div className="menu-options-head"><b>Condições</b><button type="button" className="menu-add" onClick={()=>setPicking(true)} disabled={rules.length>=20} title={rules.length>=20?'Limite de 20 condições':undefined}><Plus size={16} aria-hidden="true"/> Adicionar Condição</button></div>
+    {rules.length===0
+      ? <div className={`menu-options-empty ${submitted&&listError?'invalid':''}`}><GitBranch size={26} aria-hidden="true"/><p>Nenhuma condição adicionada. Clique em “Adicionar Condição” para começar.</p></div>
+      : <ol className="menu-options condition-rules">{rules.map((rule,index)=>{const item=itemForRule(rule);return <li key={index}>
+          <span className="menu-option-index" aria-hidden="true">{index+1}</span>
+          <div>
+            <div className="condition-rule-head"><b>{item.label}</b><small>{item.group}</small></div>
+            {item.operators.length>1&&<label>Operador<select value={rule.operator} onChange={event=>updateRule(index,{operator:event.target.value as ConditionOperator,...(valueKind(item,event.target.value as ConditionOperator)!==valueKind(item,rule.operator)?{value:item.create().value}:{})})}>{item.operators.map(operator=><option key={operator.value} value={operator.value}>{operator.label}</option>)}</select></label>}
+            <ConditionValue rule={rule} tags={tags} members={members} onChange={patch=>updateRule(index,patch)}/>
+            {submitted&&errors[index]&&<small className="field-error">{errors[index]}</small>}
+          </div>
+          <button type="button" className="menu-option-remove" aria-label={`Remover condição ${index+1}`} title="Remover condição" onClick={()=>setRules(rules.filter((_,itemIndex)=>itemIndex!==index))}><X size={16}/></button>
+        </li>})}</ol>}
+    {submitted&&listError&&<small className="field-error">{listError}</small>}
     <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer>
   </div></>
 }
