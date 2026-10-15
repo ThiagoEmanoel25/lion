@@ -12,3 +12,6 @@ apps/api/prisma/*.db-journal
 .npm-cache/
 .tool-cache/
 *.tsbuildinfo
+
+# Leona flow export with live API keys/tokens — never commit
+docs/json-leona.txt
