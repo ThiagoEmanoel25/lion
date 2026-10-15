@@ -5,9 +5,9 @@ describe('automation routing', () => {
   it('resolve caminhos aninhados e operadores', () => {
     const context = { contact: { score: 80, tags: ['vip'], name: 'Ana' } };
     expect(getPathValue(context, 'contact.score')).toBe(80);
-    expect(conditionMatches(80, { field: 'contact.score', operator: 'greater_than', value: 50 })).toBe(true);
-    expect(conditionMatches(['vip'], { field: 'contact.tags', operator: 'contains', value: 'vip' })).toBe(true);
-    expect(conditionMatches(undefined, { field: 'missing', operator: 'not_exists' })).toBe(true);
+    expect(conditionMatches(80, { operator: 'greater_than', value: 50 })).toBe(true);
+    expect(conditionMatches(['vip'], { operator: 'contains', value: 'vip' })).toBe(true);
+    expect(conditionMatches(undefined, { operator: 'not_exists' })).toBe(true);
   });
 
   it('escolhe a primeira condição por prioridade', () => {

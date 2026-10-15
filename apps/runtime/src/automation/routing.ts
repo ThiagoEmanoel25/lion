@@ -1,29 +1,11 @@
 import type { z } from 'zod';
-import { MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema } from '@nexo/contracts';
+import { conditionMatches, getPathValue, MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema } from '@nexo/contracts';
+
+export { conditionMatches, getPathValue };
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;
 export type AutomationNode = AutomationDefinition['nodes'][number];
 export type AutomationEdge = AutomationDefinition['edges'][number];
-
-export function getPathValue(source: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, part) => current && typeof current === 'object'
-    ? (current as Record<string, unknown>)[part]
-    : undefined, source);
-}
-
-export function conditionMatches(value: unknown, condition: NonNullable<AutomationEdge['condition']>): boolean {
-  const expected = condition.value;
-  switch (condition.operator) {
-    case 'equals': return value === expected;
-    case 'not_equals': return value !== expected;
-    case 'contains': return Array.isArray(value) ? value.includes(expected) : typeof value === 'string' && value.includes(String(expected));
-    case 'not_contains': return Array.isArray(value) ? !value.includes(expected) : typeof value !== 'string' || !value.includes(String(expected));
-    case 'exists': return value !== undefined && value !== null;
-    case 'not_exists': return value === undefined || value === null;
-    case 'greater_than': return typeof value === 'number' && typeof expected === 'number' && value > expected;
-    case 'less_than': return typeof value === 'number' && typeof expected === 'number' && value < expected;
-  }
-}
 
 export function selectNextEdge(node: AutomationNode, edges: AutomationEdge[], context: Record<string, unknown>): AutomationEdge | undefined {
   const candidates = edges.filter(edge => edge.source === node.id).sort((a, b) => a.priority - b.priority);

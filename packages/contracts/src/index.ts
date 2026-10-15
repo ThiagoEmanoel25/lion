@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { CONDITION_OPERATORS } from './conditions.js';
+export * from './conditions.js';
 
 export const RoleSchema = z.enum(['OWNER','ADMIN','SUPERVISOR','AGENT','VIEWER']);
 export type Role = z.infer<typeof RoleSchema>;
@@ -97,7 +99,10 @@ export const AutomationWebhookConfigSchema=z.object({
   responseVariable:z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,119}$/).optional()
 }).strict();
 export const AutomationNodeSchema=z.object({id:z.string().trim().min(1).max(80),kind:AutomationNodeKindSchema,name:z.string().trim().min(1).max(120),config:z.record(z.string(),z.unknown()).default({}),position:z.object({x:z.number().finite(),y:z.number().finite()})});
-export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(['equals','not_equals','contains','not_contains','exists','not_exists','greater_than','less_than']),value:z.unknown().optional()});
+export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(CONDITION_OPERATORS),value:z.unknown().optional()}).superRefine((rule,ctx)=>{
+  if((rule.operator==='in'||rule.operator==='not_in')&&(!Array.isArray(rule.value)||rule.value.length===0))ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Selecione ao menos um valor.'});
+  if((rule.operator==='between'||rule.operator==='not_between')&&(!Array.isArray(rule.value)||rule.value.length!==2))ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Informe o início e o fim do intervalo.'});
+});
 export const AutomationConditionConfigSchema=z.object({logic:z.enum(['all','any']).default('all'),rules:z.array(AutomationEdgeConditionSchema).min(1).max(20)}).strict();
 export const AutomationEdgeSchema=z.object({id:z.string().trim().min(1).max(80),source:z.string().trim().min(1).max(80),target:z.string().trim().min(1).max(80),label:z.string().trim().max(80).optional(),condition:AutomationEdgeConditionSchema.optional(),isDefault:z.boolean().default(false),priority:z.number().int().min(0).max(1000).default(0)});
 export const AutomationDefinitionSchema=z.object({start:z.string().min(1),nodes:z.array(AutomationNodeSchema).min(1).max(100),edges:z.array(AutomationEdgeSchema).max(200),settings:z.object({maxSteps:z.number().int().min(1).max(100).default(30),timeoutSeconds:z.number().int().min(5).max(3600).default(300)}).default({maxSteps:30,timeoutSeconds:300})});

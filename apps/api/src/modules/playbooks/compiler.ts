@@ -10,6 +10,8 @@ import {
   AutomationTagConfigSchema,
   AutomationTriggerConfigSchema,
   AutomationWebhookConfigSchema,
+  conditionMatches,
+  getPathValue,
   MENU_CHOICE_FIELD
 } from '@nexo/contracts';
 import type { z, ZodTypeAny } from 'zod';
@@ -160,27 +162,10 @@ export function validateAutomation(value: unknown) {
   return { valid: !issues.some(issue => issue.level === 'error'), issues, definition };
 }
 
-function getPathValue(source: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, part) => current && typeof current === 'object' ? (current as Record<string, unknown>)[part] : undefined, source);
-}
-
-function matches(value: unknown, operator: NonNullable<AutomationDefinition['edges'][number]['condition']>['operator'], expected: unknown) {
-  switch (operator) {
-    case 'equals': return value === expected;
-    case 'not_equals': return value !== expected;
-    case 'contains': return Array.isArray(value) ? value.includes(expected) : typeof value === 'string' && value.includes(String(expected));
-    case 'not_contains': return Array.isArray(value) ? !value.includes(expected) : typeof value !== 'string' || !value.includes(String(expected));
-    case 'exists': return value !== undefined && value !== null;
-    case 'not_exists': return value === undefined || value === null;
-    case 'greater_than': return typeof value === 'number' && typeof expected === 'number' && value > expected;
-    case 'less_than': return typeof value === 'number' && typeof expected === 'number' && value < expected;
-  }
-}
-
 function nodeConditionMatches(node: AutomationDefinition['nodes'][number], variables: Record<string, unknown>) {
   const rules = Array.isArray(node.config.rules) ? node.config.rules as Array<NonNullable<AutomationEdge['condition']>> : [];
   if (!rules.length) return undefined;
-  const results = rules.map(rule => matches(getPathValue(variables, rule.field), rule.operator, rule.value));
+  const results = rules.map(rule => conditionMatches(getPathValue(variables, rule.field), rule));
   return node.config.logic === 'any' ? results.some(Boolean) : results.every(Boolean);
 }
 
@@ -198,13 +183,13 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
     let selected: AutomationEdge | undefined = candidates[0];
     if (node.kind === 'buttons' && candidates.some(edge => edge.condition !== undefined || edge.isDefault)) {
       // Without a simulated choice, follow the first option so the rest of the path can be checked.
-      selected = candidates.find(edge => edge.condition && matches(getPathValue(variables, edge.condition.field), edge.condition.operator, edge.condition.value))
+      selected = candidates.find(edge => edge.condition && conditionMatches(getPathValue(variables, edge.condition.field), edge.condition))
         ?? candidates.find(edge => !edge.isDefault) ?? candidates.find(edge => edge.isDefault);
     }
     if (node.kind === 'condition') {
       const nodeMatch = nodeConditionMatches(node, variables);
       selected = nodeMatch === undefined
-        ? candidates.find(edge => edge.condition && matches(getPathValue(variables, edge.condition.field), edge.condition.operator, edge.condition.value)) ?? candidates.find(edge => edge.isDefault)
+        ? candidates.find(edge => edge.condition && conditionMatches(getPathValue(variables, edge.condition.field), edge.condition)) ?? candidates.find(edge => edge.isDefault)
         : nodeMatch ? candidates.find(edge => !edge.isDefault) : candidates.find(edge => edge.isDefault);
     }
     steps.push({ index: steps.length, nodeId: current, kind: node.kind, selectedEdgeId: selected?.id ?? null });
