@@ -2,7 +2,7 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'reac
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Building2,CircleCheck,Clock,GitBranch,Headset,Image,List,MessageSquare,Mic,Play,Search,Sparkles,Sticker,Tag,Webhook,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Building2,CircleCheck,Clock,Code,GitBranch,Headset,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
@@ -35,6 +35,19 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
 const kindMeta=Object.fromEntries(catalog.map(item=>[item.kind,item])) as Record<AutomationNodeKind,(typeof catalog)[number]>;
 const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff']);
 function connectionRule(kind:AutomationNodeKind){return terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
+// Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
+const MENU_CHOICE_FIELD='menu.choice';
+const MENU_LIMIT={buttons:3,list:10} as const;
+const MENU_MAX_TIMEOUT_SECONDS=2_678_400;
+type MenuMode=keyof typeof MENU_LIMIT;
+type MenuOption={id:string;label:string;description?:string};
+function menuOptionsOf(config:Record<string,unknown>):MenuOption[]{return (Array.isArray(config.buttons)?config.buttons:[]).flatMap(item=>{const option=item&&typeof item==='object'?item as Record<string,unknown>:{};return typeof option.id==='string'?[{id:option.id,label:typeof option.label==='string'?option.label:'',...(typeof option.description==='string'&&option.description?{description:option.description}:{})}]:[]})}
+// Which handle of the source node an edge leaves from; persisted edges only carry their condition.
+function sourceHandleFor(kind:AutomationNodeKind|undefined,edge:AutomationEdge){
+  if(kind==='condition'&&edge.isDefault)return 'fallback';
+  if(kind==='buttons'){if(edge.isDefault)return 'timeout';if(edge.condition?.field===MENU_CHOICE_FIELD)return `opt:${String(edge.condition.value)}`}
+  return undefined;
+}
 const emptyDefinition:AutomationDefinition={start:'',nodes:[],edges:[],settings:{maxSteps:30,timeoutSeconds:300}};
 
 function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
@@ -63,8 +76,8 @@ function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=k
   <div className="automation-node-head"><span className="automation-node-icon"><Icon size={16} aria-hidden="true"/></span><span><small>{meta.label}</small><b>{data.name}</b></span><span className="node-quick-actions nodrag"><button title="Editar bloco" aria-label={`Editar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('edit',id)}}>✎</button><button title="Duplicar bloco" aria-label={`Duplicar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('duplicate',id)}}>⧉</button><button className="node-delete-action" title="Excluir bloco" aria-label={`Excluir ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('remove',id)}}>×</button></span></div>
   <div className="node-config-preview"><span>{nodePreviewLabel(data.kind)}</span><strong>{nodeSummary(data.kind,data.config)||'Não configurado'}</strong></div>
   {data.kind==='condition'&&<div className="condition-node-routes"><span>Condição atendida</span><span>Caso contrário</span></div>}
-  {data.kind==='buttons'&&buttonItems.length>0&&<div className="node-button-list">{buttonItems.map((button,index)=><div key={button.id||index}><span>{button.label||`Botão ${index+1}`}</span></div>)}</div>}
-  {!terminal&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
+  {data.kind==='buttons'&&<div className="node-button-list node-menu-routes">{buttonItems.map((button,index)=><div key={button.id||index}><span>{button.label||`Opção ${index+1}`}</span>{button.id&&<Handle id={`opt:${button.id}`} type="source" position={Position.Right}/>}</div>)}{Number(data.config.timeoutSeconds??0)>0&&<div className="menu-timeout-route"><span>Inatividade</span><Handle id="timeout" type="source" position={Position.Right}/></div>}</div>}
+  {!terminal&&data.kind!=='buttons'&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
   {data.kind==='condition'&&<Handle id="fallback" type="source" position={Position.Right} style={{top:'78%'}} />}
 </div>}
 const nodeTypes={automation:AutomationNodeCard};
@@ -75,7 +88,8 @@ function normalizeDefinition(value:AutomationDefinition|undefined):AutomationDef
 }
 function toFlow(definition:AutomationDefinition){
   const nodes:FlowNode[]=definition.nodes.map(node=>({id:node.id,type:'automation',position:node.position,data:{kind:node.kind,name:node.name,config:node.config}}));
-  const edges:FlowEdge[]=definition.edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,label:edge.label,data:{condition:edge.condition,isDefault:edge.isDefault??false,priority:edge.priority??0},type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed},animated:edge.label==='baixa confiança'}));
+  const kinds=new Map(definition.nodes.map(node=>[node.id,node.kind]));
+  const edges:FlowEdge[]=definition.edges.map(edge=>({id:edge.id,source:edge.source,sourceHandle:sourceHandleFor(kinds.get(edge.source),edge),target:edge.target,label:edge.label,data:{condition:edge.condition,isDefault:edge.isDefault??false,priority:edge.priority??0},type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed},animated:edge.label==='baixa confiança'}));
   return {nodes,edges}
 }
 function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
@@ -92,12 +106,33 @@ export function PlaybookEditorPage(){
   const busy=save.isPending||validate.isPending||simulate.isPending||publish.isPending;
   const mutateNodes=useCallback((changes:NodeChange<FlowNode>[])=>{setNodes(current=>applyNodeChanges(changes,current));setDirty(true);setResult(null)},[]);
   const mutateEdges=useCallback((changes:EdgeChange<FlowEdge>[])=>{setEdges(current=>applyEdgeChanges(changes,current));setDirty(true);setResult(null)},[]);
-  const connect=useCallback((connection:Connection)=>{const fallback=connection.sourceHandle==='fallback';setEdges(current=>addEdge({...connection,id:crypto.randomUUID(),label:fallback?'Caso contrário':'Condição atendida',data:{isDefault:fallback,priority:fallback?1000:0},type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed}},current));setDirty(true);setResult(null)},[]);
+  const connect=useCallback((connection:Connection)=>{
+    const handle=connection.sourceHandle??'';const source=nodes.find(node=>node.id===connection.source);
+    let data:FlowEdgeData={isDefault:false,priority:0};let label:string|undefined;
+    if(handle.startsWith('opt:')){const optionId=handle.slice(4);const options=source?menuOptionsOf(source.data.config):[];const index=options.findIndex(option=>option.id===optionId);data={condition:{field:MENU_CHOICE_FIELD,operator:'equals',value:optionId},isDefault:false,priority:Math.max(index,0)};label=options[index]?.label}
+    else if(handle==='timeout'){data={isDefault:true,priority:1000};label='Inatividade'}
+    else if(source?.data.kind==='condition'){const fallback=handle==='fallback';data={isDefault:fallback,priority:fallback?1000:0};label=fallback?'Caso contrário':'Condição atendida'}
+    // A menu exit leads to a single place: reconnecting it replaces the previous edge.
+    const replaces=(edge:FlowEdge)=>source?.data.kind==='buttons'&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
+    setEdges(current=>addEdge({...connection,id:crypto.randomUUID(),label,data,type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed}},current.filter(edge=>!replaces(edge))));setDirty(true);setResult(null)
+  },[nodes]);
   function dragStart(event:DragEvent,kind:AutomationNodeKind){event.dataTransfer.setData('application/nexo-node',kind);event.dataTransfer.effectAllowed='move'}
   function drop(event:DragEvent){event.preventDefault();const kind=event.dataTransfer.getData('application/nexo-node') as AutomationNodeKind;if(!kindMeta[kind]||!flowRef.current)return;const position=flowRef.current.screenToFlowPosition({x:event.clientX,y:event.clientY});const id=crypto.randomUUID();const meta=kindMeta[kind];setNodes(current=>[...current,{id,type:'automation',position,data:{kind,name:meta.label,config:defaultConfig(kind)}}]);if(kind==='trigger'&&!start)setStart(id);setDirty(true);setSelectedNodeId(id);setSelectedEdgeId(null);setResult(null)}
   function updateSelected(patch:Partial<FlowNodeData>){if(!selectedNodeId)return;setNodes(current=>current.map(node=>node.id===selectedNodeId?{...node,data:{...node.data,...patch}}:node));setDirty(true);setResult(null)}
   function updateConfig(key:string,value:unknown){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,[key]:value}})}
   function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,...patch}})}
+  function saveMenu(name:string,config:Record<string,unknown>){
+    if(!selectedNode)return;const nodeId=selectedNode.id;const options=menuOptionsOf(config);const labels=new Map(options.map(option=>[option.id,option.label]));const hasTimeout=Number(config.timeoutSeconds??0)>0;
+    updateSelected({name,config});
+    setEdges(current=>current.flatMap(edge=>{
+      if(edge.source!==nodeId)return [edge];
+      if(edge.sourceHandle==='timeout')return hasTimeout?[edge]:[];
+      if(!edge.sourceHandle?.startsWith('opt:'))return [edge];
+      const optionId=edge.sourceHandle.slice(4);
+      return labels.has(optionId)?[{...edge,label:labels.get(optionId)||edge.label}]:[];
+    }));
+    setInspectorOpen(false);
+  }
   function updateSelectedEdge(patch:Partial<FlowEdgeData>&{label?:string}){if(!selectedEdgeId)return;setEdges(current=>current.map(edge=>edge.id===selectedEdgeId?{...edge,...(patch.label!==undefined?{label:patch.label}:{}),data:{...edge.data,condition:patch.isDefault===true?undefined:(patch.condition??edge.data?.condition),isDefault:patch.isDefault??edge.data?.isDefault,priority:patch.priority??edge.data?.priority}}:edge));setDirty(true);setResult(null)}
   const removeNode=useCallback((nodeId:string)=>{setNodes(current=>current.filter(node=>node.id!==nodeId));setEdges(current=>current.filter(edge=>edge.source!==nodeId&&edge.target!==nodeId));setStart(current=>current===nodeId?'':current);setSelectedNodeId(current=>current===nodeId?null:current);setDirty(true);setResult(null)},[]);
   const duplicateNode=useCallback((nodeId:string)=>{setNodes(current=>{const source=current.find(node=>node.id===nodeId);if(!source)return current;const id=crypto.randomUUID();const copy:FlowNode={...source,id,selected:false,position:{x:source.position.x+45,y:source.position.y+75},data:{...source.data,name:`${source.data.name} (cópia)`,config:structuredClone(source.data.config)}};setSelectedNodeId(id);setSelectedEdgeId(null);return [...current,copy]});setDirty(true);setResult(null)},[]);
@@ -132,7 +167,9 @@ export function PlaybookEditorPage(){
       {inspectorOpen&&selectedNode&&<div className="node-modal-backdrop" onMouseDown={()=>setInspectorOpen(false)} aria-hidden="true"/>}
       {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
-          ? <NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} tags={contactMeta.data?.tags??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
+          ? selectedNode.data.kind==='buttons'
+            ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
+            : <NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} tags={contactMeta.data?.tags??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
           : selectedEdge
             ? <EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>
             : <FlowInspector definition={definition} result={result} version={version} restoredVersion={restoredVersion} versions={playbook.data.versions??[]} simulationVariables={simulationVariables} onSimulationVariables={setSimulationVariables} onRestore={restoreLocal} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);setInspectorOpen(false);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>
@@ -149,7 +186,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'image':return {url:'',caption:''};
     case 'audio':return {url:'',ptt:true};
     case 'sticker':return {url:''};
-    case 'buttons':return {text:'Escolha uma opção:',footer:'',buttons:[{id:'option_1',label:'Opção 1'}]};
+    case 'buttons':return {mode:'list',text:'',buttonText:'',buttons:[],timeoutSeconds:0};
     case 'agent':return {agentId:'',prompt:''};
     case 'condition':return {logic:'all',rules:[]};
     case 'delay':return {seconds:300,unit:'minutes'};
@@ -163,7 +200,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
 function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown>|undefined):Record<string,unknown>{
   const config={...(value??{})};
   if(kind==='agent'&&typeof config.prompt!=='string'&&typeof config.instructions==='string'){config.prompt=config.instructions;delete config.instructions}
-  if(kind==='buttons'&&!Array.isArray(config.buttons))config.buttons=[{id:'option_1',label:'Opção 1'}];
+  if(kind==='buttons'&&!Array.isArray(config.buttons))config.buttons=[];
   if(kind==='condition'&&Array.isArray(config.rules)&&typeof config.logic!=='string')config.logic='all';
   if(kind==='webhook'&&typeof config.method!=='string')config.method='POST';
   if(kind==='tag'&&!Array.isArray(config.tagIds))config.tagIds=typeof config.tagId==='string'&&config.tagId?[config.tagId]:[];
@@ -182,12 +219,11 @@ function JsonHeadersField({value,onChange}:{value:unknown;onChange:(value:Record
   return <label>Cabeçalhos HTTP<textarea rows={4} spellCheck={false} value={draft} onChange={event=>setDraft(event.target.value)} onBlur={commit}/><small className={error?'field-error':undefined}>{error?'Use um objeto JSON com valores em texto.':'Objeto JSON; variáveis também são aceitas nos valores.'}</small></label>
 }
 function NodeInspector({node,agents,agentsLoading,tags,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;tags:ContactMeta['tags'];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
-  const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;const buttons=Array.isArray(config.buttons)?config.buttons as Array<{id?:string;label?:string}>:[];
+  const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
   const conditionRules=Array.isArray(config.rules)?config.rules as Array<NonNullable<AutomationEdge['condition']>>:[];
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
   const customTags=Array.isArray(config.tags)?config.tags.filter((value):value is string=>typeof value==='string'):[];
   const delayUnit=['seconds','minutes','hours','days'].includes(String(config.unit))?String(config.unit):'seconds';const delayFactor=delayUnit==='days'?86400:delayUnit==='hours'?3600:delayUnit==='minutes'?60:1;
-  const updateButton=(index:number,key:'id'|'label',value:string)=>onConfig('buttons',buttons.map((button,itemIndex)=>itemIndex===index?{...button,[key]:value}:button));
   return <><header><span className={`palette-icon ${kind}`}><KindIcon size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>{kindMeta[kind].label}</b></div></header><div className="inspector-form">
     <div className="config-callout"><b>Regra deste bloco</b><p>{kindMeta[kind].rule}{connectionRule(kind)?` ${connectionRule(kind)}`:''}</p></div>
     <label>Nome<input value={node.data.name} onChange={event=>onName(event.target.value)} /></label>
@@ -196,7 +232,6 @@ function NodeInspector({node,agents,agentsLoading,tags,isStart,onName,onConfig,o
     {kind==='image'&&<><label>URL HTTPS da imagem<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/imagem.jpg" /></label><label>Legenda opcional<textarea rows={3} value={String(config.caption??'')} onChange={event=>onConfig('caption',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label></>}
     {kind==='audio'&&<><label>URL HTTPS do áudio<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/audio.ogg" /></label><label className="check-field"><input type="checkbox" checked={config.ptt===true} onChange={event=>onConfig('ptt',event.target.checked)}/> Enviar como mensagem de voz</label></>}
     {kind==='sticker'&&<><label>URL HTTPS da figurinha<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/figurinha.webp" /></label><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
-    {kind==='buttons'&&<><label>Texto da mensagem<textarea rows={4} value={String(config.text??'')} onChange={event=>onConfig('text',event.target.value)} placeholder="Escolha uma opção" /></label><label>Rodapé opcional<input value={String(config.footer??'')} onChange={event=>onConfig('footer',event.target.value)} maxLength={60}/></label><div className="button-config-list">{buttons.map((button,index)=><div key={index}><b>Botão {index+1}</b><input aria-label={`Identificador do botão ${index+1}`} value={button.id??''} onChange={event=>updateButton(index,'id',event.target.value)} placeholder="option_1"/><input aria-label={`Texto do botão ${index+1}`} value={button.label??''} maxLength={20} onChange={event=>updateButton(index,'label',event.target.value)} placeholder="Texto do botão"/><button type="button" onClick={()=>onConfig('buttons',buttons.filter((_,itemIndex)=>itemIndex!==index))} disabled={buttons.length===1}>Remover</button></div>)}</div><button type="button" className="add-button-option" onClick={()=>onConfig('buttons',[...buttons,{id:`option_${buttons.length+1}`,label:`Opção ${buttons.length+1}`}])} disabled={buttons.length>=3}>+ Adicionar botão</button><p className="field-help">Até três respostas rápidas. A captura da escolha será configurada em um bloco próprio.</p></>}
     {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
     {kind==='condition'&&<><label>Combinação<select value={String(config.logic??'all')} onChange={event=>onConfig('logic',event.target.value)}><option value="all">Todas as condições (E)</option><option value="any">Qualquer condição (OU)</option></select></label><div className="condition-rule-list">{conditionRules.map((rule,index)=>{const needsValue=!['exists','not_exists'].includes(rule.operator);const update=(patch:Partial<typeof rule>)=>onConfig('rules',conditionRules.map((item,itemIndex)=>itemIndex===index?{...item,...patch}:item));return <div key={index}><b>Condição {index+1}</b><label>Campo<input value={rule.field} onChange={event=>update({field:event.target.value})} placeholder="Ex.: contact.stage" /></label><label>Operador<select value={rule.operator} onChange={event=>update({operator:event.target.value as typeof rule.operator})}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="not_contains">Não contém</option><option value="exists">Existe</option><option value="not_exists">Não existe</option><option value="greater_than">Maior que</option><option value="less_than">Menor que</option></select></label>{needsValue&&<label>Valor<input value={String(rule.value??'')} onChange={event=>update({value:event.target.value})}/></label>}<button type="button" onClick={()=>onConfig('rules',conditionRules.filter((_,itemIndex)=>itemIndex!==index))}>Remover condição</button></div>})}</div><button type="button" className="add-button-option" onClick={()=>onConfig('rules',[...conditionRules,{field:'',operator:'equals',value:''}])} disabled={conditionRules.length>=20}>+ Adicionar condição</button><div className="config-callout"><b>Duas saídas</b><p>Ligue “Condição atendida” ao caminho positivo e “Caso contrário” à rota alternativa.</p></div></>}
     {kind==='delay'&&<><div className="duration-fields"><label>Duração<input type="number" min="1" max={delayUnit==='days'?31:2678400} step="1" value={Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))} onChange={event=>onConfig('seconds',Number(event.target.value)*delayFactor)}/></label><label>Unidade<select value={delayUnit} onChange={event=>{const unit=event.target.value;const factor=unit==='days'?86400:unit==='hours'?3600:unit==='minutes'?60:1;onConfigs({unit,seconds:Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))*factor})}}><option value="seconds">Segundos</option><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select></label></div><p className="field-help">O fluxo pausa e retoma automaticamente. Limite total: 31 dias.</p></>}
@@ -206,6 +241,129 @@ function NodeInspector({node,agents,agentsLoading,tags,isStart,onName,onConfig,o
     {kind==='handoff'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Atendimento" /></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>onConfig('reason',event.target.value)} placeholder="Explique por que a conversa será transferida." /></label></>}
     {kind==='outcome'&&<><label>Tipo de resultado<select value={String(config.type??'RESOLVED')} onChange={event=>onConfig('type',event.target.value)}><option value="QUALIFIED">Lead qualificado</option><option value="APPOINTMENT">Agendamento</option><option value="SALE">Venda</option><option value="RESOLVED">Atendimento resolvido</option><option value="HANDOFF">Transferência humana</option><option value="DISQUALIFIED">Lead desqualificado</option></select></label><label>Valor em centavos (opcional)<input type="number" min="0" step="1" value={typeof config.valueCents==='number'?config.valueCents:''} onChange={event=>onConfig('valueCents',event.target.value===''?undefined:Number(event.target.value))} placeholder="Ex.: 15000" /></label></>}
     <button className={isStart?'start active':'start'} onClick={onStart} disabled={isStart||kind!=='trigger'}>{isStart?'✓ Nó inicial do fluxo':kind==='trigger'?'Definir como nó inicial':'Somente um gatilho pode iniciar'}</button><button className="danger-link" onClick={onRemove}>Excluir bloco</button>
+  </div></>
+}
+const MENU_EMOJIS=['😀','😊','😉','😍','🙏','👍','👋','🎉','🔥','✅','❌','⭐','💬','📅','📞','💰'];
+const TIMEOUT_UNITS={minutes:60,hours:3600,days:86400} as const;
+type TimeoutUnit=keyof typeof TIMEOUT_UNITS;
+function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const initial=node.data.config;
+  const initialTimeout=Number(initial.timeoutSeconds??0);
+  const initialUnit:TimeoutUnit=initialTimeout>0&&initialTimeout%86400!==0?(initialTimeout%3600===0?'hours':'minutes'):'days';
+  const [name,setName]=useState(node.data.name);
+  const [mode,setMode]=useState<MenuMode>(initial.mode==='buttons'?'buttons':'list');
+  const [text,setText]=useState(String(initial.text??''));
+  const [buttonText,setButtonText]=useState(String(initial.buttonText??''));
+  const [timeoutValue,setTimeoutValue]=useState(initialTimeout/TIMEOUT_UNITS[initialUnit]);
+  const [timeoutUnit,setTimeoutUnit]=useState<TimeoutUnit>(initialUnit);
+  const [options,setOptions]=useState<MenuOption[]>(()=>menuOptionsOf(initial));
+  const [saveAs,setSaveAs]=useState(String(initial.saveAs??''));
+  const [footer,setFooter]=useState(String(initial.footer??''));
+  const [imageEnabled,setImageEnabled]=useState(Boolean(initial.imageUrl));
+  const [imageUrl,setImageUrl]=useState(String(initial.imageUrl??''));
+  const [emojiOpen,setEmojiOpen]=useState(false);
+  const [submitted,setSubmitted]=useState(false);
+  const textRef=useRef<HTMLTextAreaElement>(null);
+  const limit=MENU_LIMIT[mode];const labelMax=mode==='buttons'?20:24;const isButtons=mode==='buttons';
+  const copy=isButtons?{heading:'Opções de Botões',add:'Adicionar Botão',empty:'Nenhum botão adicionado. Clique em “Adicionar Botão” para começar.',item:'botão'}:{heading:'Opções do Menu',add:'Adicionar Opção',empty:'Nenhuma opção adicionada. Clique em “Adicionar Opção” para começar.',item:'opção'};
+  const timeoutSeconds=Math.max(0,Math.round(timeoutValue||0))*TIMEOUT_UNITS[timeoutUnit];
+
+  const labels=options.map(option=>option.label.trim());
+  const errors={
+    text:!text.trim()?'Escreva a mensagem do menu.':text.length>1024?'Use até 1024 caracteres.':'',
+    buttonText:mode==='list'&&!buttonText.trim()?'Informe o texto do botão que abre a lista.':'',
+    image:isButtons&&imageEnabled?(!/^https:\/\/\S+\.\S+/.test(imageUrl.trim())?'Informe uma URL HTTPS válida para a imagem.':''):'',
+    timeout:timeoutSeconds>MENU_MAX_TIMEOUT_SECONDS?'O limite é 31 dias no total.':'',
+    options:!options.length?'Adicione ao menos uma opção.':options.length>limit?(mode==='buttons'?'Botões aceitam até 3 opções. Remova opções ou use Lista.':'A lista aceita até 10 opções.'):'',
+    option:(index:number)=>!labels[index]?'Dê um texto para a opção.':labels[index]!.length>labelMax?`Até ${labelMax} caracteres.`:labels.indexOf(labels[index]!)!==index?'Já existe uma opção com este texto.':'',
+    saveAs:saveAs.trim()&&!/^[A-Za-z_][\w.]*$/.test(saveAs.trim())?'Use letras, números, _ e pontos, começando por letra.':''
+  };
+  const hasErrors=Boolean(errors.text||errors.buttonText||errors.image||errors.timeout||errors.options||errors.saveAs||options.some((_,index)=>errors.option(index)));
+  const show=(message:string)=>submitted&&message?<small className="field-error">{message}</small>:null;
+
+  function format(open:string,close=open){
+    const el=textRef.current;if(!el)return;
+    const {selectionStart:from,selectionEnd:to,value}=el;const selected=value.slice(from,to)||'texto';
+    setText(value.slice(0,from)+open+selected+close+value.slice(to));
+    requestAnimationFrame(()=>{el.focus();el.setSelectionRange(from+open.length,from+open.length+selected.length)});
+  }
+  function insertEmoji(emoji:string){
+    const el=textRef.current;const at=el?.selectionStart??text.length;
+    setText(text.slice(0,at)+emoji+text.slice(el?.selectionEnd??at));setEmojiOpen(false);
+    requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(at+emoji.length,at+emoji.length)});
+  }
+  function addOption(){
+    // Ids stay stable once created: exits on the canvas are keyed by them.
+    const used=new Set(options.map(option=>option.id));let n=options.length+1;while(used.has(`option_${n}`))n+=1;
+    setOptions([...options,{id:`option_${n}`,label:''}]);
+  }
+  const updateOption=(index:number,patch:Partial<MenuOption>)=>setOptions(options.map((option,itemIndex)=>itemIndex===index?{...option,...patch}:option));
+  function save(){
+    setSubmitted(true);if(hasErrors)return;
+    const {buttonText:_buttonText,saveAs:_saveAs,footer:_footer,imageUrl:_imageUrl,...rest}=initial;
+    onSave(name.trim()||kindMeta.buttons.label,{
+      ...rest,mode,text,timeoutSeconds,
+      ...(mode==='list'?{buttonText:buttonText.trim()}:{}),
+      ...(isButtons&&footer.trim()?{footer:footer.trim()}:{}),
+      ...(isButtons&&imageEnabled&&imageUrl.trim()?{imageUrl:imageUrl.trim()}:{}),
+      ...(saveAs.trim()?{saveAs:saveAs.trim()}:{}),
+      buttons:options.map(option=>({id:option.id,label:option.label.trim(),...(mode==='list'&&option.description?.trim()?{description:option.description.trim()}:{})}))
+    });
+  }
+
+  return <><header><span className="palette-icon buttons"><List size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Menu</b></div></header>
+  <div className="inspector-form menu-editor">
+    <div className="menu-mode" role="radiogroup" aria-label="Formato do menu">
+      <button type="button" role="radio" aria-checked={mode==='list'} className={mode==='list'?'active':''} onClick={()=>setMode('list')}><List size={15} aria-hidden="true"/> Lista</button>
+      <button type="button" role="radio" aria-checked={mode==='buttons'} className={mode==='buttons'?'active':''} onClick={()=>setMode('buttons')}><Square size={15} aria-hidden="true"/> Botões</button>
+    </div>
+    {isButtons&&<div className={`menu-image ${imageEnabled?'open':''}`}>
+      <label className="menu-image-toggle"><input type="checkbox" checked={imageEnabled} onChange={event=>setImageEnabled(event.target.checked)}/> Imagem <span>(opcional)</span></label>
+      {imageEnabled&&<div className="menu-image-body">
+        <label>URL HTTPS da imagem<input type="url" inputMode="url" value={imageUrl} onChange={event=>setImageUrl(event.target.value)} placeholder="https://cdn.exemplo.com/capa.jpg" aria-invalid={Boolean(submitted&&errors.image)}/>{show(errors.image)}</label>
+        {/^https:\/\/\S+\.\S+/.test(imageUrl.trim())&&<img src={imageUrl.trim()} alt="Prévia da imagem do menu" loading="lazy"/>}
+      </div>}
+    </div>}
+    <label>Nome do bloco<input value={name} onChange={event=>setName(event.target.value)} maxLength={120}/></label>
+    <label htmlFor="menu-text">Mensagem *</label>
+    <div className={`menu-message ${submitted&&errors.text?'invalid':''}`}>
+      <textarea id="menu-text" ref={textRef} rows={5} value={text} onChange={event=>setText(event.target.value)} placeholder={isButtons?"Ex: É isso que você quer?":"Ex: Selecione a melhor opção:"} maxLength={1024}/>
+      <div className="menu-format" role="toolbar" aria-label="Formatação do WhatsApp">
+        <button type="button" title="Negrito" aria-label="Negrito" onClick={()=>format('*')}><Bold size={16}/></button>
+        <button type="button" title="Itálico" aria-label="Itálico" onClick={()=>format('_')}><Italic size={16}/></button>
+        <button type="button" title="Tachado" aria-label="Tachado" onClick={()=>format('~')}><Strikethrough size={16}/></button>
+        <button type="button" title="Emoji" aria-label="Inserir emoji" aria-expanded={emojiOpen} onClick={()=>setEmojiOpen(open=>!open)}><Smile size={16}/></button>
+        <button type="button" title="Monoespaçado" aria-label="Monoespaçado" onClick={()=>format('```')}><Code size={16}/></button>
+        {emojiOpen&&<div className="menu-emoji" role="listbox" aria-label="Emojis">{MENU_EMOJIS.map(emoji=><button type="button" role="option" aria-selected="false" key={emoji} onClick={()=>insertEmoji(emoji)}>{emoji}</button>)}</div>}
+      </div>
+    </div>
+    {show(errors.text)}
+    {isButtons&&<label>Rodapé <span className="optional">(opcional)</span><input value={footer} onChange={event=>setFooter(event.target.value)} maxLength={60} placeholder="Ex: Mensagem com Botão"/></label>}
+    {mode==='list'&&<label>Texto do Botão *<input value={buttonText} onChange={event=>setButtonText(event.target.value)} maxLength={20} placeholder="Ex: Abrir lista de opções" aria-invalid={Boolean(submitted&&errors.buttonText)}/>{show(errors.buttonText)}</label>}
+    <fieldset className="menu-timeout">
+      <legend>Tempo de expiração do menu (saída por inatividade)</legend>
+      <p className="field-help">Se 0, o padrão é 2 dias. Se definir um tempo, a saída por inatividade será exibida no fluxo. Limite máximo: 31 dias no total.</p>
+      <div className="duration-fields">
+        <input type="number" min="0" step="1" inputMode="numeric" aria-label="Tempo de expiração" value={timeoutValue} onChange={event=>setTimeoutValue(Math.max(0,Number(event.target.value)))}/>
+        <select aria-label="Unidade de tempo" value={timeoutUnit} onChange={event=>setTimeoutUnit(event.target.value as TimeoutUnit)}><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select>
+      </div>
+      {show(errors.timeout)}
+    </fieldset>
+    <div className="menu-options-head"><b>{copy.heading}</b><button type="button" className="menu-add" onClick={addOption} disabled={options.length>=limit} title={options.length>=limit?`Limite de ${limit} opções no formato ${mode==='list'?'lista':'botões'}`:undefined}><Plus size={16} aria-hidden="true"/> {copy.add}</button></div>
+    {options.length===0
+      ? <div className={`menu-options-empty ${submitted&&errors.options?'invalid':''}`}><List size={26} aria-hidden="true"/><p>{copy.empty}</p></div>
+      : <ol className="menu-options">{options.map((option,index)=><li key={option.id}>
+          <span className="menu-option-index" aria-hidden="true">{index+1}</span>
+          <div>
+            <input aria-label={`Texto do ${copy.item} ${index+1}`} value={option.label} maxLength={labelMax} onChange={event=>updateOption(index,{label:event.target.value})} placeholder={isButtons?`Botão ${index+1}`:`Opção ${index+1}`} aria-invalid={Boolean(submitted&&errors.option(index))}/>
+            {mode==='list'&&<input aria-label={`Descrição da opção ${index+1}`} value={option.description??''} maxLength={72} onChange={event=>updateOption(index,{description:event.target.value})} placeholder="Descrição (opcional)"/>}
+            {show(errors.option(index))}
+          </div>
+          <button type="button" className="menu-option-remove" aria-label={`Remover opção ${index+1}`} title="Remover opção" onClick={()=>setOptions(options.filter((_,itemIndex)=>itemIndex!==index))}><X size={16}/></button>
+        </li>)}</ol>}
+    {show(errors.options)}
+    <label>Campo para salvar a resposta do usuário<input value={saveAs} onChange={event=>setSaveAs(event.target.value)} placeholder="Ex.: escolha_menu" maxLength={120} aria-invalid={Boolean(submitted&&errors.saveAs)}/><small>Deixe em branco para não salvar a resposta.</small>{show(errors.saveAs)}</label>
+    <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer>
   </div></>
 }
 function EdgeInspector({edge,onChange,onRemove}:{edge:FlowEdge;onChange:(patch:Partial<FlowEdgeData>&{label?:string})=>void;onRemove:()=>void}){const condition=edge.data?.condition;const operator=condition?.operator??'equals';const needsValue=!['exists','not_exists'].includes(operator);return <><header><span className="palette-icon condition">→</span><div><small>CONEXÃO</small><b>Caminho do fluxo</b></div></header><div className="inspector-form"><label>Rótulo do caminho<input value={String(edge.label??'')} onChange={event=>onChange({label:event.target.value})} placeholder="Ex.: Sim, qualificado" /></label><label className="check-field"><input type="checkbox" checked={edge.data?.isDefault??false} onChange={event=>onChange({isDefault:event.target.checked,condition:event.target.checked?undefined:condition})}/> Rota padrão</label>{!edge.data?.isDefault&&<><label>Campo da condição<input value={condition?.field??''} onChange={event=>onChange({condition:{field:event.target.value,operator,value:condition?.value}})} placeholder="Ex.: lead.qualified"/></label><label>Operador<select value={operator} onChange={event=>onChange({condition:{field:condition?.field??'',operator:event.target.value as NonNullable<AutomationEdge['condition']>['operator'],value:condition?.value}})}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="not_contains">Não contém</option><option value="exists">Existe</option><option value="not_exists">Não existe</option><option value="greater_than">Maior que</option><option value="less_than">Menor que</option></select></label>{needsValue&&<label>Valor<input value={String(condition?.value??'')} onChange={event=>onChange({condition:{field:condition?.field??'',operator,value:event.target.value}})}/></label>}</>}<label>Prioridade<input type="number" min="0" max="1000" step="1" value={edge.data?.priority??0} onChange={event=>onChange({priority:Number(event.target.value)})}/></label><p className="field-help">A primeira condição verdadeira é seguida; a rota padrão cobre os demais casos.</p><button className="danger-link" onClick={onRemove}>Excluir conexão</button></div></>}

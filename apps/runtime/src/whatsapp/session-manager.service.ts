@@ -16,7 +16,7 @@ import { RedisService } from '../infra/redis.service.js';
 import { QUEUES, type ConnectionJob } from '../queues.js';
 import { acquireLock, type LockLease } from './distributed-lock.js';
 import { AuthStateStore } from './auth-state.store.js';
-import { messageBody, messageType } from './message-content.js';
+import { menuReply, messageBody, messageType } from './message-content.js';
 
 type LiveSession = { socket: WASocket; lease: LockLease; renewTimer: NodeJS.Timeout; manualClose: boolean };
 
@@ -150,6 +150,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
       if (!channel) continue;
       const phone = `+${remoteJid.split('@')[0]!.split(':')[0]!.replace(/\D/g, '')}`;
       const body = messageBody(incoming.message);
+      const reply = menuReply(incoming.message);
       try {
         await this.prisma.$transaction(async tx => {
           await tx.rawWebhookEvent.create({
@@ -187,7 +188,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
               body,
               authorType: 'contact',
               authorId: contact.id,
-              providerPayload: { remoteJid, participant: incoming.key.participant ?? null },
+              providerPayload: { remoteJid, participant: incoming.key.participant ?? null, ...(reply ? { menuReply: reply } : {}) },
               deliveredAt: new Date()
             }
           });

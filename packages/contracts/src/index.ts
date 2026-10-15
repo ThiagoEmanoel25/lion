@@ -53,8 +53,26 @@ export const AutomationMessageConfigSchema=z.object({text:z.string().trim().min(
 export const AutomationImageConfigSchema=z.object({url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional()}).strict();
 export const AutomationAudioConfigSchema=z.object({url:HttpsUrlSchema,ptt:z.boolean().optional()}).strict();
 export const AutomationStickerConfigSchema=z.object({url:HttpsUrlSchema}).strict();
-export const AutomationButtonConfigSchema=z.object({id:z.string().trim().min(1).max(256),label:z.string().trim().min(1).max(20)}).strict();
-export const AutomationButtonsConfigSchema=z.object({text:z.string().trim().min(1).max(1024),footer:z.string().trim().max(60).optional(),buttons:z.array(AutomationButtonConfigSchema).min(1).max(3)}).strict().superRefine((value,ctx)=>{
+export const AutomationButtonConfigSchema=z.object({id:z.string().trim().min(1).max(256),label:z.string().trim().min(1).max(24),description:z.string().trim().max(72).optional()}).strict();
+// WhatsApp caps: quick_reply buttons show up to 3, a single_select list up to 10 rows.
+export const MENU_MAX_OPTIONS={buttons:3,list:10} as const;
+export const MENU_DEFAULT_TIMEOUT_SECONDS=172_800;
+export const MENU_MAX_TIMEOUT_SECONDS=2_678_400;
+export const MENU_CHOICE_FIELD='menu.choice';
+export const AutomationButtonsConfigSchema=z.object({
+  mode:z.enum(['buttons','list']).default('buttons'),
+  text:z.string().trim().min(1).max(1024),
+  footer:z.string().trim().max(60).optional(),
+  imageUrl:HttpsUrlSchema.optional(),
+  buttonText:z.string().trim().max(20).optional(),
+  buttons:z.array(AutomationButtonConfigSchema).min(1).max(MENU_MAX_OPTIONS.list),
+  timeoutSeconds:z.number().int().min(0).max(MENU_MAX_TIMEOUT_SECONDS).default(0),
+  saveAs:z.string().trim().max(120).regex(/^[A-Za-z_][\w.]*$/,'Use letras, números, _ e pontos.').optional().or(z.literal(''))
+}).strict().superRefine((value,ctx)=>{
+  if(value.buttons.length>MENU_MAX_OPTIONS[value.mode])ctx.addIssue({code:z.ZodIssueCode.custom,path:['buttons'],message:value.mode==='list'?'A lista aceita até 10 opções.':'Use até 3 botões ou troque para lista.'});
+  if(value.mode==='list'&&value.imageUrl)ctx.addIssue({code:z.ZodIssueCode.custom,path:['imageUrl'],message:'A imagem só é enviada no formato Botões.'});
+  if(value.mode==='list'&&!value.buttonText)ctx.addIssue({code:z.ZodIssueCode.custom,path:['buttonText'],message:'Informe o texto do botão que abre a lista.'});
+  if(value.mode==='buttons')value.buttons.forEach((button,index)=>{if(button.label.length>20)ctx.addIssue({code:z.ZodIssueCode.custom,path:['buttons',index,'label'],message:'Botões aceitam até 20 caracteres.'})});
   const ids=new Set<string>();
   const labels=new Set<string>();
   value.buttons.forEach((button,index)=>{
