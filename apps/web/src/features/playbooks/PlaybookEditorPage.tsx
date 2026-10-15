@@ -9,7 +9,7 @@ import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlayboo
 import {useAgents} from '../agents/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
-import {CONDITION_GROUPS,CUSTOM_FIELD_PREFIX,WEEKDAY_LABELS,itemForRule,ruleError,searchConditionItems,valueKind,type ConditionOperator,type ConditionRule} from './condition-catalog';
+import {CONDITION_GROUPS,coerceRuleValue,CUSTOM_FIELD_PREFIX,WEEKDAY_LABELS,itemForRule,ruleError,searchConditionItems,valueKind,type ConditionOperator,type ConditionRule} from './condition-catalog';
 import './flow-builder.css';
 
 type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unknown>};
@@ -369,15 +369,15 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
   </div></>
 }
 type ConditionMember={id:string;name:string};
-function ConditionValue({rule,tags,members,onChange}:{rule:ConditionRule;tags:ContactMeta['tags'];members:ConditionMember[];onChange:(patch:Partial<ConditionRule>)=>void}){
+function ConditionValue({rule,tags,members,pathInvalid,onChange}:{rule:ConditionRule;pathInvalid:boolean;tags:ContactMeta['tags'];members:ConditionMember[];onChange:(patch:Partial<ConditionRule>)=>void}){
   const item=itemForRule(rule);const kind=valueKind(item,rule.operator);
   const list=Array.isArray(rule.value)?rule.value as unknown[]:[];
   const toggle=(value:unknown)=>onChange({value:list.includes(value)?list.filter(entry=>entry!==value):[...list,value]});
   const pair=Array.isArray(rule.value)?rule.value as string[]:['',''];
   const setPair=(index:0|1,value:string)=>onChange({value:index===0?[value,pair[1]??'']:[pair[0]??'',value]});
   return <>
-    {item.key==='custom'&&<label>Chave do campo<input value={rule.field.slice(CUSTOM_FIELD_PREFIX.length)} onChange={event=>onChange({field:CUSTOM_FIELD_PREFIX+event.target.value.trim()})} placeholder="Ex.: plano"/></label>}
-    {item.key==='variable'&&<label>Caminho da variável<input value={rule.field} onChange={event=>onChange({field:event.target.value.trim()})} placeholder="Ex.: menu.choice"/></label>}
+    {item.key==='custom'&&<label>Chave do campo<input value={rule.field.slice(CUSTOM_FIELD_PREFIX.length)} onChange={event=>onChange({field:CUSTOM_FIELD_PREFIX+event.target.value.trim()})} placeholder="Ex.: plano" aria-invalid={pathInvalid}/></label>}
+    {item.key==='variable'&&<label>Caminho da variável<input value={rule.field} onChange={event=>onChange({field:event.target.value.trim()})} placeholder="Ex.: menu.choice" aria-invalid={pathInvalid}/></label>}
     {kind==='tags'&&(tags.length?<div className="condition-checks">{tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={list.includes(tag.id)} onChange={()=>toggle(tag.id)}/><i style={{background:tag.color}}/>{tag.name}</label>)}</div>:<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>)}
     {kind==='members'&&(members.length?<div className="condition-checks">{members.map(member=><label key={member.id} className="check-field"><input type="checkbox" checked={list.includes(member.id)} onChange={()=>toggle(member.id)}/>{member.name}</label>)}</div>:<p className="field-help">Nenhum membro no workspace.</p>)}
     {kind==='weekdays'&&<div className="condition-weekdays" role="group" aria-label="Dias da semana">{WEEKDAY_LABELS.map((label,day)=><button type="button" key={label} aria-pressed={list.includes(day)} className={list.includes(day)?'active':''} onClick={()=>toggle(day)}>{label}</button>)}</div>}
@@ -385,7 +385,7 @@ function ConditionValue({rule,tags,members,onChange}:{rule:ConditionRule;tags:Co
     {kind==='date'&&<label>Data<input type="date" value={typeof rule.value==='string'?rule.value:''} onChange={event=>onChange({value:event.target.value})}/></label>}
     {kind==='dateRange'&&<div className="duration-fields"><label>De<input type="date" value={pair[0]??''} onChange={event=>setPair(0,event.target.value)}/></label><label>Até<input type="date" value={pair[1]??''} onChange={event=>setPair(1,event.target.value)}/></label></div>}
     {kind==='boolean'&&<label>Situação<select value={rule.value===false?'false':'true'} onChange={event=>onChange({value:event.target.value==='true'})}><option value="true">Dentro da janela de 24h</option><option value="false">Fora da janela de 24h</option></select></label>}
-    {kind==='text'&&<label>Valor<input value={String(rule.value??'')} onChange={event=>onChange({value:event.target.value})}/></label>}
+    {kind==='text'&&<label>Valor<input value={String(rule.value??'')} onChange={event=>onChange({value:coerceRuleValue(rule.operator,event.target.value)})}/></label>}
   </>
 }
 function ConditionEditor({node,tags,members,onSave,onCancel}:{node:FlowNode;tags:ContactMeta['tags'];members:ConditionMember[];onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
@@ -402,13 +402,13 @@ function ConditionEditor({node,tags,members,onSave,onCancel}:{node:FlowNode;tags
   const updateRule=(index:number,patch:Partial<ConditionRule>)=>setRules(rules.map((rule,itemIndex)=>itemIndex===index?{...rule,...patch}:rule));
   function save(){setSubmitted(true);if(listError||errors.some(Boolean))return;onSave(name.trim()||kindMeta.condition.label,{...initial,logic,rules})}
 
-  if(picking)return <><header className="condition-picker-head"><button type="button" className="condition-back" aria-label="Voltar para as condições" onClick={()=>setPicking(false)}><ChevronLeft size={18}/></button><div><b>Adicionar condição ao fluxo</b><small>Defina as condições e regra lógica para que o fluxo continue pela saída superior deste bloco:</small></div></header>
+  if(picking)return <div onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();setPicking(false)}}}><header className="condition-picker-head"><button type="button" className="condition-back" aria-label="Voltar para as condições" onClick={()=>setPicking(false)}><ChevronLeft size={18}/></button><div><b>Adicionar condição ao fluxo</b><small>Defina as condições e regra lógica para que o fluxo continue pela saída superior deste bloco:</small></div></header>
   <div className="inspector-form condition-picker">
     <label htmlFor="condition-search">Selecionar condição</label>
     <div className="condition-search"><Search size={16} aria-hidden="true"/><input id="condition-search" autoFocus type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Buscar condição..."/></div>
     {results.length===0&&<p className="palette-empty">Nenhuma condição encontrada para “{query}”.</p>}
     {CONDITION_GROUPS.map(group=>{const items=results.filter(item=>item.group===group);return items.length?<section key={group} className={`condition-group group-${group.toLowerCase()}`}><b>{group}</b>{items.map(item=><button type="button" key={item.key} onClick={()=>{setRules([...rules,item.create()]);setPicking(false);setQuery('')}}>{item.label}</button>)}</section>:null})}
-  </div></>;
+  </div></div>;
 
   return <><header><span className="palette-icon condition"><GitBranch size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Condicional</b></div></header>
   <div className="inspector-form condition-editor">
@@ -424,8 +424,8 @@ function ConditionEditor({node,tags,members,onSave,onCancel}:{node:FlowNode;tags
           <span className="menu-option-index" aria-hidden="true">{index+1}</span>
           <div>
             <div className="condition-rule-head"><b>{item.label}</b><small>{item.group}</small></div>
-            {item.operators.length>1&&<label>Operador<select value={rule.operator} onChange={event=>updateRule(index,{operator:event.target.value as ConditionOperator,...(valueKind(item,event.target.value as ConditionOperator)!==valueKind(item,rule.operator)?{value:item.create().value}:{})})}>{item.operators.map(operator=><option key={operator.value} value={operator.value}>{operator.label}</option>)}</select></label>}
-            <ConditionValue rule={rule} tags={tags} members={members} onChange={patch=>updateRule(index,patch)}/>
+            {item.operators.length>1&&<label>Operador<select value={rule.operator} onChange={event=>updateRule(index,{operator:event.target.value as ConditionOperator,...(valueKind(item,event.target.value as ConditionOperator)!==valueKind(item,rule.operator)?{value:item.create().value}:valueKind(item,rule.operator)==='text'?{value:coerceRuleValue(event.target.value as ConditionOperator,String(rule.value??''))}:{})})}>{item.operators.map(operator=><option key={operator.value} value={operator.value}>{operator.label}</option>)}</select></label>}
+            <ConditionValue rule={rule} pathInvalid={Boolean(submitted&&/^Informe (a chave|o caminho)/.test(errors[index]??''))} tags={tags} members={members} onChange={patch=>updateRule(index,patch)}/>
             {submitted&&errors[index]&&<small className="field-error">{errors[index]}</small>}
           </div>
           <button type="button" className="menu-option-remove" aria-label={`Remover condição ${index+1}`} title="Remover condição" onClick={()=>setRules(rules.filter((_,itemIndex)=>itemIndex!==index))}><X size={16}/></button>

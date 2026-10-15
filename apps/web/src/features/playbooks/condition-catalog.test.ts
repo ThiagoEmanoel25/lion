@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONDITION_GROUPS, CONDITION_ITEMS, itemForRule, ruleError, searchConditionItems, valueKind } from './condition-catalog';
+import { CONDITION_GROUPS, CONDITION_ITEMS, coerceRuleValue, itemForRule, ruleError, searchConditionItems, valueKind } from './condition-catalog';
 
 const item = (key: string) => CONDITION_ITEMS.find(entry => entry.key === key)!;
 
@@ -56,5 +56,27 @@ describe('condition catalog', () => {
     expect(ruleError({ field: 'contact.name', operator: 'equals', value: '' })).toBe('Informe o valor para comparar.');
     expect(ruleError({ field: 'contact.name', operator: 'exists' })).toBe('');
     expect(ruleError({ field: 'conversation.status', operator: 'equals', value: 'QUEUED' })).toBe('');
+  });
+
+  it('ignora chaves herdadas do Object ao classificar regras', () => {
+    expect(itemForRule({ field: 'constructor', operator: 'equals', value: 'x' }).key).toBe('variable');
+    expect(itemForRule({ field: 'conversation.status', operator: 'equals', value: 'toString' }).key).toBe('variable');
+  });
+
+  it('aceita caminhos com hífen', () => {
+    expect(ruleError({ field: 'integration.data-nascimento', operator: 'equals', value: 'x' })).toBe('');
+    expect(ruleError({ field: 'contact.customFields.data-nascimento', operator: 'equals', value: 'x' })).toBe('');
+  });
+
+  it('rejeita intervalo de datas invertido', () => {
+    expect(ruleError({ field: 'system.date', operator: 'between', value: ['2026-02-01', '2026-01-01'] })).toBe('A data inicial deve ser anterior ou igual à final.');
+    expect(ruleError({ field: 'system.date', operator: 'between', value: ['2026-01-01', '2026-01-01'] })).toBe('');
+  });
+
+  it('converte o valor para número só em operadores de ordenação', () => {
+    expect(coerceRuleValue('greater_than', '50')).toBe(50);
+    expect(coerceRuleValue('equals', '50')).toBe('50');
+    expect(coerceRuleValue('less_than', 'abc')).toBe('abc');
+    expect(coerceRuleValue('greater_than', '')).toBe('');
   });
 });

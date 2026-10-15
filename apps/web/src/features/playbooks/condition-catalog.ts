@@ -41,8 +41,8 @@ const FIELD_ITEMS: Record<string, string> = { 'contact.tagIds': 'tag', 'system.w
 const STATUS_ITEMS: Record<string, string> = { QUEUED: 'waiting', ASSIGNED: 'attending', RESOLVED: 'resolved' };
 
 export function itemForRule(rule: ConditionRule): ConditionItem {
-  if (rule.field === 'conversation.status' && typeof rule.value === 'string' && STATUS_ITEMS[rule.value]) return byKey(STATUS_ITEMS[rule.value]!);
-  if (FIELD_ITEMS[rule.field]) return byKey(FIELD_ITEMS[rule.field]!);
+  if (rule.field === 'conversation.status' && typeof rule.value === 'string' && Object.hasOwn(STATUS_ITEMS, rule.value)) return byKey(STATUS_ITEMS[rule.value]!);
+  if (Object.hasOwn(FIELD_ITEMS, rule.field)) return byKey(FIELD_ITEMS[rule.field]!);
   if (rule.field.startsWith(CUSTOM_FIELD_PREFIX)) return byKey('custom');
   return byKey('variable');
 }
@@ -70,7 +70,7 @@ export function searchConditionItems(query: string): ConditionItem[] {
 
 const TIME = /^\d{2}:\d{2}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const PATH = /^[A-Za-z_][\w.]*$/;
+const PATH = /^[A-Za-z_][\w.-]*$/;
 const isPair = (value: unknown, pattern: RegExp) => Array.isArray(value) && value.length === 2 && value.every(part => typeof part === 'string' && pattern.test(part));
 
 export function ruleError(rule: ConditionRule): string {
@@ -83,8 +83,15 @@ export function ruleError(rule: ConditionRule): string {
     case 'weekdays': return Array.isArray(rule.value) && rule.value.length ? '' : 'Selecione ao menos um dia.';
     case 'timeRange': return isPair(rule.value, TIME) ? '' : 'Informe o horário inicial e final.';
     case 'date': return typeof rule.value === 'string' && DATE.test(rule.value) ? '' : 'Informe a data.';
-    case 'dateRange': return isPair(rule.value, DATE) ? '' : 'Informe a data inicial e final.';
+    case 'dateRange':
+      if (!isPair(rule.value, DATE)) return 'Informe a data inicial e final.';
+      return (rule.value as string[])[0]! > (rule.value as string[])[1]! ? 'A data inicial deve ser anterior ou igual à final.' : '';
     case 'text': return rule.value !== undefined && rule.value !== null && String(rule.value).trim() !== '' ? '' : 'Informe o valor para comparar.';
     default: return '';
   }
+}
+
+// Ordering operators only compare number-number or string-string, so numeric text must be stored as a number.
+export function coerceRuleValue(operator: ConditionOperator, input: string): unknown {
+  return (operator === 'greater_than' || operator === 'less_than') && input.trim() !== '' && Number.isFinite(Number(input)) ? Number(input) : input;
 }

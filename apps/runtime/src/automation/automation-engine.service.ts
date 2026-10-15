@@ -111,7 +111,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         await this.failExecution(execution.id, 'NODE_NOT_FOUND', `Nó ${currentNodeId} não encontrado.`);
         return;
       }
-      if (node.kind === 'condition') context = mergeLiveContext(context, await this.loadLiveContext(execution.conversationId));
+      if (node.kind === 'condition') context = mergeLiveContext(context, await this.loadLiveContext(execution.workspaceId, execution.conversationId));
       const edge = selectNextEdge(node, definition.edges, context);
       const nextNodeId = edge?.target;
       let step = await this.prisma.executionStep.findFirst({ where: { executionId: execution.id, nodeId: node.id, status: 'RUNNING' }, orderBy: { startedAt: 'desc' } });
@@ -339,7 +339,7 @@ export class AutomationEngineService implements OnModuleDestroy {
 
       case 'agent': {
         const agentId = typeof node.config.agentId === 'string' ? node.config.agentId : '';
-        const inbound = await this.prisma.message.findFirst({where:{conversationId,direction:'INBOUND'},orderBy:{createdAt:'desc'},select:{body:true}});
+        const inbound = await this.prisma.message.findFirst({where:{workspaceId,conversationId,direction:'INBOUND'},orderBy:{createdAt:'desc'},select:{body:true}});
         const decision = agentId ? await this.agents.decide({workspaceId,agentId,message:inbound?.body??'',nodePrompt:typeof node.config.prompt==='string'?node.config.prompt:undefined,referenceId:executionId}) : {kind:'handoff' as const,confidence:1,reason:'AGENT_NOT_CONFIGURED: selecione um agente no bloco.',knowledgeChunks:0,unavailable:true};
         if(decision.kind==='handoff'){
           await this.prisma.$transaction([
@@ -407,13 +407,15 @@ export class AutomationEngineService implements OnModuleDestroy {
     await this.prisma.execution.updateMany({ where: { id: executionId, status: { in: ['RUNNING', 'WAITING'] } }, data: { status: 'FAILED', finishedAt: new Date(), context: asJson({ ...context, _runtime: { ...context._runtime, error: { code, message } } }) } });
   }
 
-  private async loadLiveContext(conversationId: string) {
-    const conversation = await this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: { workspace: { select: { timezone: true } }, contact: { include: { tags: { include: { tag: true } } } } }
-    });
+  private async loadLiveContext(workspaceId: string, conversationId: string) {
+    const [conversation, lastInbound] = await Promise.all([
+      this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: { workspace: { select: { timezone: true } }, contact: { include: { tags: { include: { tag: true } } } } }
+      }),
+      this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } })
+    ]);
     if (!conversation) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
-    const lastInbound = await this.prisma.message.findFirst({ where: { conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
     const { contact } = conversation;
     return liveConditionContext({
       timeZone: conversation.workspace.timezone,
