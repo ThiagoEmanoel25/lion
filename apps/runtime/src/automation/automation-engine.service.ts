@@ -6,6 +6,7 @@ import { AutomationDefinitionSchema } from '@nexo/contracts';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
@@ -110,6 +111,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         await this.failExecution(execution.id, 'NODE_NOT_FOUND', `Nó ${currentNodeId} não encontrado.`);
         return;
       }
+      if (node.kind === 'condition') context = mergeLiveContext(context, await this.loadLiveContext(execution.conversationId));
       const edge = selectNextEdge(node, definition.edges, context);
       const nextNodeId = edge?.target;
       let step = await this.prisma.executionStep.findFirst({ where: { executionId: execution.id, nodeId: node.id, status: 'RUNNING' }, orderBy: { startedAt: 'desc' } });
@@ -403,6 +405,23 @@ export class AutomationEngineService implements OnModuleDestroy {
     if (!execution) return;
     const context = objectContext(execution.context);
     await this.prisma.execution.updateMany({ where: { id: executionId, status: { in: ['RUNNING', 'WAITING'] } }, data: { status: 'FAILED', finishedAt: new Date(), context: asJson({ ...context, _runtime: { ...context._runtime, error: { code, message } } }) } });
+  }
+
+  private async loadLiveContext(conversationId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { workspace: { select: { timezone: true } }, contact: { include: { tags: { include: { tag: true } } } } }
+    });
+    if (!conversation) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
+    const lastInbound = await this.prisma.message.findFirst({ where: { conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+    const { contact } = conversation;
+    return liveConditionContext({
+      timeZone: conversation.workspace.timezone,
+      now: new Date(),
+      contact: { id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, stage: contact.stage, customFields: contact.customFields, tags: contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })) },
+      conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode, assigneeId: conversation.assigneeId, queue: conversation.queue },
+      lastInboundAt: lastInbound?.createdAt ?? null
+    });
   }
 
   private loadExecution(executionId: string) {

@@ -198,7 +198,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       playbookVersionId: version.id,
       context: {
         trigger: { event: input.triggerEvent, messageId: input.messageId ?? null, tagId: input.tagId ?? null },
-        contact: { id: conversation.contact.id, name: conversation.contact.name, phone: conversation.contact.phone, email: conversation.contact.email, stage: conversation.contact.stage, customFields: conversation.contact.customFields, tags: conversation.contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })) },
+        contact: { id: conversation.contact.id, name: conversation.contact.name, phone: conversation.contact.phone, email: conversation.contact.email, stage: conversation.contact.stage, customFields: conversation.contact.customFields, tags: conversation.contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })), tagIds: conversation.contact.tags.map(item => item.tag.id) },
         conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode }
       }
     } });
