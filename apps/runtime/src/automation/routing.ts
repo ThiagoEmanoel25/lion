@@ -28,6 +28,12 @@ export function conditionMatches(value: unknown, condition: NonNullable<Automati
 export function selectNextEdge(node: AutomationNode, edges: AutomationEdge[], context: Record<string, unknown>): AutomationEdge | undefined {
   const candidates = edges.filter(edge => edge.source === node.id).sort((a, b) => a.priority - b.priority);
   if (node.kind !== 'condition') return candidates[0];
+  const rules = Array.isArray(node.config?.rules) ? node.config.rules as Array<NonNullable<AutomationEdge['condition']>> : [];
+  if (rules.length) {
+    const results = rules.map(rule => conditionMatches(getPathValue(context, rule.field), rule));
+    const matches = node.config.logic === 'any' ? results.some(Boolean) : results.every(Boolean);
+    return matches ? candidates.find(edge => !edge.isDefault) : candidates.find(edge => edge.isDefault);
+  }
   return candidates.find(edge => edge.condition && conditionMatches(getPathValue(context, edge.condition.field), edge.condition))
     ?? candidates.find(edge => edge.isDefault);
 }

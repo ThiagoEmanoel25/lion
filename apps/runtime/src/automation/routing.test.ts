@@ -21,6 +21,19 @@ describe('automation routing', () => {
     expect(selectNextEdge(node, edges, { score: 5 })?.id).toBe('default');
   });
 
+  it('combina regras do bloco e escolhe entre atendida e padrão', () => {
+    const node = { id: 'condition', kind: 'condition', name: 'Condicional', position: { x: 0, y: 0 }, config: { logic: 'any', rules: [
+      { field: 'contact.stage', operator: 'equals', value: 'qualified' },
+      { field: 'contact.tags', operator: 'contains', value: 'vip' }
+    ] } } as AutomationNode;
+    const edges = [
+      { id: 'success', source: 'condition', target: 'message', isDefault: false, priority: 0 },
+      { id: 'fallback', source: 'condition', target: 'human', isDefault: true, priority: 1000 }
+    ] as AutomationEdge[];
+    expect(selectNextEdge(node, edges, { contact: { stage: 'new', tags: ['vip'] } })?.id).toBe('success');
+    expect(selectNextEdge(node, edges, { contact: { stage: 'new', tags: [] } })?.id).toBe('fallback');
+  });
+
   it('interpola dados sem executar expressões', () => {
     expect(renderTemplate('Olá {{ contact.name }}, protocolo {{id}}', { contact: { name: 'Ana' }, id: 42 })).toBe('Olá Ana, protocolo 42');
     expect(renderTemplate('{{missing}}', {})).toBe('');

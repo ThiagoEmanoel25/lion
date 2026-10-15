@@ -1,11 +1,15 @@
 import {
   AutomationAudioConfigSchema,
   AutomationButtonsConfigSchema,
+  AutomationConditionConfigSchema,
+  AutomationDelayConfigSchema,
   AutomationDefinitionSchema,
   AutomationImageConfigSchema,
   AutomationMessageConfigSchema,
   AutomationStickerConfigSchema,
-  AutomationTriggerConfigSchema
+  AutomationTagConfigSchema,
+  AutomationTriggerConfigSchema,
+  AutomationWebhookConfigSchema
 } from '@nexo/contracts';
 import type { z, ZodTypeAny } from 'zod';
 
@@ -38,23 +42,19 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationStickerConfigSchema, 'INVALID_STICKER_CONFIG', 'Figurinha inválida');
     case 'buttons':
       return validateConfig(AutomationButtonsConfigSchema, 'INVALID_BUTTONS_CONFIG', 'Botões inválidos');
+    case 'condition':
+      return Array.isArray(config.rules) ? validateConfig(AutomationConditionConfigSchema, 'INVALID_CONDITION_CONFIG', 'Condicional inválida') : [];
     case 'delay':
-      return typeof config.seconds === 'number' && Number.isInteger(config.seconds) && config.seconds >= 1 && config.seconds <= 2_592_000 ? [] : [error('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 30 dias.')];
+      return validateConfig(AutomationDelayConfigSchema, 'INVALID_DELAY', 'Intervalo inteligente inválido');
     case 'agent':
       return typeof config.agentId === 'string' && config.agentId.trim() ? [] : [error('AGENT_REQUIRED', 'Selecione um agente de IA configurado.')];
     case 'webhook': {
-      if (typeof config.url !== 'string') return [error('WEBHOOK_URL_REQUIRED', 'O webhook precisa de uma URL HTTPS.')];
-      try {
-        const url = new URL(config.url);
-        return url.protocol === 'https:' ? [] : [error('WEBHOOK_HTTPS_REQUIRED', 'O webhook deve usar HTTPS.')];
-      } catch {
-        return [error('INVALID_WEBHOOK_URL', 'A URL do webhook é inválida.')];
-      }
+      return validateConfig(AutomationWebhookConfigSchema, 'INVALID_WEBHOOK_CONFIG', 'Integração inválida');
     }
     case 'assign':
       return typeof config.queue === 'string' && config.queue.trim() || typeof config.assigneeId === 'string' && config.assigneeId.trim() ? [] : [error('ASSIGN_TARGET_REQUIRED', 'Informe uma fila ou responsável para atribuição.')];
     case 'tag':
-      return typeof config.tagId === 'string' && config.tagId.trim() || typeof config.tag === 'string' && config.tag.trim() ? [] : [error('TAG_REQUIRED', 'Informe a etiqueta que será aplicada.')];
+      return validateConfig(AutomationTagConfigSchema, 'TAG_REQUIRED', 'Etiquetas inválidas');
     case 'outcome':
       return typeof config.type === 'string' && outcomeKinds.has(config.type) ? [] : [error('OUTCOME_TYPE_REQUIRED', 'Informe um tipo de desfecho válido.')];
     default:
@@ -106,7 +106,9 @@ export function validateAutomation(value: unknown) {
       if (edges.length < 2) issues.push({ level: 'error', code: 'CONDITION_BRANCHES_REQUIRED', message: 'A condição precisa de ao menos duas saídas.', nodeId: node.id });
       if (edges.filter(edge => edge.isDefault).length !== 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição precisa de exatamente uma saída padrão.', nodeId: node.id });
       const conditional = edges.filter(edge => !edge.isDefault);
-      if (conditional.some(edge => !edge.condition)) issues.push({ level: 'error', code: 'BRANCH_CONDITION_REQUIRED', message: 'Toda saída não padrão precisa de uma condição.', nodeId: node.id });
+      const usesNodeRules = Array.isArray(node.config.rules);
+      if (!usesNodeRules && conditional.some(edge => !edge.condition)) issues.push({ level: 'error', code: 'BRANCH_CONDITION_REQUIRED', message: 'Toda saída não padrão precisa de uma condição.', nodeId: node.id });
+      if (usesNodeRules && conditional.length !== 1) issues.push({ level: 'error', code: 'CONDITION_SUCCESS_ROUTE_REQUIRED', message: 'A condicional configurada no bloco precisa de uma saída atendida e uma saída padrão.', nodeId: node.id });
       const priorities = new Set<number>();
       for (const edge of conditional) {
         if (priorities.has(edge.priority)) issues.push({ level: 'error', code: 'DUPLICATE_BRANCH_PRIORITY', message: 'As prioridades das condições devem ser únicas.', nodeId: node.id, edgeId: edge.id });
@@ -151,6 +153,13 @@ function matches(value: unknown, operator: NonNullable<AutomationDefinition['edg
   }
 }
 
+function nodeConditionMatches(node: AutomationDefinition['nodes'][number], variables: Record<string, unknown>) {
+  const rules = Array.isArray(node.config.rules) ? node.config.rules as Array<NonNullable<AutomationEdge['condition']>> : [];
+  if (!rules.length) return undefined;
+  const results = rules.map(rule => matches(getPathValue(variables, rule.field), rule.operator, rule.value));
+  return node.config.logic === 'any' ? results.some(Boolean) : results.every(Boolean);
+}
+
 export function simulateAutomation(definition: AutomationDefinition, variables: Record<string, unknown> = {}) {
   const nodes = new Map(definition.nodes.map(node => [node.id, node]));
   const outgoing = new Map<string, typeof definition.edges>();
@@ -163,7 +172,12 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
     if (!node) { stoppedBecause = 'dead_end'; break; }
     const candidates: AutomationEdge[] = [...(outgoing.get(current) ?? [])].sort((a, b) => a.priority - b.priority);
     let selected: AutomationEdge | undefined = candidates[0];
-    if (node.kind === 'condition') selected = candidates.find(edge => edge.condition && matches(getPathValue(variables, edge.condition.field), edge.condition.operator, edge.condition.value)) ?? candidates.find(edge => edge.isDefault);
+    if (node.kind === 'condition') {
+      const nodeMatch = nodeConditionMatches(node, variables);
+      selected = nodeMatch === undefined
+        ? candidates.find(edge => edge.condition && matches(getPathValue(variables, edge.condition.field), edge.condition.operator, edge.condition.value)) ?? candidates.find(edge => edge.isDefault)
+        : nodeMatch ? candidates.find(edge => !edge.isDefault) : candidates.find(edge => edge.isDefault);
+    }
     steps.push({ index: steps.length, nodeId: current, kind: node.kind, selectedEdgeId: selected?.id ?? null });
     if (terminalKinds.has(node.kind)) { current = undefined; break; }
     if (!selected) { stoppedBecause = 'dead_end'; current = undefined; break; }

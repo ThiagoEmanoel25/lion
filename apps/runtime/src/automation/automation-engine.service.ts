@@ -27,6 +27,20 @@ const stringConfig = (node: AutomationNode, key: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new NodeExecutionError('INVALID_NODE_CONFIG', `O nó ${node.id} requer config.${key}.`);
   return value.trim();
 };
+const setContextPath = (context: EngineContext, path: string, value: unknown): EngineContext => {
+  const next: EngineContext = structuredClone(context);
+  const parts = path.split('.');
+  let current: Record<string, unknown> = next;
+  parts.forEach((part, index) => {
+    if (index === parts.length - 1) current[part] = value;
+    else {
+      const child = current[part];
+      current[part] = child && typeof child === 'object' && !Array.isArray(child) ? child : {};
+      current = current[part] as Record<string, unknown>;
+    }
+  });
+  return next;
+};
 
 @Injectable()
 export class AutomationEngineService implements OnModuleDestroy {
@@ -177,7 +191,7 @@ export class AutomationEngineService implements OnModuleDestroy {
 
       case 'delay': {
         const seconds = node.config.seconds;
-        if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1 || seconds > 2_592_000) throw new NodeExecutionError('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 30 dias.');
+        if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1 || seconds > 2_678_400) throw new NodeExecutionError('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 31 dias.');
         const waitingContext: EngineContext = { ...context, _runtime: { pendingDelayStepId: step.id } };
         await this.prisma.$transaction([
           this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { delaySeconds: seconds, resumeAt: new Date(Date.now() + seconds * 1000).toISOString() }, finishedAt: new Date() } }),
@@ -207,19 +221,29 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'tag': {
         const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
         if (!conversation) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
-        let tagId = typeof node.config.tagId === 'string' ? node.config.tagId : undefined;
+        const mode = node.config.mode === 'remove' ? 'remove' : 'add';
+        const configuredIds = Array.isArray(node.config.tagIds) ? node.config.tagIds.filter((value): value is string => typeof value === 'string' && Boolean(value)) : [];
+        if (typeof node.config.tagId === 'string' && node.config.tagId) configuredIds.push(node.config.tagId);
+        const configuredNames = Array.isArray(node.config.tags) ? node.config.tags.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map(value => value.trim()) : [];
+        if (typeof node.config.tag === 'string' && node.config.tag.trim()) configuredNames.push(node.config.tag.trim());
+        if (!configuredIds.length && !configuredNames.length) throw new NodeExecutionError('TAG_REQUIRED', 'Informe ao menos uma etiqueta.');
         await this.prisma.$transaction(async tx => {
-          if (tagId) {
-            if (!await tx.tag.count({ where: { id: tagId, workspaceId } })) throw new NodeExecutionError('TAG_NOT_FOUND', 'A etiqueta configurada não existe.');
-          } else {
-            const name = stringConfig(node, 'tag');
-            const tag = await tx.tag.upsert({ where: { workspaceId_name: { workspaceId, name } }, create: { workspaceId, name }, update: {} });
-            tagId = tag.id;
+          const uniqueIds = [...new Set(configuredIds)];
+          if (uniqueIds.length && await tx.tag.count({ where: { id: { in: uniqueIds }, workspaceId } }) !== uniqueIds.length) throw new NodeExecutionError('TAG_NOT_FOUND', 'Uma ou mais etiquetas configuradas não existem.');
+          for (const name of [...new Set(configuredNames)]) {
+            const tag = mode === 'add'
+              ? await tx.tag.upsert({ where: { workspaceId_name: { workspaceId, name } }, create: { workspaceId, name }, update: {} })
+              : await tx.tag.findUnique({ where: { workspaceId_name: { workspaceId, name } } });
+            if (tag) uniqueIds.push(tag.id);
           }
-          const alreadyTagged = await tx.contactTag.count({ where: { contactId: conversation.contactId, tagId: tagId! } });
-          await tx.contactTag.upsert({ where: { contactId_tagId: { contactId: conversation.contactId, tagId: tagId! } }, create: { contactId: conversation.contactId, tagId: tagId! }, update: {} });
-          if (!alreadyTagged) await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Contact', aggregateId: conversation.contactId, type: 'automation.trigger.requested', payload: { event: 'tag.added', conversationId, contactId: conversation.contactId, tagId: tagId! } } });
-          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { tagId });
+          const tagIds = [...new Set(uniqueIds)];
+          if (mode === 'remove') await tx.contactTag.deleteMany({ where: { contactId: conversation.contactId, tagId: { in: tagIds } } });
+          else for (const tagId of tagIds) {
+            const alreadyTagged = await tx.contactTag.count({ where: { contactId: conversation.contactId, tagId } });
+            await tx.contactTag.upsert({ where: { contactId_tagId: { contactId: conversation.contactId, tagId } }, create: { contactId: conversation.contactId, tagId }, update: {} });
+            if (!alreadyTagged) await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Contact', aggregateId: conversation.contactId, type: 'automation.trigger.requested', payload: { event: 'tag.added', conversationId, contactId: conversation.contactId, tagId } } });
+          }
+          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { mode, tagIds });
         });
         return 'continue';
       }
@@ -256,10 +280,17 @@ export class AutomationEngineService implements OnModuleDestroy {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), Math.min(input.definition.settings.timeoutSeconds * 1000, 30_000));
         try {
-          const response = await fetch(url, { method: typeof node.config.method === 'string' ? node.config.method.toUpperCase() : 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': step.id }, body: JSON.stringify({ executionId, conversationId, context }), signal: controller.signal });
+          const method = typeof node.config.method === 'string' ? node.config.method.toUpperCase() : 'POST';
+          const configuredHeaders = node.config.headers && typeof node.config.headers === 'object' && !Array.isArray(node.config.headers) ? node.config.headers as Record<string, unknown> : {};
+          const headers = Object.fromEntries(Object.entries(configuredHeaders).filter((entry): entry is [string, string] => typeof entry[1] === 'string').map(([key,value])=>[key,renderTemplate(value,context)]));
+          const configuredBody = typeof node.config.body === 'string' && node.config.body.trim() ? renderTemplate(node.config.body, context) : JSON.stringify({ executionId, conversationId, context });
+          const response = await fetch(url, { method, headers: { 'content-type': 'application/json', 'idempotency-key': step.id, ...headers }, ...(!['GET','HEAD'].includes(method) ? { body: configuredBody } : {}), signal: controller.signal });
           const body = (await response.text()).slice(0, 10_000);
           if (!response.ok) throw new NodeExecutionError('WEBHOOK_FAILED', `Webhook respondeu HTTP ${response.status}.`);
-          const nextContext = { ...context, webhook: { status: response.status, body } };
+          let responseValue: unknown = body;
+          try { responseValue = body ? JSON.parse(body) : null; } catch { /* resposta textual */ }
+          let nextContext: EngineContext = { ...context, webhook: { status: response.status, body: responseValue } };
+          if (typeof node.config.responseVariable === 'string' && node.config.responseVariable) nextContext = setContextPath(nextContext, node.config.responseVariable, responseValue);
           await this.completeStep(executionId, step.id, nextNodeId, nextContext, { status: response.status, body });
         } finally {
           clearTimeout(timeout);

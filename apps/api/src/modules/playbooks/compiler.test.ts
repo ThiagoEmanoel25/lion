@@ -77,6 +77,43 @@ describe('validateAutomation', () => {
     const image = validateAutomation(definition);
     expect(image.issues).toContainEqual(expect.objectContaining({ code: 'INVALID_IMAGE_CONFIG', nodeId: 'yes' }));
   });
+
+  it('valida os recursos compatíveis de etiquetas, intervalo e integração', () => {
+    const definition = structuredClone(validDefinition);
+    const configurable = definition.nodes[2]!;
+
+    definition.nodes[2] = { ...configurable, kind: 'tag', config: { mode: 'remove', tags: ['vip', 'retorno'], tagIds: [] } } as never;
+    expect(validateAutomation(definition).valid).toBe(true);
+
+    definition.nodes[2] = { ...configurable, kind: 'delay', config: { seconds: 2_678_400, unit: 'days' } } as never;
+    expect(validateAutomation(definition).valid).toBe(true);
+
+    definition.nodes[2] = { ...configurable, kind: 'webhook', config: { url: 'https://api.test/events', method: 'PUT', headers: { authorization: 'Bearer {{token}}' }, body: '{"name":"{{contact.name}}"}', responseVariable: 'integration.response' } } as never;
+    expect(validateAutomation(definition).valid).toBe(true);
+  });
+
+  it('rejeita intervalo acima de 31 dias e etiquetas vazias', () => {
+    const definition = structuredClone(validDefinition);
+    const configurable = definition.nodes[2]!;
+    definition.nodes[2] = { ...configurable, kind: 'delay', config: { seconds: 2_678_401, unit: 'days' } } as never;
+    expect(validateAutomation(definition).issues).toContainEqual(expect.objectContaining({ code: 'INVALID_DELAY', nodeId: 'yes' }));
+    definition.nodes[2] = { ...configurable, kind: 'tag', config: { mode: 'add', tags: [], tagIds: [] } } as never;
+    expect(validateAutomation(definition).issues).toContainEqual(expect.objectContaining({ code: 'TAG_REQUIRED', nodeId: 'yes' }));
+  });
+
+  it('executa regras E/OU configuradas dentro do bloco condicional', () => {
+    const definition = structuredClone(validDefinition);
+    definition.nodes[1]!.config = { logic: 'all', rules: [
+      { field: 'contact.stage', operator: 'equals', value: 'qualified' },
+      { field: 'contact.tags', operator: 'contains', value: 'vip' }
+    ] } as never;
+    definition.edges[1] = { id: 'e2', source: 'condition', target: 'yes', label: 'Condição atendida', priority: 0 } as never;
+    const validation = validateAutomation(definition);
+    expect(validation.valid).toBe(true);
+    if (!validation.definition) throw new Error('fixture inválida');
+    expect(simulateAutomation(validation.definition, { contact: { stage: 'qualified', tags: ['vip'] } }).path).toEqual(['start', 'condition', 'yes', 'done']);
+    expect(simulateAutomation(validation.definition, { contact: { stage: 'qualified', tags: [] } }).path).toEqual(['start', 'condition', 'human']);
+  });
 });
 
 describe('simulateAutomation', () => {
