@@ -5,15 +5,16 @@ import { Queue } from 'bullmq';
 import { AutomationDefinitionSchema } from '@nexo/contracts';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
-import { renderTemplate, selectNextEdge, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
 const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
 const outcomeTypes = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'HANDOFF', 'DISQUALIFIED']);
 
-export type AutomationJob = { executionId: string; action?: 'start' | 'resume'; resumeStepId?: string };
-type RuntimeState = { pendingDelayStepId?: string; error?: { code: string; message: string } };
+export type AutomationJob = { executionId: string; action?: 'start' | 'resume' | 'menu_reply' | 'menu_timeout'; resumeStepId?: string; messageId?: string };
+type PendingMenu = { stepId: string; nodeId: string };
+type RuntimeState = { pendingDelayStepId?: string; pendingMenu?: PendingMenu; error?: { code: string; message: string } };
 type EngineContext = Record<string, unknown> & { _runtime?: RuntimeState };
 
 class NodeExecutionError extends Error {
@@ -66,9 +67,10 @@ export class AutomationEngineService implements OnModuleDestroy {
     if (!execution || ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(execution.status)) return;
     let context = objectContext(execution.context);
     if (execution.status === 'WAITING') {
-      if (job.action !== 'resume' || !job.resumeStepId || context._runtime?.pendingDelayStepId !== job.resumeStepId) return;
-      context = { ...context, _runtime: {} };
-      await this.prisma.execution.update({ where: { id: execution.id }, data: { status: 'RUNNING', context: asJson(context) } });
+      const pending = context._runtime;
+      const delayDue = job.action === 'resume' && Boolean(job.resumeStepId) && pending?.pendingDelayStepId === job.resumeStepId;
+      const menuDue = (job.action === 'menu_reply' || job.action === 'menu_timeout') && Boolean(job.resumeStepId) && pending?.pendingMenu?.stepId === job.resumeStepId;
+      if (!delayDue && !menuDue) return;
     }
 
     const parsed = AutomationDefinitionSchema.safeParse(execution.playbookVersion.definition);
@@ -79,6 +81,19 @@ export class AutomationEngineService implements OnModuleDestroy {
     const definition = parsed.data;
     const nodes = new Map(definition.nodes.map(node => [node.id, node]));
     let currentNodeId: string | undefined = execution.currentNode ?? definition.start;
+
+    if (execution.status === 'WAITING') {
+      const pendingMenu = context._runtime?.pendingMenu;
+      if (pendingMenu) {
+        const resumed = await this.resumeMenu(execution.id, execution.conversationId, job, pendingMenu, context, definition);
+        if (!resumed) return;
+        context = resumed.context;
+        currentNodeId = resumed.nextNodeId;
+      } else {
+        context = { ...context, _runtime: {} };
+      }
+      await this.prisma.execution.update({ where: { id: execution.id }, data: { status: 'RUNNING', currentNode: currentNodeId, context: asJson(context) } });
+    }
     const previousSteps = await this.prisma.executionStep.count({ where: { executionId: execution.id, status: 'SUCCEEDED' } });
     let processed = previousSteps;
 
@@ -131,7 +146,8 @@ export class AutomationEngineService implements OnModuleDestroy {
     nextNodeId?: string;
   }): Promise<'continue' | 'waiting' | 'terminal'> {
     const { executionId, workspaceId, conversationId, context, node, step, nextNodeId } = input;
-    if (!['handoff', 'outcome'].includes(node.kind) && !nextNodeId) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+    const waitsForChoice = routesByChoice(node, input.definition.edges);
+    if (!['handoff', 'outcome'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
 
     switch (node.kind) {
       case 'trigger':
@@ -161,8 +177,10 @@ export class AutomationEngineService implements OnModuleDestroy {
         const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { channel: true } });
         if (!conversation || conversation.workspaceId !== workspaceId) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
         if (conversation.channel.provider !== 'baileys' || conversation.channel.status !== 'CONNECTED') throw new NodeExecutionError('CHANNEL_UNAVAILABLE', 'O canal Baileys precisa estar conectado para enviar a mensagem.');
-        const rawUrl = typeof node.config.url === 'string' ? renderTemplate(node.config.url, context).trim() : '';
-        if (node.kind !== 'buttons' && !rawUrl.startsWith('https://')) throw new NodeExecutionError('MEDIA_HTTPS_REQUIRED', 'A mídia precisa usar uma URL HTTPS.');
+        // Menus carry an optional header image (buttons format only); media blocks require one.
+        const urlValue = node.kind === 'buttons' ? (node.config.mode === 'list' ? undefined : node.config.imageUrl) : node.config.url;
+        const rawUrl = typeof urlValue === 'string' ? renderTemplate(urlValue, context).trim() : '';
+        if ((node.kind !== 'buttons' || rawUrl) && !rawUrl.startsWith('https://')) throw new NodeExecutionError('MEDIA_HTTPS_REQUIRED', 'A mídia precisa usar uma URL HTTPS.');
         const body = node.kind === 'image'
           ? (typeof node.config.caption === 'string' ? renderTemplate(node.config.caption, context) : null)
           : node.kind === 'buttons' ? renderTemplate(stringConfig(node, 'text'), context) : null;
@@ -171,22 +189,41 @@ export class AutomationEngineService implements OnModuleDestroy {
               const button = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
               return {
                 id: typeof button.id === 'string' ? button.id : '',
-                label: typeof button.label === 'string' ? renderTemplate(button.label, context) : ''
+                label: typeof button.label === 'string' ? renderTemplate(button.label, context) : '',
+                ...(typeof button.description === 'string' && button.description.trim() ? { description: renderTemplate(button.description, context) } : {})
               };
             })
           : undefined;
         const messageType = node.kind === 'audio' ? 'AUDIO' : node.kind === 'buttons' ? 'TEMPLATE' : 'IMAGE';
         const providerPayload = node.kind === 'buttons'
-          ? { kind: 'buttons', buttons, ...(typeof node.config.footer === 'string' && node.config.footer.trim() ? { footer: renderTemplate(node.config.footer, context) } : {}) }
+          ? {
+              kind: 'buttons', mode: node.config.mode === 'list' ? 'list' : 'buttons', buttons,
+              ...(typeof node.config.footer === 'string' && node.config.footer.trim() ? { footer: renderTemplate(node.config.footer, context) } : {}),
+              ...(typeof node.config.buttonText === 'string' && node.config.buttonText.trim() ? { buttonText: renderTemplate(node.config.buttonText, context) } : {})
+            }
           : node.kind === 'sticker' ? { kind: 'sticker' }
           : node.kind === 'audio' ? { kind: 'audio', ptt: node.config.ptt === true }
           : { kind: 'image' };
         await this.prisma.$transaction(async tx => {
           const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: messageType, status: 'PENDING', body, mediaUrl: rawUrl || null, providerPayload: asJson(providerPayload), authorType: 'automation', authorId: executionId } });
           await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
-          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { messageId: message.id, kind: node.kind });
+          if (!waitsForChoice) {
+            await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { messageId: message.id, kind: node.kind });
+            return;
+          }
+          // The step stays RUNNING until the contact answers or the menu expires.
+          const pendingMenu: PendingMenu = { stepId: step.id, nodeId: node.id };
+          await tx.executionStep.update({ where: { id: step.id }, data: { output: asJson({ messageId: message.id, kind: node.kind, waitingForReply: true }) } });
+          await tx.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingMenu } }) } });
         });
-        return 'continue';
+        if (!waitsForChoice) return 'continue';
+        try {
+          await this.queue.add('menu_timeout', { executionId, action: 'menu_timeout', resumeStepId: step.id }, { jobId: `automation-menu-timeout-${executionId}-${step.id}`, delay: menuTimeoutSeconds(node) * 1000, attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });
+        } catch (error) {
+          await this.failExecution(executionId, 'MENU_TIMEOUT_SCHEDULING_FAILED', error instanceof Error ? error.message : 'Não foi possível agendar a expiração do menu.');
+          throw error;
+        }
+        return 'waiting';
       }
 
       case 'delay': {
@@ -323,6 +360,42 @@ export class AutomationEngineService implements OnModuleDestroy {
   private async finishInTransaction(tx: Prisma.TransactionClient, executionId: string, stepId: string, nextNodeId: string | undefined, context: EngineContext, output: Prisma.InputJsonValue) {
     await tx.executionStep.update({ where: { id: stepId }, data: { status: 'SUCCEEDED', output, finishedAt: new Date() } });
     await tx.execution.update({ where: { id: executionId }, data: { currentNode: nextNodeId, context: asJson(context) } });
+  }
+
+  // Applies the contact's answer (or the expiry) to a waiting menu. Returns null when the execution
+  // must stay as it is: an unrelated message keeps the menu waiting.
+  private async resumeMenu(executionId: string, conversationId: string, job: AutomationJob, pending: PendingMenu, context: EngineContext, definition: AutomationDefinition): Promise<{ context: EngineContext; nextNodeId: string } | null> {
+    const node = definition.nodes.find(item => item.id === pending.nodeId);
+    if (!node || node.kind !== 'buttons') {
+      await this.failExecution(executionId, 'NODE_NOT_FOUND', `Menu ${pending.nodeId} não encontrado.`);
+      return null;
+    }
+    let next: EngineContext = { ...context, _runtime: {} };
+    let output: Record<string, unknown>;
+    if (job.action === 'menu_timeout') {
+      next = setContextPath(next, 'menu', { timedOut: true });
+      output = { timedOut: true };
+    } else {
+      const message = job.messageId ? await this.prisma.message.findUnique({ where: { id: job.messageId } }) : null;
+      if (!message || message.conversationId !== conversationId || message.direction !== 'INBOUND') return null;
+      const payload = message.providerPayload && typeof message.providerPayload === 'object' && !Array.isArray(message.providerPayload) ? message.providerPayload as { menuReply?: { id?: string; text?: string | null } } : {};
+      const option = resolveMenuChoice(menuOptions(node), { id: payload.menuReply?.id, text: payload.menuReply?.text ?? message.body });
+      if (!option) return null;
+      next = setContextPath(next, 'menu', { choice: option.id, label: option.label, timedOut: false });
+      const saveAs = typeof node.config.saveAs === 'string' ? node.config.saveAs.trim() : '';
+      if (saveAs) next = setContextPath(next, saveAs, option.label);
+      output = { choice: option.id, label: option.label, messageId: message.id };
+    }
+    const edge = selectNextEdge(node, definition.edges, next);
+    await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: asJson({ ...output, selectedEdgeId: edge?.id ?? null }), finishedAt: new Date() } });
+    if (edge) return { context: next, nextNodeId: edge.target };
+    if (job.action === 'menu_timeout') {
+      // No inactivity exit wired: the journey simply ends when the menu expires.
+      await this.prisma.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: null, finishedAt: new Date(), context: asJson(next) } });
+    } else {
+      await this.failExecution(executionId, 'DEAD_END', `A opção escolhida no menu ${node.id} não possui saída.`);
+    }
+    return null;
   }
 
   private async failExecution(executionId: string, code: string, message: string) {

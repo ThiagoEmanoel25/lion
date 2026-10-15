@@ -9,7 +9,8 @@ import {
   AutomationStickerConfigSchema,
   AutomationTagConfigSchema,
   AutomationTriggerConfigSchema,
-  AutomationWebhookConfigSchema
+  AutomationWebhookConfigSchema,
+  MENU_CHOICE_FIELD
 } from '@nexo/contracts';
 import type { z, ZodTypeAny } from 'zod';
 
@@ -62,6 +63,27 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
   }
 }
 
+// A menu with per-option exits: every option needs exactly one exit, the only other exit allowed
+// is the inactivity one (isDefault).
+function menuRouteIssues(node: AutomationDefinition['nodes'][number], edges: AutomationEdge[]): AutomationIssue[] {
+  const issues: AutomationIssue[] = [];
+  const error = (code: string, message: string, edgeId?: string): AutomationIssue => ({ level: 'error', code, message, nodeId: node.id, ...(edgeId ? { edgeId } : {}) });
+  const optionIds = (Array.isArray(node.config.buttons) ? node.config.buttons : [])
+    .map(item => item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : '')
+    .filter(Boolean);
+  if (edges.filter(edge => edge.isDefault).length > 1) issues.push(error('MENU_TIMEOUT_DUPLICATE', 'O menu aceita apenas uma saída por inatividade.'));
+  const routed = new Set<string>();
+  for (const edge of edges.filter(item => !item.isDefault)) {
+    const condition = edge.condition;
+    const optionId = condition?.field === MENU_CHOICE_FIELD && condition.operator === 'equals' && typeof condition.value === 'string' ? condition.value : null;
+    if (!optionId || !optionIds.includes(optionId)) { issues.push(error('MENU_ROUTE_INVALID', 'Cada saída do menu precisa estar ligada a uma opção existente.', edge.id)); continue; }
+    if (routed.has(optionId)) issues.push(error('MENU_OPTION_DUPLICATE_ROUTE', 'Esta opção do menu já possui uma saída.', edge.id));
+    routed.add(optionId);
+  }
+  for (const optionId of optionIds) if (!routed.has(optionId)) issues.push(error('MENU_OPTION_UNROUTED', `A opção “${optionId}” do menu não possui saída.`));
+  return issues;
+}
+
 export function validateAutomation(value: unknown) {
   const parsed = AutomationDefinitionSchema.safeParse(value);
   if (!parsed.success) {
@@ -101,7 +123,9 @@ export function validateAutomation(value: unknown) {
     const edges = outgoing.get(node.id) ?? [];
     if (terminalKinds.has(node.kind) && edges.length) issues.push({ level: 'error', code: 'TERMINAL_HAS_OUTPUT', message: 'Nós finais não podem ter conexões de saída.', nodeId: node.id });
     if (!terminalKinds.has(node.kind) && edges.length === 0) issues.push({ level: 'error', code: 'MISSING_OUTPUT', message: 'O nó precisa de uma conexão de saída.', nodeId: node.id });
-    if (node.kind !== 'condition' && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições podem ter mais de uma saída.', nodeId: node.id });
+    const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
+    if (node.kind !== 'condition' && !menuRouted && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições e menus com saída por opção podem ter mais de uma saída.', nodeId: node.id });
+    if (menuRouted) issues.push(...menuRouteIssues(node, edges));
     if (node.kind === 'condition') {
       if (edges.length < 2) issues.push({ level: 'error', code: 'CONDITION_BRANCHES_REQUIRED', message: 'A condição precisa de ao menos duas saídas.', nodeId: node.id });
       if (edges.filter(edge => edge.isDefault).length !== 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição precisa de exatamente uma saída padrão.', nodeId: node.id });
@@ -172,6 +196,11 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
     if (!node) { stoppedBecause = 'dead_end'; break; }
     const candidates: AutomationEdge[] = [...(outgoing.get(current) ?? [])].sort((a, b) => a.priority - b.priority);
     let selected: AutomationEdge | undefined = candidates[0];
+    if (node.kind === 'buttons' && candidates.some(edge => edge.condition !== undefined || edge.isDefault)) {
+      // Without a simulated choice, follow the first option so the rest of the path can be checked.
+      selected = candidates.find(edge => edge.condition && matches(getPathValue(variables, edge.condition.field), edge.condition.operator, edge.condition.value))
+        ?? candidates.find(edge => !edge.isDefault) ?? candidates.find(edge => edge.isDefault);
+    }
     if (node.kind === 'condition') {
       const nodeMatch = nodeConditionMatches(node, variables);
       selected = nodeMatch === undefined

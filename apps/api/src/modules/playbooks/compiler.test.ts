@@ -150,3 +150,67 @@ describe('simulateAutomation', () => {
     expect(simulation.stoppedBecause).toBe('max_steps');
   });
 });
+
+describe('menu com saída por opção', () => {
+  const menuDefinition = (edges: Array<Record<string, unknown>>) => ({
+    start: 'start',
+    nodes: <Array<Record<string, unknown> & { config: Record<string, unknown> }>>[
+      { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+      { id: 'menu', kind: 'buttons', name: 'Menu', config: { mode: 'list', text: 'Escolha', buttonText: 'Ver opções', buttons: [{ id: 'sales', label: 'Comprar' }, { id: 'help', label: 'Suporte' }] }, position: { x: 100, y: 0 } },
+      { id: 'won', kind: 'outcome', name: 'Venda', config: { type: 'SALE' }, position: { x: 200, y: -50 } },
+      { id: 'human', kind: 'handoff', name: 'Suporte', config: {}, position: { x: 200, y: 50 } },
+      { id: 'idle', kind: 'outcome', name: 'Sem resposta', config: { type: 'DISQUALIFIED' }, position: { x: 200, y: 100 } }
+    ],
+    edges: [{ id: 'e0', source: 'start', target: 'menu' }, ...edges],
+    settings: { maxSteps: 10, timeoutSeconds: 60 }
+  });
+  const choice = (value: string) => ({ field: 'menu.choice', operator: 'equals', value });
+
+  it('aceita uma saída por opção e uma por inatividade', () => {
+    const result = validateAutomation(menuDefinition([
+      { id: 'to-sales', source: 'menu', target: 'won', condition: choice('sales'), priority: 0 },
+      { id: 'to-help', source: 'menu', target: 'human', condition: choice('help'), priority: 1 },
+      { id: 'to-idle', source: 'menu', target: 'idle', isDefault: true, priority: 2 }
+    ]));
+    expect(result.issues.filter(issue => issue.level === 'error')).toEqual([]);
+  });
+
+  it('exige saída para toda opção e só aceita opções existentes', () => {
+    const result = validateAutomation(menuDefinition([
+      { id: 'to-sales', source: 'menu', target: 'won', condition: choice('sales'), priority: 0 },
+      { id: 'ghost', source: 'menu', target: 'human', condition: choice('nope'), priority: 1 },
+      { id: 'idle-a', source: 'menu', target: 'idle', isDefault: true, priority: 2 },
+      { id: 'idle-b', source: 'menu', target: 'human', isDefault: true, priority: 3 }
+    ]));
+    expect(result.issues.map(issue => issue.code)).toEqual(expect.arrayContaining(['MENU_ROUTE_INVALID', 'MENU_OPTION_UNROUTED', 'MENU_TIMEOUT_DUPLICATE']));
+  });
+
+  it('simula pela escolha informada ou pela primeira opção', () => {
+    const definition = validateAutomation(menuDefinition([
+      { id: 'to-sales', source: 'menu', target: 'won', condition: choice('sales'), priority: 0 },
+      { id: 'to-help', source: 'menu', target: 'human', condition: choice('help'), priority: 1 }
+    ])).definition!;
+    expect(simulateAutomation(definition, { menu: { choice: 'help' } }).path).toEqual(['start', 'menu', 'human']);
+    expect(simulateAutomation(definition).path).toEqual(['start', 'menu', 'won']);
+  });
+
+  it('aceita imagem HTTPS só no formato botões', () => {
+    const withImage = (mode: string, imageUrl: string) => {
+      const definition = menuDefinition([{ id: 'e1', source: 'menu', target: 'won' }]);
+      definition.nodes[1] = { ...definition.nodes[1]!, config: { mode, text: 'Escolha', buttonText: 'Ver', imageUrl, buttons: [{ id: 'a', label: 'A' }] } };
+      return validateAutomation(definition).issues.map(issue => issue.code);
+    };
+    expect(withImage('buttons', 'https://cdn.test/capa.jpg')).not.toContain('INVALID_BUTTONS_CONFIG');
+    expect(withImage('buttons', 'http://cdn.test/capa.jpg')).toContain('INVALID_BUTTONS_CONFIG');
+    expect(withImage('list', 'https://cdn.test/capa.jpg')).toContain('INVALID_BUTTONS_CONFIG');
+  });
+
+  it('rejeita lista sem texto do botão e botões acima de 3', () => {
+    const tooMany = menuDefinition([{ id: 'e1', source: 'menu', target: 'won' }]);
+    tooMany.nodes[1] = { ...tooMany.nodes[1]!, config: { mode: 'buttons', text: 'Escolha', buttons: [1, 2, 3, 4].map(n => ({ id: `b${n}`, label: `B${n}` })) } };
+    const noButtonText = menuDefinition([{ id: 'e1', source: 'menu', target: 'won' }]);
+    noButtonText.nodes[1] = { ...noButtonText.nodes[1]!, config: { mode: 'list', text: 'Escolha', buttons: [{ id: 'a', label: 'A' }] } };
+    expect(validateAutomation(tooMany).issues.map(issue => issue.code)).toContain('INVALID_BUTTONS_CONFIG');
+    expect(validateAutomation(noButtonText).issues.map(issue => issue.code)).toContain('INVALID_BUTTONS_CONFIG');
+  });
+});

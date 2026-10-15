@@ -8,7 +8,7 @@ Auditoria do cliente público do Leona realizada em 15/10/2026. Este documento s
 | --- | --- | --- | --- |
 | Gatilho | Início | Pronto | Inicia por mensagem recebida, conversa criada ou etiqueta adicionada. |
 | Mensagem | Mensagem | Parcial | Texto e variáveis funcionam. Imagem, áudio e figurinha funcionam como blocos próprios. Ainda faltam conteúdo múltiplo ordenado, upload, vídeo, arquivo, contato, variação por IA e atraso de digitação. |
-| Menu interativo | Menu | Parcial | Envia até três respostas rápidas. Ainda falta captura/espera da escolha no mesmo bloco e suporte a listas. |
+| Menu interativo | Menu | Parcial | Runtime pronto: botões (até 3) ou lista (até 10), espera a escolha, uma saída por opção, saída por inatividade (0 = 2 dias, máx. 31) e resposta salva em variável. Falta o editor do bloco igual ao Leona para ligar as saídas por opção. |
 | Condicional | Condicional | Parcial | Ramifica por campo, operador, prioridade e rota padrão. Ainda faltam grupos de regras AND/OR no próprio bloco e os atalhos de condição do Leona. |
 | Intervalo inteligente | Intervalo inteligente | Parcial | Intervalo real em segundos, minutos, horas ou dias, com retomada pela fila e limite de 31 dias. Ainda faltam data exata e janelas semanais. |
 | Etiquetas | Etiquetas | Pronto | Adiciona ou remove várias etiquetas; permite selecionar existentes e criar por nome ao adicionar. |
@@ -30,7 +30,7 @@ Auditoria do cliente público do Leona realizada em 15/10/2026. Este documento s
 
 ## Ordem segura para concluir a paridade
 
-1. Aguarda Resposta e captura do Menu, porque ambos exigem pausar e retomar a execução por evento.
+1. Editor do Menu e Aguarda Resposta; a retomada por mensagem recebida já existe para o Menu e pode ser reaproveitada.
 2. Condicional com grupos AND/OR no bloco e catálogo de condições.
 3. Mensagem como sequência de conteúdos, mantendo os blocos antigos compatíveis.
 4. Intervalo por data/janela semanal e calendário comercial.

@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { AutomationDefinitionSchema } from '@nexo/contracts';
+import { MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema } from '@nexo/contracts';
 
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;
 export type AutomationNode = AutomationDefinition['nodes'][number];
@@ -27,6 +27,10 @@ export function conditionMatches(value: unknown, condition: NonNullable<Automati
 
 export function selectNextEdge(node: AutomationNode, edges: AutomationEdge[], context: Record<string, unknown>): AutomationEdge | undefined {
   const candidates = edges.filter(edge => edge.source === node.id).sort((a, b) => a.priority - b.priority);
+  if (node.kind === 'buttons' && routesByChoice(node, edges)) {
+    return candidates.find(edge => edge.condition && conditionMatches(getPathValue(context, edge.condition.field), edge.condition))
+      ?? candidates.find(edge => edge.isDefault);
+  }
   if (node.kind !== 'condition') return candidates[0];
   const rules = Array.isArray(node.config?.rules) ? node.config.rules as Array<NonNullable<AutomationEdge['condition']>> : [];
   if (rules.length) {
@@ -44,4 +48,40 @@ export function renderTemplate(template: string, context: Record<string, unknown
     if (value === undefined || value === null) return '';
     return typeof value === 'object' ? JSON.stringify(value) : String(value);
   });
+}
+
+export type MenuOption = { id: string; label: string };
+
+// A menu waits for the reply only when its exits are wired per option (or has an inactivity exit).
+// Older flows with one plain exit keep the send-and-continue behaviour.
+export function routesByChoice(node: AutomationNode, edges: AutomationEdge[]): boolean {
+  return node.kind === 'buttons' && edges.some(edge => edge.source === node.id && (edge.condition !== undefined || edge.isDefault));
+}
+
+export function menuOptions(node: AutomationNode): MenuOption[] {
+  const raw = Array.isArray(node.config.buttons) ? node.config.buttons : [];
+  return raw.flatMap(item => {
+    const option = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    return typeof option.id === 'string' && typeof option.label === 'string' ? [{ id: option.id, label: option.label }] : [];
+  });
+}
+
+// Tapping sends the option id; contacts on clients without interactive support type the label or its number.
+export function resolveMenuChoice(options: MenuOption[], reply: { id?: string | null; text?: string | null }): MenuOption | null {
+  if (reply.id) {
+    const byId = options.find(option => option.id === reply.id);
+    if (byId) return byId;
+  }
+  const typed = reply.text?.trim().toLocaleLowerCase('pt-BR');
+  if (!typed) return null;
+  const byLabel = options.find(option => option.label.trim().toLocaleLowerCase('pt-BR') === typed);
+  if (byLabel) return byLabel;
+  const index = /^\d{1,2}$/.test(typed) ? Number(typed) - 1 : -1;
+  return options[index] ?? null;
+}
+
+export function menuTimeoutSeconds(node: AutomationNode): number {
+  const value = node.config.timeoutSeconds;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) return MENU_DEFAULT_TIMEOUT_SECONDS;
+  return Math.min(value, MENU_MAX_TIMEOUT_SECONDS);
 }

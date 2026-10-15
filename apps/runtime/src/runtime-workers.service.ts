@@ -90,6 +90,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
             jid,
             messageId,
             text: message.body ?? '',
+            imageUrl: message.mediaUrl,
             ...interactivePayload(message.providerPayload)
           });
       await this.prisma.message.update({
@@ -134,6 +135,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         };
         if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
+        } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingMenu(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {
+          // The message answered a menu; it must not also start a new execution.
         } else if (event.type === 'automation.inbound.received' || event.type === 'automation.trigger.requested') {
           await this.startTriggeredExecution(automationQueue, {
             triggerEvent: event.type === 'automation.inbound.received' ? 'message.received' : payload.event!,
@@ -160,6 +163,16 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.relayingOutbox = false;
     }
+  }
+
+  private async resumeWaitingMenu(automationQueue: Queue<AutomationJob>, conversationId: string, messageId: string | undefined, jobOptions: Record<string, unknown>) {
+    if (!messageId) return false;
+    const waiting = await this.prisma.execution.findFirst({ where: { conversationId, status: 'WAITING' }, orderBy: { startedAt: 'desc' }, select: { id: true, context: true } });
+    const runtime = waiting?.context && typeof waiting.context === 'object' && !Array.isArray(waiting.context) ? (waiting.context as { _runtime?: { pendingMenu?: { stepId?: string } } })._runtime : undefined;
+    const stepId = runtime?.pendingMenu?.stepId;
+    if (!waiting || !stepId) return false;
+    await automationQueue.add('menu_reply', { executionId: waiting.id, action: 'menu_reply', resumeStepId: stepId, messageId }, jobOptions);
+    return true;
   }
 
   private async startTriggeredExecution(automationQueue: Queue<AutomationJob>, input: {triggerEvent:string;conversationId?:string;contactId?:string;messageId?:string;tagId?:string;jobOptions:Record<string,unknown>}) {
