@@ -203,7 +203,7 @@ export function PlaybookEditorPage(){
       {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
           ? selectedNode.data.kind==='message'
-            ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>updateSelected({name,config})} onCancel={()=>setInspectorOpen(false)}/>
+            ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
