@@ -1,0 +1,26 @@
+{
+  "source": "leona",
+  "version": 1,
+  "label": "Atendimento importado",
+  "nodes": [
+    {"id":"1","type":"start","position":{"x":0,"y":0},"data":{"label":"Início"}},
+    {"id":"2","type":"message","position":{"x":250,"y":0},"data":{"label":"Boas-vindas","actions":[{"type":"send_message","text":"Olá {first_name}: {link_grupo}"},{"type":"delay_between_messages","min_seconds":1,"max_seconds":2},{"type":"send_file","url":"https://example.com/catalogo.pdf","file_name":"catalogo.pdf"}]}},
+    {"id":"3","type":"wait_response","position":{"x":500,"y":0},"data":{"timeout_value":2,"timeout_unit":"hours","buffer_seconds":8}},
+    {"id":"4","type":"condition","position":{"x":750,"y":0},"data":{"logic":"and","conditions":[{"field":"custom_field","name":"interesse","operator":"equals","value":"sim"}]}},
+    {"id":"5","type":"ai","position":{"x":1000,"y":0},"data":{"model":"gpt-5.4-mini","prompt":"Responda {last_message}","api_key":"[REMOVIDA]"}},
+    {"id":"6","type":"integration","position":{"x":1250,"y":0},"data":{"url":"https://example.com/hook","method":"POST","headers":{"Authorization":"[REMOVIDO]","X-Trace":"fixture"},"responseFields":[{"path":"data.id","variable":"pedido.id"}]}},
+    {"id":"7","type":"tags","position":{"x":1500,"y":0},"data":{"tags":[{"name":"Cliente"}]}},
+    {"id":"8","type":"kanban","position":{"x":1750,"y":0},"data":{}},
+    {"id":"9","type":"pixel","position":{"x":2000,"y":0},"data":{"event":"Compra 15,00 BRL"}},
+    {"id":"10","type":"handoff_unknown","position":{"x":2250,"y":0},"data":{"text":"{link_grupo}"}}
+  ],
+  "edges": [
+    {"id":"e1","source":"1","target":"2"},{"id":"e2","source":"2","target":"3"},
+    {"id":"e3","source":"3","target":"4","sourceHandle":"client-response"},
+    {"id":"e4","source":"4","target":"5","sourceHandle":"success"},
+    {"id":"e5","source":"4","target":"10","sourceHandle":"failure"},
+    {"id":"e6","source":"5","target":"6","sourceHandle":"success"},
+    {"id":"e7","source":"6","target":"7","sourceHandle":"success"},
+    {"id":"e8","source":"7","target":"8"},{"id":"e9","source":"8","target":"2"},{"id":"e10","source":"9","target":"10"}
+  ]
+}
