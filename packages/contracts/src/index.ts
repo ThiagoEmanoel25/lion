@@ -48,8 +48,26 @@ export const AssignConversationInput = z.object({assigneeId:z.string().cuid().nu
 export const ChangeConversationModeInput = z.object({mode:z.enum(['AI','HUMAN','PAUSED']),reason:z.string().max(240)});
 export const ChangeConversationStatusInput = z.object({status:z.enum(['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED','ASSIGNED','RESOLVED']),reason:z.string().trim().min(1).max(240)});
 export const CreatePlaybookInput = z.object({name:z.string().min(3).max(120),description:z.string().max(500).optional(),template:z.enum(['qualification','reactivation','support'])});
+export const LEONA_IMPORT_MAX_BYTES=2_000_000;
+export const LEONA_IMPORT_CODE_TTL_SECONDS=15*60;
+export const NEXO_SHARE_CODE_TTL_DAYS=30;
+export const LeonaImportPayloadSchema=z.object({
+  source:z.literal('leona'),version:z.literal(1),
+  nodes:z.array(z.record(z.string(),z.unknown())).min(1).max(500),
+  edges:z.array(z.record(z.string(),z.unknown())).max(1_000),
+  label:z.string().trim().max(120).optional()
+}).strict();
+export const ImportReportItemSchema=z.object({
+  sourceId:z.string().max(120).optional(),sourceType:z.string().max(80).optional(),
+  status:z.enum(['converted','adjusted','pending']),message:z.string().max(500)
+});
+export const ImportReportSchema=z.object({
+  source:z.enum(['leona','nexo']),items:z.array(ImportReportItemSchema),
+  totals:z.object({converted:z.number().int().min(0),adjusted:z.number().int().min(0),pending:z.number().int().min(0)})
+});
+export const ImportNexoShareInput=z.object({code:z.string().trim().length(10).transform(value=>value.toUpperCase())});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
@@ -58,7 +76,10 @@ export const MESSAGE_MAX_TYPING_SECONDS=30;
 export const MESSAGE_MAX_PAUSE_SECONDS=300;
 const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0)}).strict();
 const MessageFileItemSchema=z.object({type:z.literal('file'),url:HttpsUrlSchema,fileName:z.string().trim().min(1).max(255),caption:z.string().trim().max(1024).optional()}).strict();
-const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional()}).strict().refine(item=>item.mediaType!=='audio'||!item.caption,{message:'Áudio não tem legenda.',path:['caption']});
+const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional()}).strict().superRefine((item,ctx)=>{
+  if(item.mediaType==='audio'&&item.caption)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Áudio não tem legenda.',path:['caption']});
+  if(item.mediaType!=='audio'&&item.ptt!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Somente áudio pode ser enviado como mensagem de voz.',path:['ptt']});
+});
 const MessagePauseItemSchema=z.object({type:z.literal('pause'),minSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS),maxSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS)}).strict().refine(item=>item.minSeconds<=item.maxSeconds,{message:'O mínimo não pode passar do máximo.',path:['minSeconds']});
 export const AutomationMessageItemSchema=z.union([MessageTextItemSchema,MessageFileItemSchema,MessageMediaItemSchema,MessagePauseItemSchema]);
 export const AutomationMessageConfigSchema=z.union([z.object({text:z.string().trim().min(1).max(4096)}).strict(),z.object({items:z.array(AutomationMessageItemSchema).min(1).max(MESSAGE_MAX_ITEMS)}).strict()]);
@@ -136,6 +157,19 @@ export const AutomationWaitResponseConfigSchema=z.object({
   if(value.timeoutValue===undefined){ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'Informe o tempo de espera.'});return}
   if(value.timeoutValue*WAIT_UNIT_SECONDS[value.timeoutUnit]>WAIT_MAX_SECONDS)ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'A espera máxima é de 31 dias.'});
 });
+export const AutomationKanbanConfigSchema=z.object({
+  boardId:z.string().cuid(),
+  columnId:z.string().cuid(),
+  mode:z.enum(['create_or_move','create_only','move_only']).default('create_or_move')
+}).strict();
+
+const KanbanNameSchema=z.string().trim().min(1).max(80);
+export const CreateKanbanBoardInput=z.object({name:KanbanNameSchema});
+export const UpdateKanbanBoardInput=z.object({name:KanbanNameSchema.optional(),position:z.number().int().min(0).optional()}).refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});
+export const CreateKanbanColumnInput=z.object({name:KanbanNameSchema,color:z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#17765b')});
+export const UpdateKanbanColumnInput=z.object({name:KanbanNameSchema.optional(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),position:z.number().int().min(0).optional()}).refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});
+export const DeleteKanbanColumnInput=z.object({destinationColumnId:z.string().cuid().optional()});
+export const MoveKanbanCardInput=z.object({columnId:z.string().cuid(),position:z.number().int().min(0).optional()});
 export const AutomationNodeSchema=z.object({id:z.string().trim().min(1).max(80),kind:AutomationNodeKindSchema,name:z.string().trim().min(1).max(120),config:z.record(z.string(),z.unknown()).default({}),position:z.object({x:z.number().finite(),y:z.number().finite()})});
 export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(CONDITION_OPERATORS),value:z.unknown().optional()}).superRefine((rule,ctx)=>{
   if((rule.operator==='in'||rule.operator==='not_in')&&(!Array.isArray(rule.value)||rule.value.length===0))ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Selecione ao menos um valor.'});

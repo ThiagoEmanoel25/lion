@@ -2,11 +2,11 @@ import {useEffect,useState} from 'react';
 import {Link,NavLink,Outlet} from 'react-router-dom';
 import {useSession} from '../app/providers/SessionProvider';
 import {useBillingOverview} from '../features/billing/api/queries';
-import {Bot,BookOpen,ChevronDown,CreditCard,LayoutDashboard,MessageSquare,PanelLeftClose,PanelLeftOpen,Plug,Settings,TrendingUp,Users,Webhook,Workflow} from 'lucide-react';
+import {Bot,BookOpen,ChevronDown,Columns3,CreditCard,LayoutDashboard,MessageSquare,PanelLeftClose,PanelLeftOpen,Plug,Settings,TrendingUp,Users,Webhook,Workflow} from 'lucide-react';
 import './layout.css';
 
 const groups=[
-  {label:'PRINCIPAL',items:[['/',LayoutDashboard,'Dashboard'],['/inbox',MessageSquare,'Chats ao vivo'],['/contacts',Users,'Contatos']]},
+  {label:'PRINCIPAL',items:[['/',LayoutDashboard,'Dashboard'],['/inbox',MessageSquare,'Chats ao vivo'],['/kanban',Columns3,'Kanban'],['/contacts',Users,'Contatos']]},
   {label:'OPERAÇÕES',items:[['/playbooks',Workflow,'Fluxos'],['/agents',Bot,'Agentes de IA'],['/connections',Plug,'Conexões'],['/inbound-webhooks',Webhook,'Webhooks de entrada'],['/knowledge',BookOpen,'Conhecimento']]},
   {label:'GESTÃO',items:[['/analytics',TrendingUp,'Resultados'],['/billing',CreditCard,'Cobranças e assinaturas'],['/settings',Settings,'Configurações']]}
 ] as const;
