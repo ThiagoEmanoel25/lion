@@ -214,3 +214,41 @@ describe('menu com saída por opção', () => {
     expect(validateAutomation(noButtonText).issues.map(issue => issue.code)).toContain('INVALID_BUTTONS_CONFIG');
   });
 });
+
+describe('portas de sucesso e erro', () => {
+  const ported = (edges: Array<Record<string, unknown>>) => ({
+    start: 'start',
+    nodes: [
+      { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+      { id: 'api', kind: 'webhook', name: 'Integração', config: { url: 'https://api.test/x' }, position: { x: 100, y: 0 } },
+      { id: 'ok', kind: 'outcome', name: 'Ok', config: { type: 'RESOLVED' }, position: { x: 200, y: 0 } },
+      { id: 'bad', kind: 'handoff', name: 'Erro', config: {}, position: { x: 200, y: 100 } }
+    ],
+    edges: [{ id: 'e0', source: 'start', target: 'api' }, ...edges],
+    settings: { maxSteps: 10, timeoutSeconds: 60 }
+  });
+
+  it('aceita sucesso e erro, e conexão antiga sem porta', () => {
+    expect(validateAutomation(ported([{ id: 's', source: 'api', target: 'ok', port: 'success' }, { id: 'f', source: 'api', target: 'bad', port: 'failure' }])).valid).toBe(true);
+    expect(validateAutomation(ported([{ id: 's', source: 'api', target: 'ok' }])).valid).toBe(true);
+  });
+
+  it('rejeita porta repetida, porta inexistente e falta de sucesso', () => {
+    const codes = (edges: Array<Record<string, unknown>>) => validateAutomation(ported(edges)).issues.map(issue => issue.code);
+    expect(codes([{ id: 's', source: 'api', target: 'ok' }, { id: 's2', source: 'api', target: 'bad', port: 'success' }])).toContain('PORT_DUPLICATE_ROUTE');
+    expect(codes([{ id: 's', source: 'api', target: 'ok', port: 'reply' }])).toContain('EDGE_PORT_INVALID');
+    expect(codes([{ id: 'f', source: 'api', target: 'bad', port: 'failure' }])).toContain('SUCCESS_ROUTE_REQUIRED');
+    expect(codes([{ id: 's', source: 'start', target: 'ok', port: 'success' }])).toContain('EDGE_PORT_INVALID');
+  });
+
+  it('valida a config do bloco de IA', () => {
+    const definition = ported([{ id: 's', source: 'api', target: 'ok' }]);
+    definition.nodes[1] = { ...definition.nodes[1]!, kind: 'ai', config: { systemPrompt: '' } } as never;
+    expect(validateAutomation(definition).issues.map(issue => issue.code)).toContain('INVALID_AI_CONFIG');
+  });
+
+  it('simula seguindo a porta de sucesso', () => {
+    const { definition } = validateAutomation(ported([{ id: 'f', source: 'api', target: 'bad', port: 'failure' }, { id: 's', source: 'api', target: 'ok', port: 'success' }]));
+    expect(simulateAutomation(definition!).path).toEqual(['start', 'api', 'ok']);
+  });
+});

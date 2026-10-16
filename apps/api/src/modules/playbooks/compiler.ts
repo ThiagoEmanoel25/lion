@@ -1,4 +1,5 @@
 import {
+  AutomationAiConfigSchema,
   AutomationAudioConfigSchema,
   AutomationButtonsConfigSchema,
   AutomationConditionConfigSchema,
@@ -11,8 +12,10 @@ import {
   AutomationTriggerConfigSchema,
   AutomationWebhookConfigSchema,
   conditionMatches,
+  edgePort,
   getPathValue,
-  MENU_CHOICE_FIELD
+  MENU_CHOICE_FIELD,
+  nodePorts
 } from '@nexo/contracts';
 import type { z, ZodTypeAny } from 'zod';
 
@@ -60,9 +63,30 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationTagConfigSchema, 'TAG_REQUIRED', 'Etiquetas inválidas');
     case 'outcome':
       return typeof config.type === 'string' && outcomeKinds.has(config.type) ? [] : [error('OUTCOME_TYPE_REQUIRED', 'Informe um tipo de desfecho válido.')];
+    case 'ai':
+      return validateConfig(AutomationAiConfigSchema, 'INVALID_AI_CONFIG', 'Bloco de IA inválido');
     default:
       return [];
   }
+}
+
+// Nodes with named exits: one edge per port, ports must exist on the node, success is mandatory.
+function portIssues(node: AutomationDefinition['nodes'][number], edges: AutomationEdge[], ports: readonly string[]): AutomationIssue[] {
+  const issues: AutomationIssue[] = [];
+  const error = (code: string, message: string, edgeId?: string): AutomationIssue => ({ level: 'error', code, message, nodeId: node.id, ...(edgeId ? { edgeId } : {}) });
+  if (!ports.length) {
+    for (const edge of edges) if (edge.port) issues.push(error('EDGE_PORT_INVALID', 'Este bloco não tem saídas de sucesso/erro.', edge.id));
+    return issues;
+  }
+  const used = new Set<string>();
+  for (const edge of edges) {
+    const port = edgePort(edge);
+    if (!ports.includes(port)) { issues.push(error('EDGE_PORT_INVALID', `Saída “${port}” não existe neste bloco.`, edge.id)); continue; }
+    if (used.has(port)) issues.push(error('PORT_DUPLICATE_ROUTE', 'Cada saída deste bloco aceita uma conexão.', edge.id));
+    used.add(port);
+  }
+  if (edges.length && !used.has('success')) issues.push(error('SUCCESS_ROUTE_REQUIRED', 'Ligue a saída de sucesso.'));
+  return issues;
 }
 
 // A menu with per-option exits: every option needs exactly one exit, the only other exit allowed
@@ -125,9 +149,11 @@ export function validateAutomation(value: unknown) {
     const edges = outgoing.get(node.id) ?? [];
     if (terminalKinds.has(node.kind) && edges.length) issues.push({ level: 'error', code: 'TERMINAL_HAS_OUTPUT', message: 'Nós finais não podem ter conexões de saída.', nodeId: node.id });
     if (!terminalKinds.has(node.kind) && edges.length === 0) issues.push({ level: 'error', code: 'MISSING_OUTPUT', message: 'O nó precisa de uma conexão de saída.', nodeId: node.id });
+    const ports = nodePorts(node.kind);
     const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
-    if (node.kind !== 'condition' && !menuRouted && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições e menus com saída por opção podem ter mais de uma saída.', nodeId: node.id });
+    if (node.kind !== 'condition' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
     if (menuRouted) issues.push(...menuRouteIssues(node, edges));
+    issues.push(...portIssues(node, edges, ports));
     if (node.kind === 'condition') {
       if (edges.length < 2) issues.push({ level: 'error', code: 'CONDITION_BRANCHES_REQUIRED', message: 'A condição precisa de ao menos duas saídas.', nodeId: node.id });
       if (edges.filter(edge => edge.isDefault).length !== 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição precisa de exatamente uma saída padrão.', nodeId: node.id });
@@ -181,6 +207,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
     if (!node) { stoppedBecause = 'dead_end'; break; }
     const candidates: AutomationEdge[] = [...(outgoing.get(current) ?? [])].sort((a, b) => a.priority - b.priority);
     let selected: AutomationEdge | undefined = candidates[0];
+    if (nodePorts(node.kind).length) selected = candidates.find(edge => edgePort(edge) === 'success');
     if (node.kind === 'buttons' && candidates.some(edge => edge.condition !== undefined || edge.isDefault)) {
       // Without a simulated choice, follow the first option so the rest of the path can be checked.
       selected = candidates.find(edge => edge.condition && conditionMatches(getPathValue(variables, edge.condition.field), edge.condition))
