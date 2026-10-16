@@ -44,3 +44,8 @@
 .group-sistema{background:#e7f2f4}.group-atendimento{background:#e9eef9}.group-atendente{background:#efeaf8}.group-campos{background:#e8f3ec}
 .node-ports{display:grid;gap:6px;padding:0 12px 12px}.node-port{position:relative;display:flex;justify-content:flex-end;font-size:10px;color:#dce8e2}.node-port .react-flow__handle{right:-14px}.node-port.success .react-flow__handle{background:#3fd47a}.node-port.failure .react-flow__handle{background:#ef7476}
 .response-fields{display:grid;gap:6px;margin-bottom:13px}.response-fields>b{font-size:11px;color:#65736c}.response-fields>div{display:grid;grid-template-columns:1fr 1fr 32px;gap:6px}.response-fields>div button{border:0;border-radius:8px;background:transparent;color:#9aa5a0}.response-fields>div button:hover{background:#fde9e6;color:#b04c43}
+
+:root{--wait:#d9650c}@media(prefers-color-scheme:dark){:root{--wait:#f08a3c}}
+.automation-node-wait_response{border-color:var(--wait)}.automation-node-wait_response .automation-node-head{background:var(--wait)}
+.node-port.reply .react-flow__handle,.node-port.timeout .react-flow__handle{background:var(--wait)}
+.palette-icon.wait_response{background:#ffe9d6;color:var(--wait)}.tools-dropdown .palette-icon.wait_response{color:var(--wait)}

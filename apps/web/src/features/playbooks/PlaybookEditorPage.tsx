@@ -2,7 +2,7 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'reac
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronLeft,CircleCheck,Clock,Code,GitBranch,Headset,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronLeft,CircleCheck,Clock,Code,GitBranch,Headset,Hourglass,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
@@ -25,6 +25,7 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'audio',icon:Mic,label:'Áudio',description:'Envia áudio ou mensagem de voz',rule:'URL HTTPS obrigatória; enviar como voz é opcional.'},
   {kind:'sticker',icon:Sticker,label:'Figurinha',description:'Envia uma figurinha',rule:'URL HTTPS obrigatória, apontando para um WebP compatível.'},
   {kind:'buttons',icon:List,label:'Menu interativo',description:'Oferece até três escolhas',rule:'Texto de 1 a 1024, rodapé até 60 e de 1 a 3 botões com identificador e texto (até 20) únicos.'},
+  {kind:'wait_response',icon:Hourglass,label:'Aguarda Resposta',description:'Pausa até o contato responder',rule:'Saída de resposta obrigatória; saída de timeout opcional (não existe ao esperar indefinidamente). Espera máxima de 31 dias; junta mensagens por até 300 s.'},
   {kind:'ai',icon:Bot,label:'Bloco de IA',description:'Chama a IA com prompt próprio',rule:'Exige prompt de sistema. Saída de sucesso grava a resposta na variável; saída de erro grava o motivo.'},
   {kind:'agent',icon:Sparkles,label:'Agente de IA',description:'Responde com um agente cadastrado',rule:'Exige um agente de IA selecionado e ativo.'},
   {kind:'condition',icon:GitBranch,label:'Condicional',description:'Cria caminhos de decisão',rule:'Único bloco com mais de uma saída: precisa de ao menos duas, exatamente uma rota padrão e condição em cada saída não padrão, com prioridades distintas.'},
@@ -37,10 +38,18 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
 ];
 const kindMeta=Object.fromEntries(catalog.map(item=>[item.kind,item])) as Record<AutomationNodeKind,(typeof catalog)[number]>;
 // Mirrors packages/contracts/src/ports.ts (NODE_PORTS).
-const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'>>>={webhook:['success','failure'],ai:['success','failure']};
-const PORT_LABELS={success:'sucesso',failure:'erro'} as const;
+const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'|'reply'|'timeout'>>>={webhook:['success','failure'],ai:['success','failure'],wait_response:['reply','timeout']};
+const PORT_LABELS={success:'sucesso',failure:'erro',reply:'respondeu',timeout:'não respondeu'} as const;
+// Mirrors packages/contracts (WAIT_*); duplicated so the web bundle does not pull zod in.
+const WAIT_MAX_SECONDS=2_678_400;
+const WAIT_MAX_BUFFER_SECONDS=300;
+const WAIT_UNIT_SECONDS={minutes:60,hours:3600,days:86400} as const;
+const WAIT_UNIT_LABELS={minutes:'minutos',hours:'horas',days:'dias'} as const;
+type WaitUnit=keyof typeof WAIT_UNIT_SECONDS;
+const waitUnitOf=(config:Record<string,unknown>):WaitUnit=>config.timeoutUnit==='minutes'||config.timeoutUnit==='days'?config.timeoutUnit:'hours';
+const waitIndefinite=(config:Record<string,unknown>)=>config.waitIndefinitely===true;
 const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff']);
-function connectionRule(kind:AutomationNodeKind){return NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
+function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
 // Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
 const MENU_CHOICE_FIELD='menu.choice';
 const MENU_LIMIT={buttons:3,list:10} as const;
@@ -50,7 +59,7 @@ type MenuOption={id:string;label:string;description?:string};
 function menuOptionsOf(config:Record<string,unknown>):MenuOption[]{return (Array.isArray(config.buttons)?config.buttons:[]).flatMap(item=>{const option=item&&typeof item==='object'?item as Record<string,unknown>:{};return typeof option.id==='string'?[{id:option.id,label:typeof option.label==='string'?option.label:'',...(typeof option.description==='string'&&option.description?{description:option.description}:{})}]:[]})}
 // Which handle of the source node an edge leaves from; persisted edges only carry their condition.
 function sourceHandleFor(kind:AutomationNodeKind|undefined,edge:AutomationEdge){
-  if(kind&&NODE_PORTS[kind])return edge.port??'success';
+  if(kind&&NODE_PORTS[kind])return edge.port??NODE_PORTS[kind]![0];
   if(kind==='condition'&&edge.isDefault)return 'fallback';
   if(kind==='buttons'){if(edge.isDefault)return 'timeout';if(edge.condition?.field===MENU_CHOICE_FIELD)return `opt:${String(edge.condition.value)}`}
   return undefined;
@@ -68,6 +77,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='assign')return `Atribuir para ${String(config.queue||config.assigneeId||'destino não definido')}`;
   if(kind==='handoff')return `Transferir para ${String(config.queue||'atendimento humano')}`;
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
+  if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
   if(kind==='ai')return `${String(config.model||'gpt-5.4-mini')} · resposta em ${String(config.responseVariable||'resposta.gpt')}`;
   if(kind==='agent')return config.agentId?'Agente configurado':'Selecione um agente';
   if(kind==='condition'&&Array.isArray(config.rules))return `${config.rules.length} condição(ões) · ${config.logic==='any'?'QUALQUER':'TODAS'}`;
@@ -75,7 +85,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:'};
   return labels[kind];
 }
 function flowAction(action:'edit'|'duplicate'|'remove',id:string){window.dispatchEvent(new CustomEvent('nexo-flow-action',{detail:{action,id}}))}
@@ -87,7 +97,7 @@ function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=k
   {data.kind==='buttons'&&<div className="node-button-list node-menu-routes">{buttonItems.map((button,index)=><div key={button.id||index}><span>{button.label||`Opção ${index+1}`}</span>{button.id&&<Handle id={`opt:${button.id}`} type="source" position={Position.Right}/>}</div>)}{Number(data.config.timeoutSeconds??0)>0&&<div className="menu-timeout-route"><span>Inatividade</span><Handle id="timeout" type="source" position={Position.Right}/></div>}</div>}
   {!terminal&&data.kind!=='buttons'&&!NODE_PORTS[data.kind]&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
   {data.kind==='condition'&&<Handle id="fallback" type="source" position={Position.Right} style={{top:'78%'}} />}
-  {NODE_PORTS[data.kind]&&<div className="node-ports">{NODE_PORTS[data.kind]!.map(port=><div key={port} className={`node-port ${port}`}><span>{PORT_LABELS[port]}</span><Handle id={port} type="source" position={Position.Right}/></div>)}</div>}
+  {NODE_PORTS[data.kind]&&<div className="node-ports">{NODE_PORTS[data.kind]!.filter(port=>!(data.kind==='wait_response'&&port==='timeout'&&waitIndefinite(data.config))).map(port=><div key={port} className={`node-port ${port}`}><span>{data.kind==='wait_response'?(port==='reply'?'Aguardar pela resposta do cliente.':`Ou caso não responda — Após ${Number(data.config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(data.config)]}`):PORT_LABELS[port]}</span><Handle id={port} type="source" position={Position.Right}/></div>)}</div>}
 </div>}
 const nodeTypes={automation:AutomationNodeCard};
 
@@ -119,8 +129,8 @@ export function PlaybookEditorPage(){
     const handle=connection.sourceHandle??'';const source=nodes.find(node=>node.id===connection.source);
     let data:FlowEdgeData={isDefault:false,priority:0};let label:string|undefined;
     if(handle.startsWith('opt:')){const optionId=handle.slice(4);const options=source?menuOptionsOf(source.data.config):[];const index=options.findIndex(option=>option.id===optionId);data={condition:{field:MENU_CHOICE_FIELD,operator:'equals',value:optionId},isDefault:false,priority:Math.max(index,0)};label=options[index]?.label}
-    else if(handle==='timeout'){data={isDefault:true,priority:1000};label='Inatividade'}
-    else if(source&&NODE_PORTS[source.data.kind]&&(handle==='success'||handle==='failure')){data={port:handle,isDefault:false,priority:handle==='success'?0:1};label=PORT_LABELS[handle]}
+    else if(handle==='timeout'&&source?.data.kind==='buttons'){data={isDefault:true,priority:1000};label='Inatividade'}
+    else if(source&&NODE_PORTS[source.data.kind]&&(handle==='success'||handle==='failure'||handle==='reply'||handle==='timeout')){data={port:handle,isDefault:false,priority:NODE_PORTS[source.data.kind]!.indexOf(handle)};label=PORT_LABELS[handle]}
     else if(source?.data.kind==='condition'){const fallback=handle==='fallback';data={isDefault:fallback,priority:fallback?1000:0};label=fallback?'Caso contrário':'Condição atendida'}
     // A menu exit leads to a single place: reconnecting it replaces the previous edge.
     const replaces=(edge:FlowEdge)=>(source?.data.kind==='buttons'||Boolean(source&&NODE_PORTS[source.data.kind]))&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
@@ -130,7 +140,7 @@ export function PlaybookEditorPage(){
   function drop(event:DragEvent){event.preventDefault();const kind=event.dataTransfer.getData('application/nexo-node') as AutomationNodeKind;if(!kindMeta[kind]||!flowRef.current)return;const position=flowRef.current.screenToFlowPosition({x:event.clientX,y:event.clientY});const id=crypto.randomUUID();const meta=kindMeta[kind];setNodes(current=>[...current,{id,type:'automation',position,data:{kind,name:meta.label,config:defaultConfig(kind)}}]);if(kind==='trigger'&&!start)setStart(id);setDirty(true);setSelectedNodeId(id);setSelectedEdgeId(null);setResult(null)}
   function updateSelected(patch:Partial<FlowNodeData>){if(!selectedNodeId)return;setNodes(current=>current.map(node=>node.id===selectedNodeId?{...node,data:{...node.data,...patch}}:node));setDirty(true);setResult(null)}
   function updateConfig(key:string,value:unknown){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,[key]:value}})}
-  function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,...patch}})}
+  function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;if(selectedNode.data.kind==='wait_response'&&patch.waitIndefinitely===true){const nodeId=selectedNode.id;setEdges(current=>current.filter(edge=>!(edge.source===nodeId&&edge.sourceHandle==='timeout')))}updateSelected({config:{...selectedNode.data.config,...patch}})}
   function saveCondition(name:string,config:Record<string,unknown>){updateSelected({name,config});setInspectorOpen(false)}
   function saveMenu(name:string,config:Record<string,unknown>){
     if(!selectedNode)return;const nodeId=selectedNode.id;const options=menuOptionsOf(config);const labels=new Map(options.map(option=>[option.id,option.label]));const hasTimeout=Number(config.timeoutSeconds??0)>0;
@@ -208,6 +218,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'tag':return {mode:'add',tagIds:[],tags:[]};
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
+    case 'wait_response':return {timeoutValue:1,timeoutUnit:'hours',waitIndefinitely:false,bufferSeconds:0};
     case 'ai':return {model:'gpt-5.4-mini',systemPrompt:'',userMessage:'{{last_message}}',understandImage:false,understandPdf:false,responseVariable:'resposta.gpt',failReasonVariable:'ai.fail.reason',autoSendResponse:false,contextInteractions:1};
   }
 }
@@ -232,6 +243,14 @@ function JsonHeadersField({value,onChange}:{value:unknown;onChange:(value:Record
   function commit(){try{const parsed:unknown=JSON.parse(draft||'{}');if(!parsed||Array.isArray(parsed)||typeof parsed!=='object'||Object.values(parsed).some(item=>typeof item!=='string'))throw new Error();onChange(parsed as Record<string,string>);setError(false)}catch{setError(true)}}
   return <label>Cabeçalhos HTTP<textarea rows={4} spellCheck={false} value={draft} onChange={event=>setDraft(event.target.value)} onBlur={commit}/><small className={error?'field-error':undefined}>{error?'Use um objeto JSON com valores em texto.':'Objeto JSON; variáveis também são aceitas nos valores.'}</small></label>
 }
+function WaitFields({config,onConfigs}:{config:Record<string,unknown>;onConfigs:(patch:Record<string,unknown>)=>void}){
+  const unit=waitUnitOf(config);const indefinite=waitIndefinite(config);const value=Number(config.timeoutValue??1);const buffer=Number(config.bufferSeconds??0);
+  const timeError=!indefinite&&(!Number.isInteger(value)||value<1?'Informe um número inteiro a partir de 1.':value*WAIT_UNIT_SECONDS[unit]>WAIT_MAX_SECONDS?'O limite é 31 dias no total.':'');
+  const bufferError=!Number.isInteger(buffer)||buffer<0||buffer>WAIT_MAX_BUFFER_SECONDS?`Use de 0 a ${WAIT_MAX_BUFFER_SECONDS} segundos.`:'';
+  return <><div className="duration-fields"><label>Tempo<input type="number" min="1" step="1" value={value} disabled={indefinite} onChange={event=>onConfigs({timeoutValue:Number(event.target.value)})}/></label><label>Unidade<select value={unit} disabled={indefinite} onChange={event=>onConfigs({timeoutUnit:event.target.value})}>{(Object.keys(WAIT_UNIT_LABELS) as WaitUnit[]).map(item=><option key={item} value={item}>{WAIT_UNIT_LABELS[item].replace(/^./,letter=>letter.toUpperCase())}</option>)}</select></label></div>{timeError&&<small className="field-error">{timeError}</small>}
+    <label className="check-field"><input type="checkbox" checked={indefinite} onChange={event=>onConfigs({waitIndefinitely:event.target.checked})}/> Esperar indefinidamente</label>
+    <label>Juntar mensagens por (segundos)<input type="number" min="0" max={WAIT_MAX_BUFFER_SECONDS} step="1" value={buffer} onChange={event=>onConfigs({bufferSeconds:Number(event.target.value)})}/><small className={bufferError?'field-error':undefined}>{bufferError||'0 desliga: a primeira mensagem já é a resposta.'}</small></label></>
+}
 function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
@@ -246,6 +265,7 @@ function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,isStart,o
     {kind==='audio'&&<><label>URL HTTPS do áudio<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/audio.ogg" /></label><label className="check-field"><input type="checkbox" checked={config.ptt===true} onChange={event=>onConfig('ptt',event.target.checked)}/> Enviar como mensagem de voz</label></>}
     {kind==='sticker'&&<><label>URL HTTPS da figurinha<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/figurinha.webp" /></label><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
     {kind==='ai'&&<>{aiKeyConfigured===false&&<p className="field-help">Sem chave da OpenAI no workspace, o bloco usa a chave padrão do servidor, se houver; sem nenhuma, segue pela saída de erro. Configure em Configurações → Inteligência artificial.</p>}<label>Modelo<input value={String(config.model??'gpt-5.4-mini')} onChange={event=>onConfig('model',event.target.value)} list="ai-models"/><datalist id="ai-models"><option value="gpt-5.4-mini"/><option value="gpt-5.4"/><option value="gpt-4.1-mini"/></datalist></label><label>Prompt do sistema<textarea rows={8} value={String(config.systemPrompt??'')} onChange={event=>onConfig('systemPrompt',event.target.value)} placeholder="Explique à IA o que analisar e o formato da resposta."/></label><label>Mensagem do usuário<input value={String(config.userMessage??'{{last_message}}')} onChange={event=>onConfig('userMessage',event.target.value)}/><small>Use {'{{last_message}}'} para a última mensagem do contato.</small></label><label className="check-field"><input type="checkbox" checked={config.understandImage===true} onChange={event=>onConfig('understandImage',event.target.checked)}/> Ler imagens recebidas</label><label className="check-field"><input type="checkbox" checked={config.understandPdf===true} onChange={event=>onConfig('understandPdf',event.target.checked)}/> Ler PDFs recebidos</label><label className="check-field"><input type="checkbox" checked={config.autoSendResponse===true} onChange={event=>onConfig('autoSendResponse',event.target.checked)}/> Enviar a resposta ao contato</label><label>Salvar resposta em<input value={String(config.responseVariable??'resposta.gpt')} onChange={event=>onConfig('responseVariable',event.target.value)}/></label><label>Salvar motivo da falha em<input value={String(config.failReasonVariable??'ai.fail.reason')} onChange={event=>onConfig('failReasonVariable',event.target.value)}/></label><label>Mensagens de contexto<input type="number" min="1" max="20" value={Number(config.contextInteractions??1)} onChange={event=>onConfig('contextInteractions',Math.min(20,Math.max(1,Number(event.target.value)||1)))}/></label></>}
+    {kind==='wait_response'&&<WaitFields config={config} onConfigs={onConfigs}/>}
     {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
     {kind==='delay'&&<><div className="duration-fields"><label>Duração<input type="number" min="1" max={delayUnit==='days'?31:2678400} step="1" value={Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))} onChange={event=>onConfig('seconds',Number(event.target.value)*delayFactor)}/></label><label>Unidade<select value={delayUnit} onChange={event=>{const unit=event.target.value;const factor=unit==='days'?86400:unit==='hours'?3600:unit==='minutes'?60:1;onConfigs({unit,seconds:Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))*factor})}}><option value="seconds">Segundos</option><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select></label></div><p className="field-help">O fluxo pausa e retoma automaticamente. Limite total: 31 dias.</p></>}
     {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH (legado)</option><option value="DELETE">DELETE (legado)</option></select></label><JsonHeadersField value={config.headers} onChange={value=>onConfig('headers',value)}/>{String(config.method??'POST')!=='GET'&&<label>Corpo da requisição<textarea rows={5} value={String(config.body??'')} onChange={event=>onConfig('body',event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><small>JSON ou texto; variáveis com {'{{caminho}}'}.</small></label>}<label>Salvar resposta na variável<input value={String(config.responseVariable??'')} onChange={event=>onConfig('responseVariable',event.target.value||undefined)} placeholder="integration.response" /></label><div className="response-fields"><b>Campos da resposta</b>{(Array.isArray(config.responseFields)?config.responseFields as Array<{path:string;variable:string}>:[]).map((field,index,all)=><div key={index}><input aria-label={`Caminho do campo ${index+1}`} value={field.path} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,path:event.target.value}:item))} placeholder="body.accepted"/><input aria-label={`Variável do campo ${index+1}`} value={field.variable} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,variable:event.target.value}:item))} placeholder="kovil.receipt.accepted"/><button type="button" aria-label={`Remover campo ${index+1}`} onClick={()=>onConfig('responseFields',all.filter((_,i)=>i!==index))}><X size={14}/></button></div>)}<button type="button" className="add-button-option" disabled={Array.isArray(config.responseFields)&&config.responseFields.length>=20} onClick={()=>onConfig('responseFields',[...(Array.isArray(config.responseFields)?config.responseFields:[]),{path:'',variable:''}])}>+ Adicionar campo</button><p className="field-help">Caminho em status, body ou headers da resposta (ex.: body.accepted) e a variável que recebe o valor.</p></div><p className="field-help">Respostas 2xx seguem por sucesso; erro HTTP, timeout de 15 s ou falha de rede seguem por erro.</p></>}
