@@ -1,4 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { DelayedError, Job, Queue, Worker } from 'bullmq';
 import pino from 'pino';
 import { PrismaService } from './infra/prisma.service.js';
@@ -74,11 +75,28 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     try {
       await this.sendOutbound(job, token);
     } catch (error) {
-      // Only the last attempt ends the item for good; the sequence then fails instead of continuing.
+      // On the last outbound attempt, persist provider failure or durably retry a
+      // continuation failure so the execution cannot remain WAITING forever.
       if (!(error instanceof DelayedError) && job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
-        const message = await this.prisma.message.findUnique({ where: { id: job.data.messageId }, select: { providerPayload: true } });
+        const message = await this.prisma.message.findUnique({ where: { id: job.data.messageId }, select: { providerPayload: true, status: true } });
         const sequence = sequenceOf(message?.providerPayload);
-        if (sequence) await this.automationQueue.add('sequence_next', { executionId: sequence.executionId, action: 'sequence_next', resumeStepId: sequence.stepId, sequenceIndex: sequence.index + 1, failedIndex: sequence.index }, sequenceJobOptions(sequence.stepId, sequence.index + 1));
+        const execution = sequence ? await this.prisma.execution.findUnique({ where: { id: sequence.executionId }, select: { context: true, workspaceId: true } }) : null;
+        if (sequence && message?.status === 'FAILED') {
+          const reason = `MESSAGE_ITEM_FAILED: item ${sequence.index + 1}`;
+          const context = execution?.context && typeof execution.context === 'object' && !Array.isArray(execution.context) ? execution.context as Record<string, unknown> : {};
+          const runtime = context._runtime && typeof context._runtime === 'object' && !Array.isArray(context._runtime) ? context._runtime as Record<string, unknown> : {};
+          await this.prisma.$transaction([
+            this.prisma.executionStep.updateMany({ where: { id: sequence.stepId, executionId: sequence.executionId, status: 'RUNNING' }, data: { status: 'FAILED', reason, finishedAt: new Date() } }),
+            this.prisma.execution.updateMany({ where: { id: sequence.executionId, status: 'WAITING' }, data: { status: 'FAILED', finishedAt: new Date(), context: { ...context, _runtime: { ...runtime, error: { code: 'MESSAGE_ITEM_FAILED', message: `Falha ao enviar o item ${sequence.index + 1} da mensagem.` } } } as Prisma.InputJsonValue } })
+          ]);
+        } else if (sequence && message && ['SENT', 'DELIVERED', 'READ'].includes(message.status) && execution) {
+          // The provider send succeeded, but enqueueing its continuation did not. Keep a
+          // durable retry in the outbox instead of either resending or stranding the flow.
+          await this.prisma.outboxEvent.create({ data: {
+            workspaceId: execution.workspaceId, aggregate: 'Execution', aggregateId: sequence.executionId, type: 'automation.sequence.continue.requested',
+            payload: { executionId: sequence.executionId, resumeStepId: sequence.stepId, sequenceIndex: sequence.index + 1 }
+          } });
+        }
       }
       throw error;
     }
@@ -146,13 +164,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested', 'automation.execution.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; executionId?: string; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null };
+      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
+        : event.type === 'automation.sequence.continue.requested' ? Boolean(payload.executionId && payload.resumeStepId && Number.isInteger(payload.sequenceIndex) && payload.sequenceIndex! >= 1)
         : event.type === 'automation.inbound.received' ? Boolean(payload.conversationId)
         : event.type === 'automation.trigger.requested' ? Boolean(payload.event && (payload.conversationId || payload.contactId))
         : event.type === 'knowledge.index.requested'?Boolean(payload.sourceId):Boolean(payload.executionId);
@@ -170,6 +189,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         };
         if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
+        } else if(event.type==='automation.sequence.continue.requested'){
+          await automationQueue.add('sequence_next', { executionId: payload.executionId!, action: 'sequence_next', resumeStepId: payload.resumeStepId!, sequenceIndex: payload.sequenceIndex! }, sequenceJobOptions(payload.resumeStepId!,payload.sequenceIndex!));
         } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingExecution(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {
           // The message answered a pending wait; it must not also start a new execution.
         } else if (event.type === 'automation.inbound.received' || event.type === 'automation.trigger.requested') {

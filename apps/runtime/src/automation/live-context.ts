@@ -8,6 +8,7 @@ export type LiveSnapshot = {
   contact: { id: string; name: string | null; phone: string; email: string | null; stage: string; customFields: unknown; tags: Array<{ id: string; name: string }> };
   conversation: { id: string; status: string; mode: string; assigneeId: string | null; queue: string | null };
   lastInboundAt: Date | null;
+  kanban?: Array<{boardId:string;columnId:string}>;
 };
 
 // Conditions read the conversation as it is now, not as it was when the execution started.
@@ -20,7 +21,8 @@ export function liveConditionContext(snapshot: LiveSnapshot) {
       ...snapshot.conversation,
       window24h: snapshot.lastInboundAt !== null && snapshot.now.getTime() - snapshot.lastInboundAt.getTime() < WINDOW_24H_MS
     } as Record<string, unknown>,
-    system: systemContext(snapshot.now, snapshot.timeZone)
+    system: systemContext(snapshot.now, snapshot.timeZone),
+    kanban: Object.fromEntries((snapshot.kanban??[]).map(card=>[card.boardId,{columnId:card.columnId}]))
   };
 }
 
@@ -31,6 +33,7 @@ export function mergeLiveContext<T extends Record<string, unknown>>(context: T, 
     ...context,
     contact: { ...objectOf(context.contact), ...live.contact },
     conversation: { ...objectOf(context.conversation), ...live.conversation },
-    system: live.system
+    system: live.system,
+    kanban: live.kanban
   };
 }

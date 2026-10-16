@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, sequenceOf } from './message-sequence.js';
+import { itemMessage, pauseSeconds, safeMediaUrl, sequenceItems, sequenceJobOptions, sequenceOf } from './message-sequence.js';
 
 describe('sequenceItems', () => {
   it('turns the legacy { text } into one text item', () => {
@@ -13,6 +13,10 @@ describe('sequenceItems', () => {
     expect(() => sequenceItems({ items: [{ type: 'file', url: 'http://x/a.pdf', fileName: 'a.pdf' }] })).toThrow('INVALID_MESSAGE_ITEM');
     expect(sequenceItems({})).toEqual([]);
   });
+  it('enforces the sequence bounds at runtime too', () => {
+    expect(() => sequenceItems({ items: [] })).toThrow('INVALID_MESSAGE_ITEM_COUNT');
+    expect(() => sequenceItems({ items: Array.from({ length: 31 }, () => ({ type: 'text', text: 'Oi' })) })).toThrow('INVALID_MESSAGE_ITEM_COUNT');
+  });
 });
 
 describe('pauseSeconds', () => {
@@ -20,6 +24,7 @@ describe('pauseSeconds', () => {
     expect(pauseSeconds({ minSeconds: 2, maxSeconds: 5 }, () => 0)).toBe(2);
     expect(pauseSeconds({ minSeconds: 2, maxSeconds: 5 }, () => 0.9999)).toBe(5);
     expect(pauseSeconds({ minSeconds: 3, maxSeconds: 3 }, () => 0.7)).toBe(3);
+    expect(pauseSeconds({ minSeconds: 2, maxSeconds: 5 }, () => 1)).toBe(5);
   });
 });
 
@@ -44,12 +49,31 @@ describe('itemMessage', () => {
     expect(() => itemMessage({ type: 'media', mediaType: 'image', url: '{{nope}}' }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
     expect(() => itemMessage({ type: 'file', url: 'http://x/a.pdf', fileName: 'a' }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
   });
+  it('validates values after interpolation', () => {
+    expect(() => itemMessage({ type: 'text', text: '{{long}}', typingSeconds: 0 }, { long: 'a'.repeat(4097) })).toThrow('MESSAGE_TOO_LONG');
+    expect(() => itemMessage({ type: 'file', url: 'https://x.test/a.pdf', fileName: '{{empty}}' }, ctx)).toThrow('EMPTY_FILE_NAME');
+    expect(() => itemMessage({ type: 'file', url: 'https://x.test/a.pdf', fileName: '{{long}}' }, { long: 'a'.repeat(256) })).toThrow('FILE_NAME_TOO_LONG');
+    expect(() => itemMessage({ type: 'media', mediaType: 'image', url: 'https://x.test/a.png', caption: '{{long}}' }, { long: 'a'.repeat(1025) })).toThrow('CAPTION_TOO_LONG');
+  });
+});
+
+describe('safeMediaUrl', () => {
+  it('accepts public HTTPS and rejects credentials, local hosts and private IP literals', () => {
+    expect(safeMediaUrl('https://cdn.example.com/a.pdf')).toBe('https://cdn.example.com/a.pdf');
+    expect(() => safeMediaUrl('https://user:pass@cdn.example.com/a')).toThrow('MEDIA_HTTPS_REQUIRED');
+    expect(() => safeMediaUrl('https://localhost/a')).toThrow('MEDIA_PRIVATE_HOST');
+    expect(() => safeMediaUrl('https://127.0.0.1/a')).toThrow('MEDIA_PRIVATE_HOST');
+    expect(() => safeMediaUrl('https://[::1]/a')).toThrow('MEDIA_PRIVATE_HOST');
+    expect(() => safeMediaUrl('https://[::ffff:127.0.0.1]/a')).toThrow('MEDIA_PRIVATE_HOST');
+  });
 });
 
 describe('sequenceOf / sequenceJobOptions', () => {
   it('reads the sequence ref from providerPayload and ignores anything else', () => {
     expect(sequenceOf({ typingSeconds: 3, sequence: { executionId: 'e', stepId: 's', index: 1 } })).toEqual({ executionId: 'e', stepId: 's', index: 1 });
     expect(sequenceOf({ sequence: { executionId: 'e', stepId: 's' } })).toBeUndefined();
+    expect(sequenceOf({ sequence: { executionId: 'e', stepId: 's', index: -1 } })).toBeUndefined();
+    expect(sequenceOf({ sequence: { executionId: 'e', stepId: 's', index: 1.5 } })).toBeUndefined();
     expect(sequenceOf(null)).toBeUndefined();
   });
   it('uses one fixed jobId per step and next index', () => {

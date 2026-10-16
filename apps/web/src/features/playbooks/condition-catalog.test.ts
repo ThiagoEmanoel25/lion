@@ -8,7 +8,7 @@ describe('condition catalog', () => {
     expect(CONDITION_GROUPS).toEqual(['Sistema', 'Atendimento', 'Atendente', 'Campos']);
     expect(CONDITION_ITEMS.map(entry => entry.label)).toEqual([
       'Etiqueta', 'Dia da semana', 'Hora', 'Data', 'Janela de 24h',
-      'Aguardando', 'Atendendo', 'Resolvidos',
+      'Aguardando', 'Atendendo', 'Resolvidos', 'Coluna do Kanban',
       'Atendente ativo do chat (lista)',
       'Nome', 'Número', 'Email', 'Campo personalizado', 'Variável do fluxo'
     ]);
@@ -21,6 +21,7 @@ describe('condition catalog', () => {
     expect(item('attending').create().value).toBe('ASSIGNED');
     expect(item('resolved').create().value).toBe('RESOLVED');
     expect(item('window24h').create()).toEqual({ field: 'conversation.window24h', operator: 'equals', value: true });
+    expect(item('kanban').create()).toEqual({ field: 'kanban.', operator: 'in', value: [] });
   });
 
   it('reconhece o item de uma regra salva', () => {
@@ -28,6 +29,7 @@ describe('condition catalog', () => {
     expect(itemForRule({ field: 'contact.customFields.plano', operator: 'equals', value: 'pro' }).key).toBe('custom');
     expect(itemForRule({ field: 'menu.choice', operator: 'equals', value: 'a' }).key).toBe('variable');
     expect(itemForRule({ field: 'contact.phone', operator: 'contains', value: '71' }).key).toBe('phone');
+    expect(itemForRule({ field: 'kanban.board-1.columnId', operator: 'in', value: ['column-1'] }).key).toBe('kanban');
   });
 
   it('escolhe o editor de valor pelo item e operador', () => {
@@ -36,12 +38,13 @@ describe('condition catalog', () => {
     expect(valueKind(item('name'), 'exists')).toBe('none');
     expect(valueKind(item('name'), 'contains')).toBe('text');
     expect(valueKind(item('waiting'), 'equals')).toBe('none');
+    expect(valueKind(item('kanban'), 'in')).toBe('kanbanColumns');
   });
 
   it('busca ignorando acentos e maiúsculas, também pelo grupo', () => {
     expect(searchConditionItems('numero').map(entry => entry.key)).toEqual(['phone']);
     expect(searchConditionItems('JANELA').map(entry => entry.key)).toEqual(['window24h']);
-    expect(searchConditionItems('atendimento').map(entry => entry.key)).toEqual(['waiting', 'attending', 'resolved']);
+    expect(searchConditionItems('atendimento').map(entry => entry.key)).toEqual(['waiting', 'attending', 'resolved', 'kanban']);
     expect(searchConditionItems('')).toHaveLength(CONDITION_ITEMS.length);
   });
 
@@ -56,6 +59,8 @@ describe('condition catalog', () => {
     expect(ruleError({ field: 'contact.name', operator: 'equals', value: '' })).toBe('Informe o valor para comparar.');
     expect(ruleError({ field: 'contact.name', operator: 'exists' })).toBe('');
     expect(ruleError({ field: 'conversation.status', operator: 'equals', value: 'QUEUED' })).toBe('');
+    expect(ruleError({ field: 'kanban.', operator: 'in', value: [] })).toBe('Selecione um quadro e ao menos uma coluna.');
+    expect(ruleError({ field: 'kanban.board-1.columnId', operator: 'in', value: ['column-1'] })).toBe('');
   });
 
   it('ignora chaves herdadas do Object ao classificar regras', () => {

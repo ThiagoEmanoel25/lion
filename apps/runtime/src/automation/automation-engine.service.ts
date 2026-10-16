@@ -3,6 +3,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { AutomationDefinitionSchema } from '@nexo/contracts';
+import {kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
@@ -273,6 +274,34 @@ export class AutomationEngineService implements OnModuleDestroy {
           }
           await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { mode, tagIds });
         });
+        return 'continue';
+      }
+
+      case 'kanban': {
+        const boardId=typeof node.config.boardId==='string'?node.config.boardId:'';
+        const columnId=typeof node.config.columnId==='string'?node.config.columnId:'';
+        const mode=node.config.mode==='create_only'||node.config.mode==='move_only'?node.config.mode:'create_or_move';
+        if(!boardId||!columnId)throw new NodeExecutionError('INVALID_KANBAN_CONFIG','Selecione o quadro e a coluna do Kanban.');
+        const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId,workspaceId},select:{contactId:true}});
+        if(!conversation)throw new NodeExecutionError('CONVERSATION_NOT_FOUND','A conversa da execução não existe.');
+        await this.prisma.$transaction(async tx=>{
+          const column=await tx.kanbanColumn.findFirst({where:{id:columnId,boardId,board:{workspaceId}},select:{id:true}});
+          if(!column)throw new NodeExecutionError('KANBAN_TARGET_NOT_FOUND','O quadro ou a coluna do Kanban foi excluído.');
+          const existing=await tx.kanbanCard.findUnique({where:{boardId_contactId:{boardId,contactId:conversation.contactId}}});
+          const action=kanbanAction(mode,existing?.columnId??null,columnId);
+          let card=existing;
+          if(action==='create'){
+            const position=await tx.kanbanCard.count({where:{columnId}});
+            card=await tx.kanbanCard.create({data:{boardId,columnId,contactId:conversation.contactId,conversationId,position,movedByType:'execution',movedById:executionId}});
+            await tx.kanbanCardEvent.create({data:{cardId:card.id,toColumnId:columnId,movedByType:'execution',movedById:executionId}});
+          }else if(action==='move'){
+            const fromColumnId=existing!.columnId;const position=await tx.kanbanCard.count({where:{columnId}});
+            card=await tx.kanbanCard.update({where:{id:existing!.id},data:{columnId,conversationId,position,movedAt:new Date(),movedByType:'execution',movedById:executionId}});
+            await tx.kanbanCardEvent.create({data:{cardId:card.id,fromColumnId,toColumnId:columnId,movedByType:'execution',movedById:executionId}});
+            await tx.kanbanCard.updateMany({where:{columnId:fromColumnId,position:{gt:existing!.position}},data:{position:{decrement:1}}});
+          }
+          await this.finishInTransaction(tx,executionId,step.id,nextNodeId,context,{action,cardId:card?.id??null,boardId,columnId});
+        },{isolationLevel:'Serializable'});
         return 'continue';
       }
 
@@ -590,7 +619,7 @@ export class AutomationEngineService implements OnModuleDestroy {
     const [conversation, lastInbound] = await Promise.all([
       this.prisma.conversation.findUnique({
         where: { id: conversationId },
-        include: { workspace: { select: { timezone: true } }, contact: { include: { tags: { include: { tag: true } } } } }
+        include: { workspace: { select: { timezone: true } }, contact: { include: { tags: { include: { tag: true } },kanbanCards:{select:{boardId:true,columnId:true}} } } }
       }),
       this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } })
     ]);
@@ -601,7 +630,8 @@ export class AutomationEngineService implements OnModuleDestroy {
       now: new Date(),
       contact: { id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, stage: contact.stage, customFields: contact.customFields, tags: contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })) },
       conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode, assigneeId: conversation.assigneeId, queue: conversation.queue },
-      lastInboundAt: lastInbound?.createdAt ?? null
+      lastInboundAt: lastInbound?.createdAt ?? null,
+      kanban: contact.kanbanCards
     });
   }
 
