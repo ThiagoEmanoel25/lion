@@ -307,3 +307,42 @@ describe('wait_response', () => {
     expect(simulateAutomation(validation.definition).steps.map(step => step.nodeId)).toEqual(['start', 'wait', 'ok']);
   });
 });
+
+const messageDefinition = (config: Record<string, unknown>) => ({
+  start: 'start',
+  nodes: [
+    { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+    { id: 'msg', kind: 'message', name: 'Mensagem', config, position: { x: 100, y: 0 } },
+    { id: 'done', kind: 'outcome', name: 'Ok', config: { type: 'RESOLVED' }, position: { x: 200, y: 0 } }
+  ],
+  edges: [{ id: 'e1', source: 'start', target: 'msg' }, { id: 'e2', source: 'msg', target: 'done' }],
+  settings: { maxSteps: 10, timeoutSeconds: 60 }
+});
+
+describe('message items', () => {
+  const errors = (config: Record<string, unknown>) => validateAutomation(messageDefinition(config)).issues.filter(issue => issue.level === 'error').map(issue => issue.code);
+  const text = { type: 'text', text: 'Oi' };
+  it('aceita a sequência completa', () => {
+    expect(errors({ items: [
+      { type: 'text', text: 'Oi {{contact.firstName}}', typingSeconds: 3 },
+      { type: 'pause', minSeconds: 2, maxSeconds: 5 },
+      { type: 'file', url: 'https://x.test/a.pdf', fileName: 'a.pdf' },
+      { type: 'media', mediaType: 'audio', url: 'https://x.test/a.ogg', ptt: true }
+    ] })).toEqual([]);
+  });
+  it('aceita o legado { text }', () => {
+    expect(errors({ text: 'Olá' })).toEqual([]);
+  });
+  it.each([
+    ['lista vazia', { items: [] }],
+    ['31 itens', { items: Array.from({ length: 31 }, () => text) }],
+    ['digitando 31s', { items: [{ ...text, typingSeconds: 31 }] }],
+    ['pausa min > max', { items: [{ type: 'pause', minSeconds: 6, maxSeconds: 5 }] }],
+    ['pausa 301s', { items: [{ type: 'pause', minSeconds: 0, maxSeconds: 301 }] }],
+    ['arquivo http', { items: [{ type: 'file', url: 'http://x.test/a.pdf', fileName: 'a.pdf' }] }],
+    ['media document', { items: [{ type: 'media', mediaType: 'document', url: 'https://x.test/a.pdf' }] }],
+    ['áudio com legenda', { items: [{ type: 'media', mediaType: 'audio', url: 'https://x.test/a.ogg', caption: 'x' }] }]
+  ])('rejeita %s', (_name, config) => {
+    expect(errors(config)).toContain('MESSAGE_TEXT_REQUIRED');
+  });
+});

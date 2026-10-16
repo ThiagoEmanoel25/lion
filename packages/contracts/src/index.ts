@@ -53,7 +53,15 @@ export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
-export const AutomationMessageConfigSchema=z.object({text:z.string().trim().min(1).max(4096)}).strict();
+export const MESSAGE_MAX_ITEMS=30;
+export const MESSAGE_MAX_TYPING_SECONDS=30;
+export const MESSAGE_MAX_PAUSE_SECONDS=300;
+const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0)}).strict();
+const MessageFileItemSchema=z.object({type:z.literal('file'),url:HttpsUrlSchema,fileName:z.string().trim().min(1).max(255),caption:z.string().trim().max(1024).optional()}).strict();
+const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional()}).strict().refine(item=>item.mediaType!=='audio'||!item.caption,{message:'Áudio não tem legenda.',path:['caption']});
+const MessagePauseItemSchema=z.object({type:z.literal('pause'),minSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS),maxSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS)}).strict().refine(item=>item.minSeconds<=item.maxSeconds,{message:'O mínimo não pode passar do máximo.',path:['minSeconds']});
+export const AutomationMessageItemSchema=z.union([MessageTextItemSchema,MessageFileItemSchema,MessageMediaItemSchema,MessagePauseItemSchema]);
+export const AutomationMessageConfigSchema=z.union([z.object({text:z.string().trim().min(1).max(4096)}).strict(),z.object({items:z.array(AutomationMessageItemSchema).min(1).max(MESSAGE_MAX_ITEMS)}).strict()]);
 export const AutomationImageConfigSchema=z.object({url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional()}).strict();
 export const AutomationAudioConfigSchema=z.object({url:HttpsUrlSchema,ptt:z.boolean().optional()}).strict();
 export const AutomationStickerConfigSchema=z.object({url:HttpsUrlSchema}).strict();
