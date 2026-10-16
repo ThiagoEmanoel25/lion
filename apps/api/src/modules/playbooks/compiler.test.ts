@@ -253,6 +253,24 @@ describe('portas de sucesso e erro', () => {
     expect(validateAutomation(definition).issues.map(issue => issue.code)).toContain('INVALID_AI_CONFIG');
   });
 
+  it('valida saídas inteligentes da IA e exige sucesso como fallback', () => {
+    const config = { systemPrompt: 'Classifique a intenção.', smartConditionals: [{ id: 'comprar', label: 'Quer comprar', instruction: 'Quando houver intenção de compra.' }] };
+    const valid = ported([
+      { id: 's', source: 'api', target: 'ok', port: 'success' },
+      { id: 'r', source: 'api', target: 'bad', condition: { field: 'ai.route', operator: 'equals', value: 'comprar' }, priority: 0 }
+    ]);
+    valid.nodes[1] = { ...valid.nodes[1]!, kind: 'ai', config } as never;
+    expect(validateAutomation(valid).valid).toBe(true);
+
+    const stale = structuredClone(valid);
+    stale.edges[2] = { ...stale.edges[2]!, condition: { field: 'ai.route', operator: 'equals', value: 'rota_removida' } };
+    expect(validateAutomation(stale).issues.map(issue => issue.code)).toContain('AI_ROUTE_INVALID');
+
+    const noFallback = ported([{ id: 'r', source: 'api', target: 'bad', condition: { field: 'ai.route', operator: 'equals', value: 'comprar' }, priority: 0 }]);
+    noFallback.nodes[1] = { ...noFallback.nodes[1]!, kind: 'ai', config } as never;
+    expect(validateAutomation(noFallback).issues.map(issue => issue.code)).toContain('AI_SUCCESS_ROUTE_REQUIRED');
+  });
+
   it('simula seguindo a porta de sucesso', () => {
     const { definition } = validateAutomation(ported([{ id: 'f', source: 'api', target: 'bad', port: 'failure' }, { id: 's', source: 'api', target: 'ok', port: 'success' }]));
     expect(simulateAutomation(definition!).path).toEqual(['start', 'api', 'ok']);

@@ -26,8 +26,9 @@ describe('message content', () => {
     expect(menuReply({ conversation: 'oi' })).toBeNull();
   });
 
-  it('marca imagem e PDF até 10 MB para baixar, maiores só como metadado', () => {
+  it('marca imagem, áudio e PDF até 10 MB para baixar, maiores só como metadado', () => {
     expect(storableMedia({ imageMessage: { mimetype: 'image/jpeg', fileLength: 2048 } })).toEqual({ contentType: 'image/jpeg', fileName: null, size: 2048, download: true });
+    expect(storableMedia({ audioMessage: { mimetype: 'audio/ogg; codecs=opus', fileLength: 512 } })).toEqual({ contentType: 'audio/ogg; codecs=opus', fileName: null, size: 512, download: true });
     expect(storableMedia({ documentMessage: { mimetype: 'application/pdf', fileName: 'comprovante.pdf', fileLength: MEDIA_MAX_BYTES + 1 } })).toEqual({ contentType: 'application/pdf', fileName: 'comprovante.pdf', size: MEDIA_MAX_BYTES + 1, download: false });
     expect(storableMedia({ ephemeralMessage: { message: { imageMessage: { mimetype: 'image/png', fileLength: 10 } } } })?.download).toBe(true);
   });

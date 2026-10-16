@@ -178,6 +178,7 @@ export function validateAutomation(value: unknown) {
     if (menuRouted) issues.push(...menuRouteIssues(node, edges));
     if (node.kind === 'ai') {
       const fixedEdges = edges.filter(edge => edge.condition?.field !== AI_ROUTE_FIELD);
+      if (edges.length && !fixedEdges.some(edge => edgePort(edge) === 'success')) issues.push({ level: 'error', code: 'AI_SUCCESS_ROUTE_REQUIRED', message: 'O bloco de IA precisa de uma saída de sucesso como rota padrão.', nodeId: node.id });
       issues.push(...portIssues(node, fixedEdges, ports), ...aiRouteIssues(node, edges));
     } else issues.push(...portIssues(node, edges, ports));
     if (node.kind === 'wait_response' && node.config.waitIndefinitely === true) for (const edge of edges) if (edgePort(edge) === 'timeout') issues.push({ level: 'error', code: 'TIMEOUT_ROUTE_INVALID', message: 'Sem tempo limite, o bloco não tem saída de timeout.', nodeId: node.id, edgeId: edge.id });

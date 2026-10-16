@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { integrationOutcome, parseResponseFields } from './integration.js';
-import { selectPortEdge, type AutomationEdge } from './routing.js';
+import { selectAiRouteEdge, selectPortEdge, type AutomationEdge } from './routing.js';
 
 const fields = [{ path: 'body.accepted', variable: 'kovil.receipt.accepted' }, { path: 'status', variable: 'kovil.status' }];
 
@@ -45,5 +45,11 @@ describe('selectPortEdge', () => {
     expect(selectPortEdge(edges, 'api', 'success')?.id).toBe('legacy');
     expect(selectPortEdge(edges, 'api', 'failure')?.id).toBe('fail');
     expect(selectPortEdge(edges, 'other', 'success')).toBeUndefined();
+  });
+  it('prioriza a saída inteligente e usa sucesso como fallback', () => {
+    const routed = [...edges, { id: 'paid', source: 'api', target: 'paid-result', condition: { field: 'ai.route', operator: 'equals', value: 'paid' }, isDefault: false, priority: 0 }] as AutomationEdge[];
+    expect(selectAiRouteEdge(routed, 'api', 'paid')?.id).toBe('paid');
+    expect(selectAiRouteEdge(routed, 'api', 'unknown')?.id).toBe('legacy');
+    expect(selectPortEdge(routed, 'api', 'success')?.id).toBe('legacy');
   });
 });

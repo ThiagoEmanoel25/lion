@@ -1,8 +1,8 @@
-import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent,type ReactNode} from 'react';
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,FileText,GitBranch,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
@@ -343,7 +343,7 @@ function WhatsAppField({id,value,onChange,rows=5,maxLength,placeholder,invalid}:
     </div>
   </div>
 }
-function ToggleCard({title,description,checked,onChange,tone,children}:{title:string;description:string;checked:boolean;onChange:(checked:boolean)=>void;tone?:'success';children?:React.ReactNode}){
+function ToggleCard({title,description,checked,onChange,tone,children}:{title:string;description:string;checked:boolean;onChange:(checked:boolean)=>void;tone?:'success';children?:ReactNode}){
   return <div className={`ai-toggle-card ${tone??''}`}><div><b>{title}</b><p>{description}</p>{children}</div><button type="button" role="switch" aria-checked={checked} aria-label={title} className={`ai-switch ${checked?'active':''}`} onClick={()=>onChange(!checked)}><span/></button></div>
 }
 function AiEditor({node,aiKeyConfigured,onSave,onCancel}:{node:FlowNode;aiKeyConfigured:boolean|undefined;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
