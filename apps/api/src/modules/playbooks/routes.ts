@@ -15,6 +15,7 @@ import { audit } from '../../core/audit.js';
 import { enqueue } from '../../core/outbox.js';
 import { simulateAutomation, validateAutomation, type AutomationDefinition } from './compiler.js';
 import { assertWorkspaceQuota } from '../billing/service.js';
+import { kanbanReferenceIssues } from '../kanban/validation.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
@@ -41,6 +42,13 @@ const templates: Record<'qualification' | 'reactivation' | 'support', Automation
 const checksum = (definition: unknown) => createHash('sha256').update(JSON.stringify(definition)).digest('hex');
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 
+async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unknown){
+  const validation=validateAutomation(value);
+  if(!validation.definition)return validation;
+  const issues=[...validation.issues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition)];
+  return {...validation,valid:!issues.some(issue=>issue.level==='error'),issues};
+}
+
 export const playbookRoutes: FastifyPluginAsync = async app => {
   app.get('/v1/playbooks', { preHandler: [app.requirePermission('playbook.read')] }, async request => app.prisma.playbook.findMany({ where: { workspaceId: request.auth.workspaceId }, include: { activeVersion: true, _count: { select: { versions: true } } }, orderBy: { updatedAt: 'desc' } }));
 
@@ -61,7 +69,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
   app.post('/v1/playbooks/:id/versions', { preHandler: [app.requirePermission('playbook.write')] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const input = SavePlaybookVersionInput.parse(request.body);
-    const validation = validateAutomation(input.definition);
+    const validation = await validateForWorkspace(app.prisma,request.auth.workspaceId,input.definition);
     if (!validation.valid || !validation.definition) throw new DomainError('INVALID_AUTOMATION', 'A automação possui erros.', 422, validation.issues);
     try {
       const version = await app.prisma.$transaction(async tx => {
@@ -87,7 +95,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     const exists = await app.prisma.playbook.count({ where: { id, workspaceId: request.auth.workspaceId } });
     if (!exists) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
     const definition = AutomationDefinitionSchema.parse((request.body as { definition?: unknown })?.definition);
-    return validateAutomation(definition);
+    return validateForWorkspace(app.prisma,request.auth.workspaceId,definition);
   });
 
   app.post('/v1/playbooks/:id/simulate', { preHandler: [app.requirePermission('playbook.write')] }, async request => {
@@ -99,7 +107,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       if (!version) throw new DomainError('VERSION_NOT_FOUND', 'Versão da automação não encontrada.', 404);
       definition = version.definition;
     } else if (!await app.prisma.playbook.count({ where: { id, workspaceId: request.auth.workspaceId } })) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
-    const validation = validateAutomation(definition);
+    const validation = await validateForWorkspace(app.prisma,request.auth.workspaceId,definition);
     if (!validation.valid || !validation.definition) throw new DomainError('INVALID_AUTOMATION', 'A automação possui erros.', 422, validation.issues);
     return { validation, simulation: simulateAutomation(validation.definition, input.variables) };
   });
@@ -112,7 +120,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
       const latest = playbook.versions[0];
       if (!latest || latest.version !== input.expectedVersion) throw new DomainError('VERSION_CONFLICT', 'Somente a versão mais recente pode ser publicada.', 409, { currentVersion: latest?.version ?? 0 });
-      const validation = validateAutomation(latest.definition);
+      const validation = await validateForWorkspace(tx,request.auth.workspaceId,latest.definition);
       if (!validation.valid) throw new DomainError('INVALID_AUTOMATION', 'A versão possui erros e não pode ser publicada.', 422, validation.issues);
       if (latest.checksum !== checksum(validation.definition)) throw new DomainError('CHECKSUM_MISMATCH', 'A integridade da versão não pôde ser confirmada.', 409);
       if (playbook.activeVersionId === latest.id) return playbook;

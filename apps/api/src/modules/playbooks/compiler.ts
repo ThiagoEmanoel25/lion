@@ -6,6 +6,7 @@ import {
   AutomationDelayConfigSchema,
   AutomationDefinitionSchema,
   AutomationImageConfigSchema,
+  AutomationKanbanConfigSchema,
   AutomationMessageConfigSchema,
   AutomationStickerConfigSchema,
   AutomationTagConfigSchema,
@@ -68,6 +69,8 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationAiConfigSchema, 'INVALID_AI_CONFIG', 'Bloco de IA inválido');
     case 'wait_response':
       return validateConfig(AutomationWaitResponseConfigSchema, 'INVALID_WAIT_RESPONSE_CONFIG', 'Aguarda Resposta inválido');
+    case 'kanban':
+      return validateConfig(AutomationKanbanConfigSchema, 'INVALID_KANBAN_CONFIG', 'Kanban inválido');
     default:
       return [];
   }

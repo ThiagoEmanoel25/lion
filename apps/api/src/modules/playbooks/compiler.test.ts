@@ -341,7 +341,8 @@ describe('message items', () => {
     ['pausa 301s', { items: [{ type: 'pause', minSeconds: 0, maxSeconds: 301 }] }],
     ['arquivo http', { items: [{ type: 'file', url: 'http://x.test/a.pdf', fileName: 'a.pdf' }] }],
     ['media document', { items: [{ type: 'media', mediaType: 'document', url: 'https://x.test/a.pdf' }] }],
-    ['áudio com legenda', { items: [{ type: 'media', mediaType: 'audio', url: 'https://x.test/a.ogg', caption: 'x' }] }]
+    ['áudio com legenda', { items: [{ type: 'media', mediaType: 'audio', url: 'https://x.test/a.ogg', caption: 'x' }] }],
+    ['imagem com ptt', { items: [{ type: 'media', mediaType: 'image', url: 'https://x.test/a.png', ptt: true }] }]
   ])('rejeita %s', (_name, config) => {
     expect(errors(config)).toContain('MESSAGE_TEXT_REQUIRED');
   });
