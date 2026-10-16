@@ -35,7 +35,7 @@ O código de compartilhamento da Leona é resolvido pelos servidores dela, atrá
 | `integration` (`make_http_request`) | `webhook` com `responseFields` (spec A) |
 | `tags` (`add_tags`) | `tag` (adicionar por nome) |
 | `kanban` sem ação | removido, ligando a entrada direto à saída (no-op idêntico) |
-| `kanban` com ação | bloco Kanban (spec E) por nome de quadro/coluna; antes de E existir: pendência no relatório |
+| `kanban` com ação | bloco Kanban (spec E) por nome de quadro/coluna; o importador encontra ou cria o destino no workspace |
 | `pixel` e tipos desconhecidos | removido com ligação direta + **pendência** no relatório ("Pixel não migrado: evento Compra 15,00 BRL") |
 
 Conexões: `sourceHandle` `success`/`failure` → `port`; `client-response` → `reply`; `timeout` → `timeout`; Condicional `success`/`failure` → saída atendida / "Caso contrário"; sem handle → conexão simples. IDs da Leona viram `leona_<id>`; posições preservadas.

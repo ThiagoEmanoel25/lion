@@ -3,7 +3,7 @@
 export type ConditionOperator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'exists' | 'not_exists' | 'greater_than' | 'less_than' | 'in' | 'not_in' | 'between' | 'not_between';
 export type ConditionRule = { field: string; operator: ConditionOperator; value?: unknown };
 export type ConditionGroup = 'Sistema' | 'Atendimento' | 'Atendente' | 'Campos';
-export type ValueKind = 'tags' | 'members' | 'weekdays' | 'timeRange' | 'date' | 'dateRange' | 'boolean' | 'text' | 'none';
+export type ValueKind = 'tags' | 'members' | 'kanbanColumns' | 'weekdays' | 'timeRange' | 'date' | 'dateRange' | 'boolean' | 'text' | 'none';
 export type ConditionItem = { key: string; group: ConditionGroup; label: string; operators: Array<{ value: ConditionOperator; label: string }>; create: () => ConditionRule };
 
 export const CONDITION_GROUPS: ConditionGroup[] = ['Sistema', 'Atendimento', 'Atendente', 'Campos'];
@@ -28,6 +28,7 @@ export const CONDITION_ITEMS: ConditionItem[] = [
   status('waiting', 'Aguardando', 'QUEUED'),
   status('attending', 'Atendendo', 'ASSIGNED'),
   status('resolved', 'Resolvidos', 'RESOLVED'),
+  { key: 'kanban', group: 'Atendimento', label: 'Coluna do Kanban', operators: [{ value: 'in', label: 'está em uma das' }, { value: 'not_in', label: 'não está em nenhuma das' }], create: () => ({ field: 'kanban.', operator: 'in', value: [] }) },
   { key: 'assignee', group: 'Atendente', label: 'Atendente ativo do chat (lista)', operators: [{ value: 'in', label: 'é um dos' }, { value: 'not_in', label: 'não é nenhum dos' }], create: () => ({ field: 'conversation.assigneeId', operator: 'in', value: [] }) },
   text('name', 'Nome', 'contact.name'),
   text('phone', 'Número', 'contact.phone'),
@@ -41,6 +42,7 @@ const FIELD_ITEMS: Record<string, string> = { 'contact.tagIds': 'tag', 'system.w
 const STATUS_ITEMS: Record<string, string> = { QUEUED: 'waiting', ASSIGNED: 'attending', RESOLVED: 'resolved' };
 
 export function itemForRule(rule: ConditionRule): ConditionItem {
+  if(/^kanban\.[^.]+\.columnId$/.test(rule.field)||rule.field==='kanban.')return byKey('kanban');
   if (rule.field === 'conversation.status' && typeof rule.value === 'string' && Object.hasOwn(STATUS_ITEMS, rule.value)) return byKey(STATUS_ITEMS[rule.value]!);
   if (Object.hasOwn(FIELD_ITEMS, rule.field)) return byKey(FIELD_ITEMS[rule.field]!);
   if (rule.field.startsWith(CUSTOM_FIELD_PREFIX)) return byKey('custom');
@@ -51,6 +53,7 @@ export function valueKind(item: ConditionItem, operator: ConditionOperator): Val
   switch (item.key) {
     case 'tag': return 'tags';
     case 'assignee': return 'members';
+    case 'kanban': return 'kanbanColumns';
     case 'weekday': return 'weekdays';
     case 'time': return 'timeRange';
     case 'date': return operator === 'between' ? 'dateRange' : 'date';
@@ -80,6 +83,7 @@ export function ruleError(rule: ConditionRule): string {
   switch (valueKind(item, rule.operator)) {
     case 'tags': return Array.isArray(rule.value) && rule.value.length ? '' : 'Selecione ao menos uma etiqueta.';
     case 'members': return Array.isArray(rule.value) && rule.value.length ? '' : 'Selecione ao menos um atendente.';
+    case 'kanbanColumns': return /^kanban\.[^.]+\.columnId$/.test(rule.field)&&Array.isArray(rule.value)&&rule.value.length ? '' : 'Selecione um quadro e ao menos uma coluna.';
     case 'weekdays': return Array.isArray(rule.value) && rule.value.length ? '' : 'Selecione ao menos um dia.';
     case 'timeRange': return isPair(rule.value, TIME) ? '' : 'Informe o horário inicial e final.';
     case 'date': return typeof rule.value === 'string' && DATE.test(rule.value) ? '' : 'Informe a data.';

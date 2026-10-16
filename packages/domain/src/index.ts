@@ -21,3 +21,12 @@ export function can(role:keyof typeof permissions,permission:string){
   const allowed=permissions[role] as readonly string[];
   return allowed.includes('*')||allowed.includes(permission)||allowed.some(p=>p.endsWith('.*')&&permission.startsWith(p.slice(0,-1)));
 }
+
+export type KanbanMode='create_or_move'|'create_only'|'move_only';
+export type KanbanAction='create'|'move'|'noop';
+
+export function kanbanAction(mode:KanbanMode,existingColumnId:string|null,targetColumnId:string):KanbanAction{
+  if(existingColumnId===null)return mode==='move_only'?'noop':'create';
+  if(mode==='create_only'||existingColumnId===targetColumnId)return 'noop';
+  return 'move';
+}

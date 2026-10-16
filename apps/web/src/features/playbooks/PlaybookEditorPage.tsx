@@ -2,13 +2,14 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'reac
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,GitBranch,Headset,Hourglass,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Headset,Hourglass,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
-import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,PlaybookVersion} from '../../shared/types/api';
+import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
 import {useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
+import {useKanbanBoards} from '../kanban/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
 import {CONDITION_GROUPS,coerceRuleValue,CUSTOM_FIELD_PREFIX,WEEKDAY_LABELS,itemForRule,ruleError,searchConditionItems,valueKind,type ConditionOperator,type ConditionRule} from './condition-catalog';
 import './flow-builder.css';
@@ -33,6 +34,7 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'webhook',icon:Webhook,label:'Integração',description:'Faz uma requisição HTTP',rule:'URL válida e obrigatoriamente HTTPS.'},
   {kind:'assign',icon:Building2,label:'Departamento',description:'Define fila ou responsável',rule:'Exige uma fila ou um responsável.'},
   {kind:'tag',icon:Tag,label:'Etiquetas',description:'Adiciona ou remove etiquetas',rule:'Exige ao menos uma etiqueta selecionada ou informada.'},
+  {kind:'kanban',icon:Columns3,label:'Kanban',description:'Cria ou move o card do contato',rule:'Exige um quadro e uma coluna existentes. Pode criar ou mover, somente criar ou somente mover.'},
   {kind:'handoff',icon:Headset,label:'Handoff',description:'Transfere para humano',rule:'Bloco final da jornada.'},
   {kind:'outcome',icon:CircleCheck,label:'Resultado',description:'Encerra com sucesso',rule:'Tipo obrigatório entre lead qualificado, agendamento, venda, resolvido, transferência e desqualificado. Bloco final da jornada.'}
 ];
@@ -91,6 +93,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='assign')return `Atribuir para ${String(config.queue||config.assigneeId||'destino não definido')}`;
   if(kind==='handoff')return `Transferir para ${String(config.queue||'atendimento humano')}`;
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
+  if(kind==='kanban')return config.boardId&&config.columnId?'Criar ou mover card na coluna selecionada':'Selecione quadro e coluna';
   if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
   if(kind==='ai')return `${String(config.model||'gpt-5.4-mini')} · resposta em ${String(config.responseVariable||'resposta.gpt')}`;
   if(kind==='agent')return config.agentId?'Agente configurado':'Selecione um agente';
@@ -99,7 +102,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:'};
   return labels[kind];
 }
 function flowAction(action:'edit'|'duplicate'|'remove',id:string){window.dispatchEvent(new CustomEvent('nexo-flow-action',{detail:{action,id}}))}
@@ -128,7 +131,7 @@ function toFlow(definition:AutomationDefinition){
 function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),...(edge.data?.port?{port:edge.data.port}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
 
 export function PlaybookEditorPage(){
-  const {id=''}=useParams();const playbook=usePlaybook(id);const agents=useAgents();const aiKey=useWorkspaceAiKey();const contactMeta=useContactMeta();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
+  const {id=''}=useParams();const playbook=usePlaybook(id);const agents=useAgents();const aiKey=useWorkspaceAiKey();const contactMeta=useContactMeta();const kanbanBoards=useKanbanBoards();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
   const [nodes,setNodes]=useState<FlowNode[]>([]);const [edges,setEdges]=useState<FlowEdge[]>([]);const [start,setStart]=useState('');const [settings,setSettings]=useState(emptyDefinition.settings);
   const [selectedNodeId,setSelectedNodeId]=useState<string|null>(null);const [selectedEdgeId,setSelectedEdgeId]=useState<string|null>(null);const [version,setVersion]=useState(0);const [loadedKey,setLoadedKey]=useState('');
   const [dirty,setDirty]=useState(false);const [result,setResult]=useState<AutomationValidation|null>(null);const [notice,setNotice]=useState<{tone:'success'|'error'|'info';text:string}|null>(null);const [simulationVariables,setSimulationVariables]=useState('{}');const [restoredVersion,setRestoredVersion]=useState<number|null>(null);const [toolsOpen,setToolsOpen]=useState(true);const [toolsQuery,setToolsQuery]=useState('');const [inspectorOpen,setInspectorOpen]=useState(false);const flowRef=useRef<ReactFlowInstance<FlowNode,FlowEdge>|null>(null);
@@ -207,8 +210,8 @@ export function PlaybookEditorPage(){
             : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
-              ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
-            : <NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
+              ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} boards={kanbanBoards.data??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
+            : <NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} boards={kanbanBoards.data??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
           : selectedEdge
             ? <EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>
             : <FlowInspector definition={definition} result={result} version={version} restoredVersion={restoredVersion} versions={playbook.data.versions??[]} simulationVariables={simulationVariables} onSimulationVariables={setSimulationVariables} onRestore={restoreLocal} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);setInspectorOpen(false);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>
@@ -232,6 +235,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'webhook':return {url:'',method:'POST',headers:{},body:'',responseVariable:'integration.response'};
     case 'assign':return {queue:'Atendimento',assigneeId:''};
     case 'tag':return {mode:'add',tagIds:[],tags:[]};
+    case 'kanban':return {boardId:'',columnId:'',mode:'create_or_move'};
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
     case 'wait_response':return {timeoutValue:1,timeoutUnit:'hours',waitIndefinitely:false,bufferSeconds:0};
@@ -268,7 +272,7 @@ function WaitFields({config,onConfigs}:{config:Record<string,unknown>;onConfigs:
     <label className="check-field"><input type="checkbox" checked={indefinite} onChange={event=>onConfigs({waitIndefinitely:event.target.checked})}/> Esperar indefinidamente</label>
     <label>Juntar mensagens por (segundos)<input type="number" min="0" max={WAIT_MAX_BUFFER_SECONDS} step="1" value={buffer} onChange={event=>onConfigs({bufferSeconds:Number(event.target.value)})}/><small className={bufferError?'field-error':undefined}>{bufferError||'0 desliga: a primeira mensagem já é a resposta.'}</small></label></>
 }
-function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
+function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,boards,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];boards:KanbanBoard[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
   const customTags=Array.isArray(config.tags)?config.tags.filter((value):value is string=>typeof value==='string'):[];
@@ -287,11 +291,13 @@ function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,isStart,o
     {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH (legado)</option><option value="DELETE">DELETE (legado)</option></select></label><JsonHeadersField value={config.headers} onChange={value=>onConfig('headers',value)}/>{String(config.method??'POST')!=='GET'&&<label>Corpo da requisição<textarea rows={5} value={String(config.body??'')} onChange={event=>onConfig('body',event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><small>JSON ou texto; variáveis com {'{{caminho}}'}.</small></label>}<label>Salvar resposta na variável<input value={String(config.responseVariable??'')} onChange={event=>onConfig('responseVariable',event.target.value||undefined)} placeholder="integration.response" /></label><div className="response-fields"><b>Campos da resposta</b>{(Array.isArray(config.responseFields)?config.responseFields as Array<{path:string;variable:string}>:[]).map((field,index,all)=><div key={index}><input aria-label={`Caminho do campo ${index+1}`} value={field.path} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,path:event.target.value}:item))} placeholder="body.accepted"/><input aria-label={`Variável do campo ${index+1}`} value={field.variable} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,variable:event.target.value}:item))} placeholder="kovil.receipt.accepted"/><button type="button" aria-label={`Remover campo ${index+1}`} onClick={()=>onConfig('responseFields',all.filter((_,i)=>i!==index))}><X size={14}/></button></div>)}<button type="button" className="add-button-option" disabled={Array.isArray(config.responseFields)&&config.responseFields.length>=20} onClick={()=>onConfig('responseFields',[...(Array.isArray(config.responseFields)?config.responseFields:[]),{path:'',variable:''}])}>+ Adicionar campo</button><p className="field-help">Caminho em status, body ou headers da resposta (ex.: body.accepted) e a variável que recebe o valor.</p></div><p className="field-help">Respostas 2xx seguem por sucesso; erro HTTP, timeout de 15 s ou falha de rede seguem por erro.</p></>}
     {kind==='assign'&&<><label>Fila<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Comercial" /></label><div className="config-separator"><span>ou</span></div><label>ID do responsável<input value={String(config.assigneeId??'')} onChange={event=>onConfig('assigneeId',event.target.value)} placeholder="ID do usuário no workspace" /></label><p className="field-help">Preencha ao menos uma fila ou um responsável.</p></>}
     {kind==='tag'&&<><label>Ação<select value={String(config.mode??'add')} onChange={event=>onConfig('mode',event.target.value)}><option value="add">Adicionar etiquetas</option><option value="remove">Remover etiquetas</option></select></label><div className="tag-picker"><b>Etiquetas do workspace</b>{tags.length?tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={selectedTagIds.includes(tag.id)} onChange={event=>onConfig('tagIds',event.target.checked?[...selectedTagIds,tag.id]:selectedTagIds.filter(id=>id!==tag.id))}/><i style={{background:tag.color}}/>{tag.name}</label>):<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>}</div><label>Outras etiquetas, separadas por vírgula<input value={customTags.join(', ')} onChange={event=>onConfig('tags',event.target.value.split(',').map(value=>value.trim()).filter(Boolean))} placeholder="vip, retorno" /></label><p className="field-help">Ao adicionar, nomes novos são criados. Ao remover, nomes inexistentes são ignorados.</p></>}
+    {kind==='kanban'&&<KanbanFields config={config} boards={boards} onConfigs={onConfigs}/>}
     {kind==='handoff'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Atendimento" /></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>onConfig('reason',event.target.value)} placeholder="Explique por que a conversa será transferida." /></label></>}
     {kind==='outcome'&&<><label>Tipo de resultado<select value={String(config.type??'RESOLVED')} onChange={event=>onConfig('type',event.target.value)}><option value="QUALIFIED">Lead qualificado</option><option value="APPOINTMENT">Agendamento</option><option value="SALE">Venda</option><option value="RESOLVED">Atendimento resolvido</option><option value="HANDOFF">Transferência humana</option><option value="DISQUALIFIED">Lead desqualificado</option></select></label><label>Valor em centavos (opcional)<input type="number" min="0" step="1" value={typeof config.valueCents==='number'?config.valueCents:''} onChange={event=>onConfig('valueCents',event.target.value===''?undefined:Number(event.target.value))} placeholder="Ex.: 15000" /></label></>}
     <button className={isStart?'start active':'start'} onClick={onStart} disabled={isStart||kind!=='trigger'}>{isStart?'✓ Nó inicial do fluxo':kind==='trigger'?'Definir como nó inicial':'Somente um gatilho pode iniciar'}</button><button className="danger-link" onClick={onRemove}>Excluir bloco</button>
   </div></>
 }
+function KanbanFields({config,boards,onConfigs}:{config:Record<string,unknown>;boards:KanbanBoard[];onConfigs:(patch:Record<string,unknown>)=>void}){const board=boards.find(item=>item.id===config.boardId);return <><label>Quadro<select value={String(config.boardId??'')} onChange={event=>{const next=boards.find(item=>item.id===event.target.value);onConfigs({boardId:event.target.value,columnId:next?.columns[0]?.id??''})}}><option value="">Selecione um quadro</option>{boards.map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>Coluna<select value={String(config.columnId??'')} disabled={!board} onChange={event=>onConfigs({columnId:event.target.value})}><option value="">Selecione uma coluna</option>{board?.columns.map(column=><option value={column.id} key={column.id}>{column.name}</option>)}</select></label><label>Ação<select value={String(config.mode??'create_or_move')} onChange={event=>onConfigs({mode:event.target.value})}><option value="create_or_move">Criar ou mover card</option><option value="create_only">Somente criar se não existir</option><option value="move_only">Somente mover se já existir</option></select></label>{boards.length===0&&<p className="field-help">Crie um quadro e suas colunas no módulo Kanban antes de configurar este bloco.</p>}</>}
 const MENU_EMOJIS=['😀','😊','😉','😍','🙏','👍','👋','🎉','🔥','✅','❌','⭐','💬','📅','📞','💰'];
 const TIMEOUT_UNITS={minutes:60,hours:3600,days:86400} as const;
 type TimeoutUnit=keyof typeof TIMEOUT_UNITS;
@@ -473,7 +479,7 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
   </div></>
 }
 type ConditionMember={id:string;name:string};
-function ConditionValue({rule,tags,members,pathInvalid,onChange}:{rule:ConditionRule;pathInvalid:boolean;tags:ContactMeta['tags'];members:ConditionMember[];onChange:(patch:Partial<ConditionRule>)=>void}){
+function ConditionValue({rule,tags,members,boards,pathInvalid,onChange}:{rule:ConditionRule;pathInvalid:boolean;tags:ContactMeta['tags'];members:ConditionMember[];boards:KanbanBoard[];onChange:(patch:Partial<ConditionRule>)=>void}){
   const item=itemForRule(rule);const kind=valueKind(item,rule.operator);
   const [draft,setDraft]=useState(String(rule.value??''));useEffect(()=>{setDraft(d=>coerceRuleValue(rule.operator,d)===rule.value?d:String(rule.value??''))},[rule.value,rule.operator]);
   const list=Array.isArray(rule.value)?rule.value as unknown[]:[];
@@ -485,6 +491,7 @@ function ConditionValue({rule,tags,members,pathInvalid,onChange}:{rule:Condition
     {item.key==='variable'&&<label>Caminho da variável<input value={rule.field} onChange={event=>onChange({field:event.target.value.trim()})} placeholder="Ex.: menu.choice" aria-invalid={pathInvalid}/></label>}
     {kind==='tags'&&(tags.length?<div className="condition-checks">{tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={list.includes(tag.id)} onChange={()=>toggle(tag.id)}/><i style={{background:tag.color}}/>{tag.name}</label>)}</div>:<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>)}
     {kind==='members'&&(members.length?<div className="condition-checks">{members.map(member=><label key={member.id} className="check-field"><input type="checkbox" checked={list.includes(member.id)} onChange={()=>toggle(member.id)}/>{member.name}</label>)}</div>:<p className="field-help">Nenhum membro no workspace.</p>)}
+    {kind==='kanbanColumns'&&<><label>Quadro<select value={rule.field.split('.')[1]??''} onChange={event=>onChange({field:event.target.value?`kanban.${event.target.value}.columnId`:'kanban.',value:[]})}><option value="">Selecione…</option>{boards.map(board=><option value={board.id} key={board.id}>{board.name}</option>)}</select></label>{(()=>{const board=boards.find(item=>item.id===rule.field.split('.')[1]);return board?<div className="condition-checks">{board.columns.map(column=><label key={column.id} className="check-field"><input type="checkbox" checked={list.includes(column.id)} onChange={()=>toggle(column.id)}/><i style={{background:column.color}}/>{column.name}</label>)}</div>:null})()}</>}
     {kind==='weekdays'&&<div className="condition-weekdays" role="group" aria-label="Dias da semana">{WEEKDAY_LABELS.map((label,day)=><button type="button" key={label} aria-pressed={list.includes(day)} className={list.includes(day)?'active':''} onClick={()=>toggle(day)}>{label}</button>)}</div>}
     {kind==='timeRange'&&<><div className="duration-fields"><label>De<input type="time" value={pair[0]??''} onChange={event=>setPair(0,event.target.value)}/></label><label>Até<input type="time" value={pair[1]??''} onChange={event=>setPair(1,event.target.value)}/></label></div><p className="field-help">Se o início for depois do fim, vale a virada da noite (ex.: 22:00 até 06:00). Usa o fuso do workspace.</p></>}
     {kind==='date'&&<label>Data<input type="date" value={typeof rule.value==='string'?rule.value:''} onChange={event=>onChange({value:event.target.value})}/></label>}
@@ -493,7 +500,7 @@ function ConditionValue({rule,tags,members,pathInvalid,onChange}:{rule:Condition
     {kind==='text'&&<label>Valor<input value={draft} onChange={event=>{setDraft(event.target.value);onChange({value:coerceRuleValue(rule.operator,event.target.value)})}}/></label>}
   </>
 }
-function ConditionEditor({node,tags,members,onSave,onCancel}:{node:FlowNode;tags:ContactMeta['tags'];members:ConditionMember[];onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+function ConditionEditor({node,tags,members,boards,onSave,onCancel}:{node:FlowNode;tags:ContactMeta['tags'];members:ConditionMember[];boards:KanbanBoard[];onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const initial=node.data.config;
   const [name,setName]=useState(node.data.name);
   const [logic,setLogic]=useState<'all'|'any'>(initial.logic==='any'?'any':'all');
@@ -530,7 +537,7 @@ function ConditionEditor({node,tags,members,onSave,onCancel}:{node:FlowNode;tags
           <div>
             <div className="condition-rule-head"><b>{item.label}</b><small>{item.group}</small></div>
             {item.operators.length>1&&<label>Operador<select value={rule.operator} onChange={event=>updateRule(index,{operator:event.target.value as ConditionOperator,...(valueKind(item,event.target.value as ConditionOperator)!==valueKind(item,rule.operator)?{value:item.create().value}:valueKind(item,rule.operator)==='text'?{value:coerceRuleValue(event.target.value as ConditionOperator,String(rule.value??''))}:{})})}>{item.operators.map(operator=><option key={operator.value} value={operator.value}>{operator.label}</option>)}</select></label>}
-            <ConditionValue rule={rule} pathInvalid={Boolean(submitted&&/^Informe (a chave|o caminho)/.test(errors[index]??''))} tags={tags} members={members} onChange={patch=>updateRule(index,patch)}/>
+            <ConditionValue rule={rule} pathInvalid={Boolean(submitted&&/^Informe (a chave|o caminho)/.test(errors[index]??''))} tags={tags} members={members} boards={boards} onChange={patch=>updateRule(index,patch)}/>
             {submitted&&errors[index]&&<small className="field-error">{errors[index]}</small>}
           </div>
           <button type="button" className="menu-option-remove" aria-label={`Remover condição ${index+1}`} title="Remover condição" onClick={()=>setRules(rules.filter((_,itemIndex)=>itemIndex!==index))}><X size={16}/></button>
