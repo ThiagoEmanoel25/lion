@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { menuReply, messageBody, messageType } from './message-content.js';
+import { MEDIA_MAX_BYTES, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
 
 describe('message content', () => {
   it('extracts text wrapped in an ephemeral message', () => {
@@ -24,5 +24,16 @@ describe('message content', () => {
   it('ignores malformed native flow params and plain text', () => {
     expect(menuReply({ interactiveResponseMessage: { nativeFlowResponseMessage: { paramsJson: 'not json' } } })).toBeNull();
     expect(menuReply({ conversation: 'oi' })).toBeNull();
+  });
+
+  it('marca imagem e PDF até 10 MB para baixar, maiores só como metadado', () => {
+    expect(storableMedia({ imageMessage: { mimetype: 'image/jpeg', fileLength: 2048 } })).toEqual({ contentType: 'image/jpeg', fileName: null, size: 2048, download: true });
+    expect(storableMedia({ documentMessage: { mimetype: 'application/pdf', fileName: 'comprovante.pdf', fileLength: MEDIA_MAX_BYTES + 1 } })).toEqual({ contentType: 'application/pdf', fileName: 'comprovante.pdf', size: MEDIA_MAX_BYTES + 1, download: false });
+    expect(storableMedia({ ephemeralMessage: { message: { imageMessage: { mimetype: 'image/png', fileLength: 10 } } } })?.download).toBe(true);
+  });
+
+  it('ignora documentos que não são PDF/imagem e mensagens de texto', () => {
+    expect(storableMedia({ documentMessage: { mimetype: 'application/zip', fileLength: 10 } })).toBeNull();
+    expect(storableMedia({ conversation: 'oi' })).toBeNull();
   });
 });

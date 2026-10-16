@@ -53,3 +53,18 @@ export function messageType(raw: proto.IMessage | null | undefined) {
   if (message?.documentMessage) return 'DOCUMENT' as const;
   return 'TEXT' as const;
 }
+
+export const MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+export const MEDIA_RETENTION_MS = 30 * 86_400_000;
+export type StorableMedia = { contentType: string; fileName: string | null; size: number; download: boolean };
+
+// Images and PDFs are kept so the AI block can read receipts; anything larger than the cap keeps only metadata.
+export function storableMedia(raw: proto.IMessage | null | undefined): StorableMedia | null {
+  const message = unwrap(raw);
+  const image = message?.imageMessage;
+  const document = message?.documentMessage;
+  const media = image ?? (document && (document.mimetype === 'application/pdf' || document.mimetype?.startsWith('image/')) ? document : null);
+  if (!media) return null;
+  const size = Number(media.fileLength ?? 0);
+  return { contentType: media.mimetype ?? (image ? 'image/jpeg' : 'application/pdf'), fileName: document?.fileName ?? null, size, download: size > 0 && size <= MEDIA_MAX_BYTES };
+}

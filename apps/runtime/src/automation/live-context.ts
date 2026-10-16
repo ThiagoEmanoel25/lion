@@ -11,9 +11,11 @@ export type LiveSnapshot = {
 };
 
 // Conditions read the conversation as it is now, not as it was when the execution started.
+export function firstName(name: string | null): string { return name?.trim().split(/\s+/)[0] ?? ''; }
+
 export function liveConditionContext(snapshot: LiveSnapshot) {
   return {
-    contact: { ...snapshot.contact, tagIds: snapshot.contact.tags.map(tag => tag.id) } as Record<string, unknown>,
+    contact: { ...snapshot.contact, firstName: firstName(snapshot.contact.name), tagIds: snapshot.contact.tags.map(tag => tag.id) } as Record<string, unknown>,
     conversation: {
       ...snapshot.conversation,
       window24h: snapshot.lastInboundAt !== null && snapshot.now.getTime() - snapshot.lastInboundAt.getTime() < WINDOW_24H_MS

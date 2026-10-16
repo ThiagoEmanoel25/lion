@@ -9,6 +9,8 @@ import { outboundMessageId } from './whatsapp/message-id.js';
 import { AutomationEngineService } from './automation/automation-engine.service.js';
 import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.js';
 import { interactivePayload, regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
+import { firstName } from './automation/live-context.js';
+import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { matchesAutomationTrigger } from './automation/trigger.js';
 
 @Injectable()
@@ -17,6 +19,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   private readonly queues: Queue[] = [];
   private readonly logger = pino().child({ module: 'runtime-workers' });
   private outboxTimer?: NodeJS.Timeout;
+  private mediaTimer?: NodeJS.Timeout;
   private relayingOutbox = false;
 
   constructor(
@@ -51,6 +54,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
 
     this.outboxTimer = setInterval(() => { void this.relayOutbox(outboundQueue, automationQueue); }, 1_000);
     this.outboxTimer.unref();
+    this.mediaTimer = setInterval(() => { void this.purgeExpiredMedia(); }, 6 * 3_600_000);
+    this.mediaTimer.unref();
     await this.resumeChannels(connectionQueue);
   }
 
@@ -192,17 +197,28 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       ]);
       return;
     }
+    const lastMessage = input.messageId ? (await this.prisma.message.findUnique({ where: { id: input.messageId }, select: { body: true } }))?.body ?? '' : '';
     const execution = await this.prisma.execution.create({ data: {
       workspaceId: conversation.workspaceId,
       conversationId: conversation.id,
       playbookVersionId: version.id,
       context: {
         trigger: { event: input.triggerEvent, messageId: input.messageId ?? null, tagId: input.tagId ?? null },
-        contact: { id: conversation.contact.id, name: conversation.contact.name, phone: conversation.contact.phone, email: conversation.contact.email, stage: conversation.contact.stage, customFields: conversation.contact.customFields, tags: conversation.contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })), tagIds: conversation.contact.tags.map(item => item.tag.id) },
-        conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode }
+        contact: { id: conversation.contact.id, name: conversation.contact.name, firstName: firstName(conversation.contact.name), phone: conversation.contact.phone, email: conversation.contact.email, stage: conversation.contact.stage, customFields: conversation.contact.customFields, tags: conversation.contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })), tagIds: conversation.contact.tags.map(item => item.tag.id) },
+        conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode },
+        channel: { id: conversation.channel.id, phone: conversation.channel.phoneNumber },
+        last_message: lastMessage
       }
     } });
     await automationQueue.add('start', { executionId: execution.id, action: 'start' }, input.jobOptions);
+  }
+
+  private async purgeExpiredMedia() {
+    try {
+      await this.prisma.messageMedia.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - MEDIA_RETENTION_MS) } } });
+    } catch (error) {
+      this.logger.warn({ err: error }, 'failed to purge expired message media');
+    }
   }
 
   private async canStartExecution(workspaceId:string){const subscription=await this.prisma.subscription.findFirst({where:{workspaceId,status:{in:['active','trialing']}},orderBy:{currentPeriodEnd:'desc'}});const raw=subscription?.limits&&typeof subscription.limits==='object'&&!Array.isArray(subscription.limits)?subscription.limits as Record<string,unknown>:{};const configured=[raw.executionsMonthly,raw.executions,raw.conversations].find(value=>typeof value==='number'&&value>=0);const limit=typeof configured==='number'?Math.floor(configured):subscription?.plan==='growth'?5_000:subscription?.plan==='scale'?50_000:500;const from=subscription?.currentPeriodStart??new Date(Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth(),1));return await this.prisma.execution.count({where:{workspaceId,startedAt:{gte:from}}})<limit}
@@ -221,6 +237,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     if (this.outboxTimer) clearInterval(this.outboxTimer);
+    if (this.mediaTimer) clearInterval(this.mediaTimer);
     await Promise.all(this.workers.map(worker => worker.close()));
     await Promise.all(this.queues.map(queue => queue.close()));
   }

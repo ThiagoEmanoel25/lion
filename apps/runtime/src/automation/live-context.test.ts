@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { liveConditionContext, mergeLiveContext, type LiveSnapshot } from './live-context.js';
+import { firstName, liveConditionContext, mergeLiveContext, type LiveSnapshot } from './live-context.js';
 
 const snapshot = (overrides: Partial<LiveSnapshot> = {}): LiveSnapshot => ({
   timeZone: 'America/Bahia',
@@ -31,5 +31,15 @@ describe('mergeLiveContext', () => {
     expect(merged.contact).toMatchObject({ name: 'Ana', score: 90, tagIds: ['t1'] });
     expect(merged.conversation).toMatchObject({ status: 'QUEUED', window24h: true });
     expect(merged.menu).toEqual({ choice: 'a' });
+  });
+});
+
+describe('firstName', () => {
+  it('pega a primeira palavra do nome', () => {
+    expect(firstName('  Ana Paula Souza ')).toBe('Ana');
+    expect(firstName(null)).toBe('');
+  });
+  it('vai para o contexto ao vivo', () => {
+    expect(liveConditionContext(snapshot()).contact.firstName).toBe('Ana');
   });
 });

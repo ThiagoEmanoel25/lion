@@ -3,6 +3,7 @@ import { Boom } from '@hapi/boom';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   jidNormalizedUser,
   type BaileysEventMap,
   type WASocket
@@ -16,7 +17,7 @@ import { RedisService } from '../infra/redis.service.js';
 import { QUEUES, type ConnectionJob } from '../queues.js';
 import { acquireLock, type LockLease } from './distributed-lock.js';
 import { AuthStateStore } from './auth-state.store.js';
-import { menuReply, messageBody, messageType } from './message-content.js';
+import { MEDIA_MAX_BYTES, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
 
 type LiveSession = { socket: WASocket; lease: LockLease; renewTimer: NodeJS.Timeout; manualClose: boolean };
 
@@ -151,6 +152,16 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
       const phone = `+${remoteJid.split('@')[0]!.split(':')[0]!.replace(/\D/g, '')}`;
       const body = messageBody(incoming.message);
       const reply = menuReply(incoming.message);
+      const media = storableMedia(incoming.message);
+      let mediaData: Buffer | null = null;
+      if (media?.download) {
+        try {
+          const downloaded = await downloadMediaMessage(incoming, 'buffer', {});
+          mediaData = downloaded.length <= MEDIA_MAX_BYTES ? downloaded : null;
+        } catch (error) {
+          this.logger.warn({ channelId, externalId, err: error }, 'failed to download inbound media');
+        }
+      }
       try {
         await this.prisma.$transaction(async tx => {
           await tx.rawWebhookEvent.create({
@@ -192,6 +203,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
               deliveredAt: new Date()
             }
           });
+          if (media) await tx.messageMedia.create({ data: { workspaceId: channel.workspaceId, messageId: created.id, contentType: media.contentType, fileName: media.fileName, size: media.size, data: mediaData as Uint8Array<ArrayBuffer> | null } });
           await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 }, updatedAt: new Date() } });
           await tx.channel.update({ where: { id: channelId }, data: { lastInboundAt: new Date() } });
           await tx.outboxEvent.create({data:{workspaceId:channel.workspaceId,aggregate:'Conversation',aggregateId:conversation.id,type:'automation.inbound.received',payload:{conversationId:conversation.id,messageId:created.id,channelId}}});
