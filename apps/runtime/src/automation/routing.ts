@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { conditionMatches, getPathValue, MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema } from '@nexo/contracts';
+import { conditionMatches, edgePort, getPathValue, MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema, type EdgePort } from '@nexo/contracts';
 
 export { conditionMatches, getPathValue };
 
@@ -66,4 +66,23 @@ export function menuTimeoutSeconds(node: AutomationNode): number {
   const value = node.config.timeoutSeconds;
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) return MENU_DEFAULT_TIMEOUT_SECONDS;
   return Math.min(value, MENU_MAX_TIMEOUT_SECONDS);
+}
+
+export function setContextPath<T extends Record<string, unknown>>(context: T, path: string, value: unknown): T {
+  const next = structuredClone(context) as Record<string, unknown>;
+  const parts = path.split('.');
+  let current = next;
+  parts.forEach((part, index) => {
+    if (index === parts.length - 1) current[part] = value;
+    else {
+      const child = current[part];
+      current[part] = child && typeof child === 'object' && !Array.isArray(child) ? child : {};
+      current = current[part] as Record<string, unknown>;
+    }
+  });
+  return next as T;
+}
+
+export function selectPortEdge(edges: AutomationEdge[], nodeId: string, port: EdgePort): AutomationEdge | undefined {
+  return edges.find(edge => edge.source === nodeId && edgePort(edge) === port);
 }

@@ -5,7 +5,8 @@ import { Queue } from 'bullmq';
 import { AutomationDefinitionSchema } from '@nexo/contracts';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
-import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 
@@ -29,21 +30,6 @@ const stringConfig = (node: AutomationNode, key: string) => {
   if (typeof value !== 'string' || !value.trim()) throw new NodeExecutionError('INVALID_NODE_CONFIG', `O nó ${node.id} requer config.${key}.`);
   return value.trim();
 };
-const setContextPath = (context: EngineContext, path: string, value: unknown): EngineContext => {
-  const next: EngineContext = structuredClone(context);
-  const parts = path.split('.');
-  let current: Record<string, unknown> = next;
-  parts.forEach((part, index) => {
-    if (index === parts.length - 1) current[part] = value;
-    else {
-      const child = current[part];
-      current[part] = child && typeof child === 'object' && !Array.isArray(child) ? child : {};
-      current = current[part] as Record<string, unknown>;
-    }
-  });
-  return next;
-};
-
 @Injectable()
 export class AutomationEngineService implements OnModuleDestroy {
   private readonly queue: Queue<AutomationJob>;
@@ -114,11 +100,13 @@ export class AutomationEngineService implements OnModuleDestroy {
       if (node.kind === 'condition') context = mergeLiveContext(context, await this.loadLiveContext(execution.workspaceId, execution.conversationId));
       const edge = selectNextEdge(node, definition.edges, context);
       const nextNodeId = edge?.target;
+      let routedNodeId: string | undefined = nextNodeId;
       let step = await this.prisma.executionStep.findFirst({ where: { executionId: execution.id, nodeId: node.id, status: 'RUNNING' }, orderBy: { startedAt: 'desc' } });
       step ??= await this.prisma.executionStep.create({ data: { executionId: execution.id, nodeId: node.id, kind: node.kind, status: 'RUNNING', input: asJson({ context, selectedEdgeId: edge?.id ?? null }) } });
       try {
         const result = await this.runNode({ executionId: execution.id, workspaceId: execution.workspaceId, conversationId: execution.conversationId, context, definition, node, step, nextNodeId });
         if (result === 'waiting' || result === 'terminal') return;
+        if (typeof result === 'object') routedNodeId = result.next;
       } catch (error) {
         const code = error instanceof NodeExecutionError ? error.code : 'NODE_EXECUTION_FAILED';
         const message = error instanceof Error ? error.message : 'Falha desconhecida durante a execução do nó.';
@@ -129,7 +117,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         throw error;
       }
       processed += 1;
-      currentNodeId = nextNodeId;
+      currentNodeId = routedNodeId;
       if (!currentNodeId) {
         await this.failExecution(execution.id, 'DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
         return;
@@ -146,7 +134,7 @@ export class AutomationEngineService implements OnModuleDestroy {
     node: AutomationNode;
     step: ExecutionStep;
     nextNodeId?: string;
-  }): Promise<'continue' | 'waiting' | 'terminal'> {
+  }): Promise<'continue' | 'waiting' | 'terminal' | { next: string }> {
     const { executionId, workspaceId, conversationId, context, node, step, nextNodeId } = input;
     const waitsForChoice = routesByChoice(node, input.definition.edges);
     if (!['handoff', 'outcome'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
@@ -321,24 +309,33 @@ export class AutomationEngineService implements OnModuleDestroy {
         const url = stringConfig(node, 'url');
         if (!url.startsWith('https://')) throw new NodeExecutionError('WEBHOOK_HTTPS_REQUIRED', 'O webhook deve usar HTTPS.');
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), Math.min(input.definition.settings.timeoutSeconds * 1000, 30_000));
+        const timeout = setTimeout(() => controller.abort(), Math.min(input.definition.settings.timeoutSeconds * 1000, 15_000));
+        let status: number | null = null;
+        let body: string | null = null;
+        let responseHeaders: Record<string, string> = {};
+        let error: string | undefined;
         try {
           const method = typeof node.config.method === 'string' ? node.config.method.toUpperCase() : 'POST';
           const configuredHeaders = node.config.headers && typeof node.config.headers === 'object' && !Array.isArray(node.config.headers) ? node.config.headers as Record<string, unknown> : {};
-          const headers = Object.fromEntries(Object.entries(configuredHeaders).filter((entry): entry is [string, string] => typeof entry[1] === 'string').map(([key,value])=>[key,renderTemplate(value,context)]));
+          const headers = Object.fromEntries(Object.entries(configuredHeaders).filter((entry): entry is [string, string] => typeof entry[1] === 'string').map(([key, value]) => [key, renderTemplate(value, context)]));
           const configuredBody = typeof node.config.body === 'string' && node.config.body.trim() ? renderTemplate(node.config.body, context) : JSON.stringify({ executionId, conversationId, context });
-          const response = await fetch(url, { method, headers: { 'content-type': 'application/json', 'idempotency-key': step.id, ...headers }, ...(!['GET','HEAD'].includes(method) ? { body: configuredBody } : {}), signal: controller.signal });
-          const body = (await response.text()).slice(0, 10_000);
-          if (!response.ok) throw new NodeExecutionError('WEBHOOK_FAILED', `Webhook respondeu HTTP ${response.status}.`);
-          let responseValue: unknown = body;
-          try { responseValue = body ? JSON.parse(body) : null; } catch { /* resposta textual */ }
-          let nextContext: EngineContext = { ...context, webhook: { status: response.status, body: responseValue } };
-          if (typeof node.config.responseVariable === 'string' && node.config.responseVariable) nextContext = setContextPath(nextContext, node.config.responseVariable, responseValue);
-          await this.completeStep(executionId, step.id, nextNodeId, nextContext, { status: response.status, body });
+          const response = await fetch(url, { method, headers: { 'content-type': 'application/json', 'idempotency-key': step.id, ...headers }, ...(!['GET', 'HEAD'].includes(method) ? { body: configuredBody } : {}), signal: controller.signal });
+          status = response.status;
+          body = (await response.text()).slice(0, 10_000);
+          responseHeaders = Object.fromEntries(response.headers.entries());
+        } catch (caught) {
+          error = caught instanceof Error && caught.name === 'AbortError' ? 'A integração não respondeu em 15 segundos.' : 'Não foi possível conectar à integração.';
         } finally {
           clearTimeout(timeout);
         }
-        return 'continue';
+        const outcome = integrationOutcome({ context, status, body, headers: responseHeaders, error, responseVariable: typeof node.config.responseVariable === 'string' && node.config.responseVariable ? node.config.responseVariable : undefined, responseFields: parseResponseFields(node.config.responseFields) });
+        const edge = selectPortEdge(input.definition.edges, node.id, outcome.port);
+        if (!edge) {
+          if (outcome.port === 'failure') throw new NodeExecutionError('WEBHOOK_FAILED', String(outcome.output.error));
+          throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+        }
+        await this.completeStep(executionId, step.id, edge.target, outcome.context as EngineContext, asJson(outcome.output));
+        return { next: edge.target };
       }
 
       case 'agent': {
