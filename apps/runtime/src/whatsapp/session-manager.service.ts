@@ -17,7 +17,7 @@ import { RedisService } from '../infra/redis.service.js';
 import { QUEUES, type ConnectionJob } from '../queues.js';
 import { acquireLock, type LockLease } from './distributed-lock.js';
 import { AuthStateStore } from './auth-state.store.js';
-import { MEDIA_MAX_BYTES, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
+import { MEDIA_MAX_BYTES, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
 
 type LiveSession = { socket: WASocket; lease: LockLease; renewTimer: NodeJS.Timeout; manualClose: boolean };
 
@@ -156,7 +156,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
       let mediaData: Buffer | null = null;
       if (media?.download) {
         try {
-          const downloaded = await downloadMediaMessage(incoming, 'buffer', {});
+          const downloaded = await downloadMediaMessage(incoming, 'buffer', mediaDownloadOptions());
           mediaData = downloaded.length <= MEDIA_MAX_BYTES ? downloaded : null;
         } catch (error) {
           this.logger.warn({ channelId, externalId, err: error }, 'failed to download inbound media');

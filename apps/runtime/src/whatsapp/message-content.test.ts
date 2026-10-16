@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MEDIA_MAX_BYTES, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
+import { MEDIA_MAX_BYTES, MEDIA_DOWNLOAD_TIMEOUT_MS, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
 
 describe('message content', () => {
   it('extracts text wrapped in an ephemeral message', () => {
@@ -35,5 +35,12 @@ describe('message content', () => {
   it('ignora documentos que não são PDF/imagem e mensagens de texto', () => {
     expect(storableMedia({ documentMessage: { mimetype: 'application/zip', fileLength: 10 } })).toBeNull();
     expect(storableMedia({ conversation: 'oi' })).toBeNull();
+  });
+
+  it('bounds inbound media downloads by time and size', () => {
+    const { options } = mediaDownloadOptions();
+    expect(MEDIA_DOWNLOAD_TIMEOUT_MS).toBe(30_000);
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(options.maxContentLength).toBeGreaterThan(MEDIA_MAX_BYTES);
   });
 });

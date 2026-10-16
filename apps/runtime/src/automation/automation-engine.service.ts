@@ -307,7 +307,7 @@ export class AutomationEngineService implements OnModuleDestroy {
 
       case 'ai': {
         const config = node.config;
-        const latest = await this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, include: { media: true } });
+        const latest = await this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' } });
         let aiContext: EngineContext = { ...context, last_message: latest?.body ?? '' };
         const responseVariable = typeof config.responseVariable === 'string' && config.responseVariable ? config.responseVariable : 'resposta.gpt';
         const failReasonVariable = typeof config.failReasonVariable === 'string' && config.failReasonVariable ? config.failReasonVariable : 'ai.fail.reason';
@@ -325,30 +325,35 @@ export class AutomationEngineService implements OnModuleDestroy {
         if (!key.ok) return fail(key.reason);
         const apiKey = key.key;
         const readsMedia = Boolean(latest) && ((config.understandImage === true && latest!.type === 'IMAGE') || (config.understandPdf === true && latest!.type === 'DOCUMENT'));
-        if (readsMedia && !latest!.media?.data) return fail('Arquivo grande demais ou indisponível para a IA.');
-        const media = readsMedia && latest!.media?.data ? { contentType: latest!.media.contentType, data: Buffer.from(latest!.media.data), fileName: latest!.media.fileName } : null;
+        const stored = readsMedia ? await this.prisma.messageMedia.findUnique({ where: { messageId: latest!.id } }) : null;
+        if (readsMedia && !stored?.data) return fail('Arquivo grande demais ou indisponível para a IA.');
+        const media = readsMedia && stored?.data ? { contentType: stored.contentType, data: Buffer.from(stored.data), fileName: stored.fileName } : null;
         const previousTurns = Math.min(20, Math.max(1, Number(config.contextInteractions) || 1)) - 1;
         const previous = previousTurns > 0 && latest ? await this.prisma.message.findMany({ where: { workspaceId, conversationId, createdAt: { lt: latest.createdAt }, body: { not: null } }, orderBy: { createdAt: 'desc' }, take: previousTurns, select: { direction: true, body: true } }) : [];
         const history = previous.reverse().map(item => ({ role: item.direction === 'INBOUND' ? 'user' as const : 'assistant' as const, content: item.body ?? '' }));
         const userMessage = renderTemplate(typeof config.userMessage === 'string' ? config.userMessage : '{{last_message}}', aiContext);
         const result = await callOpenAi({ apiKey, model: typeof config.model === 'string' && config.model ? config.model : 'gpt-5.4-mini', baseUrl: process.env.OPENAI_BASE_URL, messages: buildAiMessages({ systemPrompt: stringConfig(node, 'systemPrompt'), userMessage, history, media }) });
         if (!result.ok) return fail(result.reason);
-        await this.prisma.usageRecord.create({ data: { workspaceId, kind: 'ai_tokens', quantity: result.tokens, unit: 'token', costCents: 0, provider: 'openai', referenceId: executionId } });
         aiContext = setContextPath(aiContext, responseVariable, result.text);
-        if (config.autoSendResponse === true) {
-          await this.prisma.$transaction(async tx => {
+        const successEdge = selectPortEdge(input.definition.edges, node.id, 'success');
+        if (!successEdge) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+        await this.prisma.$transaction(async tx => {
+          await tx.usageRecord.create({ data: { workspaceId, kind: 'ai_tokens', quantity: result.tokens, unit: 'token', costCents: 0, provider: 'openai', referenceId: executionId } });
+          if (config.autoSendResponse === true) {
             const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body: result.text.slice(0, 4096), authorType: 'automation', authorId: executionId } });
             await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
-          });
-        }
-        return finish('success', aiContext, { tokens: result.tokens, chars: result.text.length });
+          }
+          await this.finishInTransaction(tx, executionId, step.id, successEdge.target, aiContext, asJson({ tokens: result.tokens, chars: result.text.length }));
+        });
+        return { next: successEdge.target };
       }
 
       case 'webhook': {
         const url = stringConfig(node, 'url');
         if (!url.startsWith('https://')) throw new NodeExecutionError('WEBHOOK_HTTPS_REQUIRED', 'O webhook deve usar HTTPS.');
+        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 15);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), Math.min(input.definition.settings.timeoutSeconds * 1000, 15_000));
+        const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
         let status: number | null = null;
         let body: string | null = null;
         let responseHeaders: Record<string, string> = {};
@@ -363,7 +368,7 @@ export class AutomationEngineService implements OnModuleDestroy {
           body = (await response.text()).slice(0, 10_000);
           responseHeaders = Object.fromEntries(response.headers.entries());
         } catch (caught) {
-          error = caught instanceof Error && caught.name === 'AbortError' ? 'A integração não respondeu em 15 segundos.' : 'Não foi possível conectar à integração.';
+          error = caught instanceof Error && caught.name === 'AbortError' ? `A integração não respondeu em ${timeoutSeconds} segundos.` : 'Não foi possível conectar à integração.';
         } finally {
           clearTimeout(timeout);
         }

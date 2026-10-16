@@ -55,6 +55,9 @@ export function messageType(raw: proto.IMessage | null | undefined) {
 }
 
 export const MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+export const MEDIA_DOWNLOAD_TIMEOUT_MS = 30_000;
+// Baileys downloads with axios and no timeout; a stalled CDN would block the serial upsert loop.
+export const mediaDownloadOptions = () => ({ options: { signal: AbortSignal.timeout(MEDIA_DOWNLOAD_TIMEOUT_MS), maxContentLength: MEDIA_MAX_BYTES + 1_048_576 } });
 export const MEDIA_RETENTION_MS = 30 * 86_400_000;
 export type StorableMedia = { contentType: string; fileName: string | null; size: number; download: boolean };
 
