@@ -2,7 +2,7 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'reac
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronLeft,CircleCheck,Clock,Code,GitBranch,Headset,Hourglass,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,GitBranch,Headset,Hourglass,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
@@ -20,7 +20,7 @@ type FlowEdge=Edge<FlowEdgeData>;
 
 const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;description:string;rule:string}>=[
   {kind:'trigger',icon:Zap,label:'Gatilho',description:'Inicia o fluxo',rule:'Aceita apenas o evento (mensagem recebida, etiqueta adicionada ou conversa criada) e, para etiqueta, o id dela. Só um gatilho pode ser o nó inicial.'},
-  {kind:'message',icon:MessageSquare,label:'Mensagem',description:'Envia texto no WhatsApp',rule:'Texto obrigatório, de 1 a 4096 caracteres.'},
+  {kind:'message',icon:MessageSquare,label:'Mensagem',description:'Envia texto, arquivos e mídia no WhatsApp',rule:'1 a 30 conteúdos: texto, arquivo, mídia e pausa, enviados em ordem.'},
   {kind:'image',icon:Image,label:'Imagem',description:'Envia imagem com legenda',rule:'URL HTTPS obrigatória (até 2048 caracteres) e legenda opcional de até 1024.'},
   {kind:'audio',icon:Mic,label:'Áudio',description:'Envia áudio ou mensagem de voz',rule:'URL HTTPS obrigatória; enviar como voz é opcional.'},
   {kind:'sticker',icon:Sticker,label:'Figurinha',description:'Envia uma figurinha',rule:'URL HTTPS obrigatória, apontando para um WebP compatível.'},
@@ -50,6 +50,19 @@ const waitUnitOf=(config:Record<string,unknown>):WaitUnit=>config.timeoutUnit===
 const waitIndefinite=(config:Record<string,unknown>)=>config.waitIndefinitely===true;
 const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff']);
 function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
+// Mirrors packages/contracts (MESSAGE_*); duplicated so the web bundle does not pull zod in.
+const MESSAGE_MAX_ITEMS=30;
+const MESSAGE_MAX_TYPING_SECONDS=30;
+const MESSAGE_MAX_PAUSE_SECONDS=300;
+type MessageItem={type:'text';text:string;typingSeconds:number}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean}|{type:'pause';minSeconds:number;maxSeconds:number};
+const MEDIA_LABELS={image:'Imagem',video:'Vídeo',audio:'Áudio'} as const;
+function messageItemsOf(config:Record<string,unknown>):MessageItem[]{
+  if(Array.isArray(config.items))return config.items as MessageItem[];
+  return [{type:'text',text:typeof config.text==='string'?config.text:'',typingSeconds:0}];
+}
+function messageItemLabel(item:MessageItem){
+  return item.type==='text'?item.text:item.type==='file'?item.fileName||'Arquivo':item.type==='media'?(item.caption||MEDIA_LABELS[item.mediaType]):`Pausa de ${item.minSeconds} a ${item.maxSeconds} s`;
+}
 // Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
 const MENU_CHOICE_FIELD='menu.choice';
 const MENU_LIMIT={buttons:3,list:10} as const;
@@ -67,7 +80,8 @@ function sourceHandleFor(kind:AutomationNodeKind|undefined,edge:AutomationEdge){
 const emptyDefinition:AutomationDefinition={start:'',nodes:[],edges:[],settings:{maxSteps:30,timeoutSeconds:300}};
 
 function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
-  if(kind==='message'||kind==='buttons')return String(config.text??'');
+  if(kind==='message'){const items=messageItemsOf(config);const first=items.find(item=>item.type==='text'&&item.text.trim())??items[0];return `${first?messageItemLabel(first):''}${items.length>1?` · +${items.length-1} ${items.length-1===1?'conteúdo':'conteúdos'}`:''}`}
+  if(kind==='buttons')return String(config.text??'');
   if(kind==='image')return String(config.caption||config.url||'Escolha uma imagem');
   if(kind==='audio')return config.ptt?'Mensagem de voz':String(config.url||'Escolha um áudio');
   if(kind==='sticker')return String(config.url||'Escolha uma figurinha');
@@ -188,7 +202,9 @@ export function PlaybookEditorPage(){
       {inspectorOpen&&selectedNode&&<div className="node-modal-backdrop" onMouseDown={()=>setInspectorOpen(false)} aria-hidden="true"/>}
       {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
-          ? selectedNode.data.kind==='buttons'
+          ? selectedNode.data.kind==='message'
+            ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>updateSelected({name,config})} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
               ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
@@ -205,7 +221,7 @@ export function PlaybookEditorPage(){
 function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
   switch(kind){
     case 'trigger':return {event:'message.received'};
-    case 'message':return {text:'Olá! Como posso ajudar?'};
+    case 'message':return {items:[{type:'text',text:'',typingSeconds:0}]};
     case 'image':return {url:'',caption:''};
     case 'audio':return {url:'',ptt:true};
     case 'sticker':return {url:''};
@@ -225,6 +241,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
 function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown>|undefined):Record<string,unknown>{
   const config={...(value??{})};
   if(kind==='agent'&&typeof config.prompt!=='string'&&typeof config.instructions==='string'){config.prompt=config.instructions;delete config.instructions}
+  if(kind==='message'&&!Array.isArray(config.items)){config.items=[{type:'text',text:typeof config.text==='string'?config.text:'',typingSeconds:0}];delete config.text}
   if(kind==='buttons'&&!Array.isArray(config.buttons))config.buttons=[];
   if(kind==='condition'&&Array.isArray(config.rules)&&typeof config.logic!=='string')config.logic='all';
   if(kind==='webhook'&&typeof config.method!=='string')config.method='POST';
@@ -260,7 +277,6 @@ function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,isStart,o
     <div className="config-callout"><b>Regra deste bloco</b><p>{kindMeta[kind].rule}{connectionRule(kind)?` ${connectionRule(kind)}`:''}</p></div>
     <label>Nome<input value={node.data.name} onChange={event=>onName(event.target.value)} /></label>
     {kind==='trigger'&&<label>Evento<select value={String(config.event??'message.received')} onChange={event=>onConfig('event',event.target.value)}><option value="message.received">Mensagem recebida</option><option value="tag.added">Etiqueta adicionada</option><option value="conversation.created">Conversa criada</option></select></label>}
-    {kind==='message'&&<label>Mensagem<textarea rows={5} value={String(config.text??'')} onChange={event=>onConfig('text',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label>}
     {kind==='image'&&<><label>URL HTTPS da imagem<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/imagem.jpg" /></label><label>Legenda opcional<textarea rows={3} value={String(config.caption??'')} onChange={event=>onConfig('caption',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label></>}
     {kind==='audio'&&<><label>URL HTTPS do áudio<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/audio.ogg" /></label><label className="check-field"><input type="checkbox" checked={config.ptt===true} onChange={event=>onConfig('ptt',event.target.checked)}/> Enviar como mensagem de voz</label></>}
     {kind==='sticker'&&<><label>URL HTTPS da figurinha<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/figurinha.webp" /></label><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
@@ -279,6 +295,86 @@ function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,isStart,o
 const MENU_EMOJIS=['😀','😊','😉','😍','🙏','👍','👋','🎉','🔥','✅','❌','⭐','💬','📅','📞','💰'];
 const TIMEOUT_UNITS={minutes:60,hours:3600,days:86400} as const;
 type TimeoutUnit=keyof typeof TIMEOUT_UNITS;
+function WhatsAppField({id,value,onChange,rows=5,maxLength,placeholder,invalid}:{id?:string;value:string;onChange:(value:string)=>void;rows?:number;maxLength?:number;placeholder?:string;invalid?:boolean}){
+  const ref=useRef<HTMLTextAreaElement>(null);const [emojiOpen,setEmojiOpen]=useState(false);
+  function format(open:string,close=open){
+    const el=ref.current;if(!el)return;
+    const {selectionStart:from,selectionEnd:to,value:current}=el;const selected=current.slice(from,to)||'texto';
+    onChange(current.slice(0,from)+open+selected+close+current.slice(to));
+    requestAnimationFrame(()=>{el.focus();el.setSelectionRange(from+open.length,from+open.length+selected.length)});
+  }
+  function insertEmoji(emoji:string){
+    const el=ref.current;const at=el?.selectionStart??value.length;
+    onChange(value.slice(0,at)+emoji+value.slice(el?.selectionEnd??at));setEmojiOpen(false);
+    requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(at+emoji.length,at+emoji.length)});
+  }
+  return <div className={`menu-message ${invalid?'invalid':''}`}>
+    <textarea id={id} ref={ref} rows={rows} value={value} onChange={event=>onChange(event.target.value)} placeholder={placeholder} maxLength={maxLength}/>
+    <div className="menu-format" role="toolbar" aria-label="Formatação do WhatsApp">
+      <button type="button" title="Negrito" aria-label="Negrito" onClick={()=>format('*')}><Bold size={16}/></button>
+      <button type="button" title="Itálico" aria-label="Itálico" onClick={()=>format('_')}><Italic size={16}/></button>
+      <button type="button" title="Tachado" aria-label="Tachado" onClick={()=>format('~')}><Strikethrough size={16}/></button>
+      <button type="button" title="Emoji" aria-label="Inserir emoji" aria-expanded={emojiOpen} onClick={()=>setEmojiOpen(open=>!open)}><Smile size={16}/></button>
+      <button type="button" title="Monoespaçado" aria-label="Monoespaçado" onClick={()=>format('```')}><Code size={16}/></button>
+      {emojiOpen&&<div className="menu-emoji" role="listbox" aria-label="Emojis">{MENU_EMOJIS.map(emoji=><button type="button" role="option" aria-selected="false" key={emoji} onClick={()=>insertEmoji(emoji)}>{emoji}</button>)}</div>}
+    </div>
+  </div>
+}
+const HTTPS_URL=/^https:\/\/\S+\.\S+/;
+function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const keyRef=useRef(0);const nextKey=()=>(keyRef.current+=1);
+  const [name,setName]=useState(node.data.name);
+  const [rows,setRows]=useState(()=>messageItemsOf(node.data.config).map(item=>({key:nextKey(),item})));
+  const [submitted,setSubmitted]=useState(false);
+  const full=rows.length>=MESSAGE_MAX_ITEMS;
+  const add=(item:MessageItem)=>setRows(current=>current.length>=MESSAGE_MAX_ITEMS?current:[...current,{key:nextKey(),item}]);
+  const patch=(index:number,change:Partial<MessageItem>)=>setRows(current=>current.map((row,i)=>i===index?{...row,item:{...row.item,...change} as MessageItem}:row));
+  function move(index:number,delta:number){setRows(current=>{const to=index+delta;if(to<0||to>=current.length)return current;const next=[...current];[next[index],next[to]]=[next[to]!,next[index]!];return next})}
+  const itemError=(item:MessageItem):string=>{
+    if(item.type==='text')return !item.text.trim()?'Escreva o texto.':item.text.length>4096?'Use até 4096 caracteres.':!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MESSAGE_MAX_TYPING_SECONDS?`Digitando: use de 0 a ${MESSAGE_MAX_TYPING_SECONDS} segundos.`:'';
+    if(item.type==='pause')return ![item.minSeconds,item.maxSeconds].every(n=>Number.isInteger(n)&&n>=0&&n<=MESSAGE_MAX_PAUSE_SECONDS)?`Use de 0 a ${MESSAGE_MAX_PAUSE_SECONDS} segundos.`:item.minSeconds>item.maxSeconds?'O mínimo não pode passar do máximo.':'';
+    if(!HTTPS_URL.test(item.url.trim()))return 'Informe uma URL HTTPS válida.';
+    if(item.type==='file'&&!item.fileName.trim())return 'Informe o nome do arquivo.';
+    return (item.caption??'').length>1024?'A legenda aceita até 1024 caracteres.':'';
+  };
+  const hasErrors=!rows.length||rows.length>MESSAGE_MAX_ITEMS||rows.some(row=>itemError(row.item));
+  const show=(message:string)=>submitted&&message?<small className="field-error">{message}</small>:null;
+  function save(){
+    setSubmitted(true);if(hasErrors)return;
+    const items=rows.map(({item})=>{
+      if(item.type==='text')return {...item,text:item.text.trim()};
+      if(item.type==='pause')return item;
+      const caption=item.caption?.trim();const url=item.url.trim();
+      if(item.type==='file')return {type:'file',url,fileName:item.fileName.trim(),...(caption?{caption}:{})};
+      const audio=item.mediaType==='audio';
+      return {type:'media',mediaType:item.mediaType,url,...(!audio&&caption?{caption}:{}),...(audio&&item.ptt?{ptt:true}:{})};
+    });
+    const {text:_text,...rest}=node.data.config;
+    onSave(name.trim()||kindMeta.message.label,{...rest,items});
+  }
+  const addLabel=(label:string,item:MessageItem)=><button type="button" className="menu-add" onClick={()=>add(item)} disabled={full} title={full?`Limite de ${MESSAGE_MAX_ITEMS} conteúdos`:undefined}><Plus size={16} aria-hidden="true"/> {label}</button>;
+  return <><header><span className="palette-icon message"><MessageSquare size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Mensagem</b></div></header>
+  <div className="inspector-form menu-editor message-editor">
+    <label>Nome do bloco<input value={name} onChange={event=>setName(event.target.value)} maxLength={120}/></label>
+    <div className="menu-options-head"><b>Conteúdos ({rows.length}/{MESSAGE_MAX_ITEMS})</b></div>
+    <div className="message-add">{addLabel('Texto',{type:'text',text:'',typingSeconds:0})}{addLabel('Arquivo',{type:'file',url:'',fileName:''})}{addLabel('Mídia',{type:'media',mediaType:'image',url:''})}{addLabel('Pausa',{type:'pause',minSeconds:1,maxSeconds:3})}</div>
+    {rows.length===0&&<div className={`menu-options-empty ${submitted?'invalid':''}`}><MessageSquare size={26} aria-hidden="true"/><p>Adicione ao menos um conteúdo.</p></div>}
+    <ol className="message-items">{rows.map(({key,item},index)=><li key={key}>
+      <div className="message-item-head"><b>{index+1}. {item.type==='text'?'Texto':item.type==='file'?'Arquivo':item.type==='media'?'Mídia':'Pausa'}</b>
+        <span><button type="button" aria-label={`Mover conteúdo ${index+1} para cima`} title="Subir" disabled={index===0} onClick={()=>move(index,-1)}><ChevronUp size={16}/></button><button type="button" aria-label={`Mover conteúdo ${index+1} para baixo`} title="Descer" disabled={index===rows.length-1} onClick={()=>move(index,1)}><ChevronDown size={16}/></button><button type="button" aria-label={`Remover conteúdo ${index+1}`} title="Remover" onClick={()=>setRows(current=>current.filter((_,i)=>i!==index))}><X size={16}/></button></span></div>
+      {item.type==='text'&&<><WhatsAppField value={item.text} onChange={text=>patch(index,{text})} maxLength={4096} placeholder="Use {{variavel}} para personalizar." invalid={Boolean(submitted&&itemError(item))}/>
+        <label>Digitando por (segundos)<input type="number" min="0" max={MESSAGE_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>patch(index,{typingSeconds:Number(event.target.value)})}/></label></>}
+      {item.type==='file'&&<><label>URL HTTPS do arquivo<input type="url" inputMode="url" value={item.url} onChange={event=>patch(index,{url:event.target.value})} placeholder="https://cdn.exemplo.com/arquivo.pdf"/></label><label>Nome do arquivo<input value={item.fileName} maxLength={255} onChange={event=>patch(index,{fileName:event.target.value})} placeholder="contrato.pdf"/></label><label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label></>}
+      {item.type==='media'&&<><label>Tipo<select value={item.mediaType} onChange={event=>patch(index,{mediaType:event.target.value as 'image'|'video'|'audio'})}>{(Object.keys(MEDIA_LABELS) as Array<keyof typeof MEDIA_LABELS>).map(type=><option key={type} value={type}>{MEDIA_LABELS[type]}</option>)}</select></label><label>URL HTTPS<input type="url" inputMode="url" value={item.url} onChange={event=>patch(index,{url:event.target.value})} placeholder="https://cdn.exemplo.com/midia"/></label>
+        {item.mediaType!=='audio'&&<label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label>}
+        {item.mediaType==='audio'&&<label className="check-field"><input type="checkbox" checked={item.ptt===true} onChange={event=>patch(index,{ptt:event.target.checked})}/> Enviar como mensagem de voz</label>}</>}
+      {item.type==='pause'&&<div className="duration-fields"><label>Entre (s)<input type="number" min="0" max={MESSAGE_MAX_PAUSE_SECONDS} step="1" value={item.minSeconds} onChange={event=>patch(index,{minSeconds:Number(event.target.value)})}/></label><label>e (s)<input type="number" min="0" max={MESSAGE_MAX_PAUSE_SECONDS} step="1" value={item.maxSeconds} onChange={event=>patch(index,{maxSeconds:Number(event.target.value)})}/></label></div>}
+      {show(itemError(item))}
+    </li>)}</ol>
+    {show(!rows.length?'Adicione ao menos um conteúdo.':'')}
+    <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer>
+  </div></>
+}
 function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const initial=node.data.config;
   const initialTimeout=Number(initial.timeoutSeconds??0);
@@ -294,9 +390,7 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
   const [footer,setFooter]=useState(String(initial.footer??''));
   const [imageEnabled,setImageEnabled]=useState(Boolean(initial.imageUrl));
   const [imageUrl,setImageUrl]=useState(String(initial.imageUrl??''));
-  const [emojiOpen,setEmojiOpen]=useState(false);
   const [submitted,setSubmitted]=useState(false);
-  const textRef=useRef<HTMLTextAreaElement>(null);
   const limit=MENU_LIMIT[mode];const labelMax=mode==='buttons'?20:24;const isButtons=mode==='buttons';
   const copy=isButtons?{heading:'Opções de Botões',add:'Adicionar Botão',empty:'Nenhum botão adicionado. Clique em “Adicionar Botão” para começar.',item:'botão'}:{heading:'Opções do Menu',add:'Adicionar Opção',empty:'Nenhuma opção adicionada. Clique em “Adicionar Opção” para começar.',item:'opção'};
   const timeoutSeconds=Math.max(0,Math.round(timeoutValue||0))*TIMEOUT_UNITS[timeoutUnit];
@@ -314,17 +408,6 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
   const hasErrors=Boolean(errors.text||errors.buttonText||errors.image||errors.timeout||errors.options||errors.saveAs||options.some((_,index)=>errors.option(index)));
   const show=(message:string)=>submitted&&message?<small className="field-error">{message}</small>:null;
 
-  function format(open:string,close=open){
-    const el=textRef.current;if(!el)return;
-    const {selectionStart:from,selectionEnd:to,value}=el;const selected=value.slice(from,to)||'texto';
-    setText(value.slice(0,from)+open+selected+close+value.slice(to));
-    requestAnimationFrame(()=>{el.focus();el.setSelectionRange(from+open.length,from+open.length+selected.length)});
-  }
-  function insertEmoji(emoji:string){
-    const el=textRef.current;const at=el?.selectionStart??text.length;
-    setText(text.slice(0,at)+emoji+text.slice(el?.selectionEnd??at));setEmojiOpen(false);
-    requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(at+emoji.length,at+emoji.length)});
-  }
   function addOption(){
     // Ids stay stable once created: exits on the canvas are keyed by them.
     const used=new Set(options.map(option=>option.id));let n=options.length+1;while(used.has(`option_${n}`))n+=1;
@@ -359,17 +442,7 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
     </div>}
     <label>Nome do bloco<input value={name} onChange={event=>setName(event.target.value)} maxLength={120}/></label>
     <label htmlFor="menu-text">Mensagem *</label>
-    <div className={`menu-message ${submitted&&errors.text?'invalid':''}`}>
-      <textarea id="menu-text" ref={textRef} rows={5} value={text} onChange={event=>setText(event.target.value)} placeholder={isButtons?"Ex: É isso que você quer?":"Ex: Selecione a melhor opção:"} maxLength={1024}/>
-      <div className="menu-format" role="toolbar" aria-label="Formatação do WhatsApp">
-        <button type="button" title="Negrito" aria-label="Negrito" onClick={()=>format('*')}><Bold size={16}/></button>
-        <button type="button" title="Itálico" aria-label="Itálico" onClick={()=>format('_')}><Italic size={16}/></button>
-        <button type="button" title="Tachado" aria-label="Tachado" onClick={()=>format('~')}><Strikethrough size={16}/></button>
-        <button type="button" title="Emoji" aria-label="Inserir emoji" aria-expanded={emojiOpen} onClick={()=>setEmojiOpen(open=>!open)}><Smile size={16}/></button>
-        <button type="button" title="Monoespaçado" aria-label="Monoespaçado" onClick={()=>format('```')}><Code size={16}/></button>
-        {emojiOpen&&<div className="menu-emoji" role="listbox" aria-label="Emojis">{MENU_EMOJIS.map(emoji=><button type="button" role="option" aria-selected="false" key={emoji} onClick={()=>insertEmoji(emoji)}>{emoji}</button>)}</div>}
-      </div>
-    </div>
+    <WhatsAppField id="menu-text" value={text} onChange={setText} maxLength={1024} placeholder={isButtons?"Ex: É isso que você quer?":"Ex: Selecione a melhor opção:"} invalid={Boolean(submitted&&errors.text)}/>
     {show(errors.text)}
     {isButtons&&<label>Rodapé <span className="optional">(opcional)</span><input value={footer} onChange={event=>setFooter(event.target.value)} maxLength={60} placeholder="Ex: Mensagem com Botão"/></label>}
     {mode==='list'&&<label>Texto do Botão *<input value={buttonText} onChange={event=>setButtonText(event.target.value)} maxLength={20} placeholder="Ex: Abrir lista de opções" aria-invalid={Boolean(submitted&&errors.buttonText)}/>{show(errors.buttonText)}</label>}
