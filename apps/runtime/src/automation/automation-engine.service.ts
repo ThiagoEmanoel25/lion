@@ -324,6 +324,10 @@ export class AutomationEngineService implements OnModuleDestroy {
         const key = await this.openAiKey(workspaceId);
         if (!key.ok) return fail(key.reason);
         const apiKey = key.key;
+        if (config.autoSendResponse === true) {
+          const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { channel: true } });
+          if (!conversation || conversation.channel.provider !== 'baileys' || conversation.channel.status !== 'CONNECTED') return fail('O canal precisa estar conectado para enviar a resposta da IA.');
+        }
         const readsMedia = Boolean(latest) && ((config.understandImage === true && latest!.type === 'IMAGE') || (config.understandPdf === true && latest!.type === 'DOCUMENT'));
         const stored = readsMedia ? await this.prisma.messageMedia.findUnique({ where: { messageId: latest!.id } }) : null;
         if (readsMedia && !stored?.data) return fail('Arquivo grande demais ou indisponível para a IA.');
@@ -351,7 +355,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'webhook': {
         const url = stringConfig(node, 'url');
         if (!url.startsWith('https://')) throw new NodeExecutionError('WEBHOOK_HTTPS_REQUIRED', 'O webhook deve usar HTTPS.');
-        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 15);
+        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 30);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
         let status: number | null = null;

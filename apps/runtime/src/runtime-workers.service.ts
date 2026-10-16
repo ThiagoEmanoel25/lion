@@ -54,6 +54,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
 
     this.outboxTimer = setInterval(() => { void this.relayOutbox(outboundQueue, automationQueue); }, 1_000);
     this.outboxTimer.unref();
+    void this.purgeExpiredMedia();
     this.mediaTimer = setInterval(() => { void this.purgeExpiredMedia(); }, 6 * 3_600_000);
     this.mediaTimer.unref();
     await this.resumeChannels(connectionQueue);

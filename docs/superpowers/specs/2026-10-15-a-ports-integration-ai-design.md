@@ -22,7 +22,7 @@ Hoje: GET/POST/PUT, cabeçalhos, corpo com variáveis, `responseVariable` com a 
 
 Acrescenta:
 - **Campos da resposta**: lista `responseFields: [{ path: 'body.accepted', variable: 'kovil.receipt.accepted' }]` (até 20). `path` lê do objeto `{ status, body, headers }`; `variable` é onde gravar no contexto. Mantém `responseVariable` (resposta inteira) opcional.
-- **Sucesso**: status 2xx. **Falha**: status fora de 2xx, timeout (15 s), erro de rede ou corpo inválido quando há `responseFields`. Na falha grava `integration.error = { status, message }` e segue `failure`.
+- **Sucesso**: status 2xx. **Falha**: status fora de 2xx, timeout (até 30 s, o mesmo teto de antes), erro de rede ou corpo inválido quando há `responseFields`. Na falha grava `integration.error = { status, message }` e segue `failure`.
 - Variáveis no corpo, URL e cabeçalhos: mesma interpolação `{{caminho}}` de hoje.
 
 ## 3. Bloco de IA direto

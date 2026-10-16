@@ -149,6 +149,8 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
       if (!remoteJid || !externalId || incoming.key.fromMe || remoteJid === 'status@broadcast') continue;
       const channel = await this.prisma.channel.findUnique({ where: { id: channelId } });
       if (!channel) continue;
+      // Replays on reconnect: skip before downloading media for a message we already stored.
+      if (await this.prisma.rawWebhookEvent.findUnique({ where: { provider_externalId: { provider: 'baileys', externalId: `${channelId}:${externalId}` } }, select: { id: true } })) continue;
       const phone = `+${remoteJid.split('@')[0]!.split(':')[0]!.replace(/\D/g, '')}`;
       const body = messageBody(incoming.message);
       const reply = menuReply(incoming.message);
