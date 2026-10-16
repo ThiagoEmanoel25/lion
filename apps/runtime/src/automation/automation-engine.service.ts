@@ -9,6 +9,7 @@ import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, rou
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey } from './ai-call.js';
+import { joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
@@ -17,9 +18,9 @@ const AUTOMATION_QUEUE = 'automation.execute';
 const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
 const outcomeTypes = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'HANDOFF', 'DISQUALIFIED']);
 
+// `menu_reply` / `menu_timeout` resume any pending wait (menu or wait_response); the names stay so already-queued jobs remain valid.
 export type AutomationJob = { executionId: string; action?: 'start' | 'resume' | 'menu_reply' | 'menu_timeout'; resumeStepId?: string; messageId?: string };
-type PendingMenu = { stepId: string; nodeId: string };
-type RuntimeState = { pendingDelayStepId?: string; pendingMenu?: PendingMenu; error?: { code: string; message: string } };
+type RuntimeState = { pendingDelayStepId?: string; pendingWait?: PendingWait; error?: { code: string; message: string } };
 type EngineContext = Record<string, unknown> & { _runtime?: RuntimeState };
 
 class NodeExecutionError extends Error {
@@ -60,7 +61,7 @@ export class AutomationEngineService implements OnModuleDestroy {
     if (execution.status === 'WAITING') {
       const pending = context._runtime;
       const delayDue = job.action === 'resume' && Boolean(job.resumeStepId) && pending?.pendingDelayStepId === job.resumeStepId;
-      const menuDue = (job.action === 'menu_reply' || job.action === 'menu_timeout') && Boolean(job.resumeStepId) && pending?.pendingMenu?.stepId === job.resumeStepId;
+      const menuDue = (job.action === 'menu_reply' || job.action === 'menu_timeout') && Boolean(job.resumeStepId) && pendingWaitOf(pending)?.stepId === job.resumeStepId;
       if (!delayDue && !menuDue) return;
     }
 
@@ -74,9 +75,9 @@ export class AutomationEngineService implements OnModuleDestroy {
     let currentNodeId: string | undefined = execution.currentNode ?? definition.start;
 
     if (execution.status === 'WAITING') {
-      const pendingMenu = context._runtime?.pendingMenu;
-      if (pendingMenu) {
-        const resumed = await this.resumeMenu(execution.id, execution.conversationId, job, pendingMenu, context, definition);
+      const pendingWait = pendingWaitOf(context._runtime);
+      if (pendingWait) {
+        const resumed = await this.resumeWait(execution.id, execution.conversationId, job, pendingWait, context, definition);
         if (!resumed) return;
         context = resumed.context;
         currentNodeId = resumed.nextNodeId;
@@ -206,9 +207,9 @@ export class AutomationEngineService implements OnModuleDestroy {
             return;
           }
           // The step stays RUNNING until the contact answers or the menu expires.
-          const pendingMenu: PendingMenu = { stepId: step.id, nodeId: node.id };
+          const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'menu' };
           await tx.executionStep.update({ where: { id: step.id }, data: { output: asJson({ messageId: message.id, kind: node.kind, waitingForReply: true }) } });
-          await tx.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingMenu } }) } });
+          await tx.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingWait } }) } });
         });
         if (!waitsForChoice) return 'continue';
         try {
@@ -305,8 +306,21 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'terminal';
       }
 
-      case 'wait_response':
-        throw new NodeExecutionError('NOT_IMPLEMENTED', 'Aguarda Resposta ainda não é executado pelo runtime.');
+      case 'wait_response': {
+        // `since` bounds which inbound messages count as the reply: anything earlier predates the wait.
+        const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'reply', since: new Date().toISOString() };
+        await this.prisma.$transaction([
+          this.prisma.executionStep.update({ where: { id: step.id }, data: { output: { waitingForReply: true } } }),
+          this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingWait } }) } })
+        ]);
+        try {
+          await this.queue.add('menu_timeout', { executionId, action: 'menu_timeout', resumeStepId: step.id }, { jobId: `automation-wait-timeout-${executionId}-${step.id}`, delay: waitTimeoutSeconds(node.config).seconds * 1000, attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });
+        } catch (error) {
+          await this.failExecution(executionId, 'WAIT_TIMEOUT_SCHEDULING_FAILED', error instanceof Error ? error.message : 'Não foi possível agendar a expiração da espera.');
+          throw error;
+        }
+        return 'waiting';
+      }
 
       case 'ai': {
         const config = node.config;
@@ -421,9 +435,43 @@ export class AutomationEngineService implements OnModuleDestroy {
     await tx.execution.update({ where: { id: executionId }, data: { currentNode: nextNodeId, context: asJson(context) } });
   }
 
+  private resumeWait(executionId: string, conversationId: string, job: AutomationJob, pending: PendingWait, context: EngineContext, definition: AutomationDefinition) {
+    return pending.kind === 'reply'
+      ? this.resumeReply(executionId, conversationId, job, pending, context, definition)
+      : this.resumeMenu(executionId, conversationId, job, pending, context, definition);
+  }
+
+  // Applies the reply (every inbound message since the wait began, so a buffered job sees them all) or the expiry
+  // to a wait_response. Returns null when the execution must stay as it is or has already been finished here.
+  private async resumeReply(executionId: string, conversationId: string, job: AutomationJob, pending: PendingWait, context: EngineContext, definition: AutomationDefinition): Promise<{ context: EngineContext; nextNodeId: string } | null> {
+    const node = definition.nodes.find(item => item.id === pending.nodeId);
+    if (!node || node.kind !== 'wait_response') {
+      await this.failExecution(executionId, 'NODE_NOT_FOUND', `Aguarda Resposta ${pending.nodeId} não encontrado.`);
+      return null;
+    }
+    let next: EngineContext = { ...context, _runtime: {} };
+    if (job.action === 'menu_timeout') {
+      await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { timedOut: true }, finishedAt: new Date() } });
+      const edge = selectPortEdge(definition.edges, node.id, 'timeout');
+      if (edge && !waitTimeoutSeconds(node.config).endsWithoutTimeoutRoute) return { context: next, nextNodeId: edge.target };
+      await this.prisma.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: null, finishedAt: new Date(), context: asJson(next) } });
+      return null;
+    }
+    const since = pending.since ? new Date(pending.since) : (await this.prisma.executionStep.findUnique({ where: { id: pending.stepId }, select: { startedAt: true } }))?.startedAt ?? new Date(0);
+    const messages = await this.prisma.message.findMany({ where: { conversationId, direction: 'INBOUND', createdAt: { gte: since } }, orderBy: { createdAt: 'asc' }, select: { id: true, body: true, type: true } });
+    if (!messages.length) return null;
+    const reply = joinReplies(messages);
+    next = setContextPath(setContextPath(next, 'last_message', reply.last_message), 'last_message_type', reply.last_message_type);
+    await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { messageIds: messages.map(message => message.id), last_message_type: reply.last_message_type }, finishedAt: new Date() } });
+    const edge = selectPortEdge(definition.edges, node.id, 'reply');
+    if (edge) return { context: next, nextNodeId: edge.target };
+    await this.failExecution(executionId, 'DEAD_END', `O nó ${node.id} não possui saída de resposta.`);
+    return null;
+  }
+
   // Applies the contact's answer (or the expiry) to a waiting menu. Returns null when the execution
   // must stay as it is: an unrelated message keeps the menu waiting.
-  private async resumeMenu(executionId: string, conversationId: string, job: AutomationJob, pending: PendingMenu, context: EngineContext, definition: AutomationDefinition): Promise<{ context: EngineContext; nextNodeId: string } | null> {
+  private async resumeMenu(executionId: string, conversationId: string, job: AutomationJob, pending: PendingWait, context: EngineContext, definition: AutomationDefinition): Promise<{ context: EngineContext; nextNodeId: string } | null> {
     const node = definition.nodes.find(item => item.id === pending.nodeId);
     if (!node || node.kind !== 'buttons') {
       await this.failExecution(executionId, 'NODE_NOT_FOUND', `Menu ${pending.nodeId} não encontrado.`);

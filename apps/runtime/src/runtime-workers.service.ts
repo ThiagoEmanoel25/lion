@@ -12,6 +12,7 @@ import { interactivePayload, regularOutboundContent, sendInteractiveButtons } fr
 import { firstName } from './automation/live-context.js';
 import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { matchesAutomationTrigger } from './automation/trigger.js';
+import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js';
 
 @Injectable()
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
@@ -141,8 +142,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         };
         if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
-        } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingMenu(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {
-          // The message answered a menu; it must not also start a new execution.
+        } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingExecution(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {
+          // The message answered a pending wait; it must not also start a new execution.
         } else if (event.type === 'automation.inbound.received' || event.type === 'automation.trigger.requested') {
           await this.startTriggeredExecution(automationQueue, {
             triggerEvent: event.type === 'automation.inbound.received' ? 'message.received' : payload.event!,
@@ -171,13 +172,23 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async resumeWaitingMenu(automationQueue: Queue<AutomationJob>, conversationId: string, messageId: string | undefined, jobOptions: Record<string, unknown>) {
+  private async resumeWaitingExecution(automationQueue: Queue<AutomationJob>, conversationId: string, messageId: string | undefined, jobOptions: Record<string, unknown>) {
     if (!messageId) return false;
-    const waiting = await this.prisma.execution.findFirst({ where: { conversationId, status: 'WAITING' }, orderBy: { startedAt: 'desc' }, select: { id: true, context: true } });
-    const runtime = waiting?.context && typeof waiting.context === 'object' && !Array.isArray(waiting.context) ? (waiting.context as { _runtime?: { pendingMenu?: { stepId?: string } } })._runtime : undefined;
-    const stepId = runtime?.pendingMenu?.stepId;
-    if (!waiting || !stepId) return false;
-    await automationQueue.add('menu_reply', { executionId: waiting.id, action: 'menu_reply', resumeStepId: stepId, messageId }, jobOptions);
+    const waiting = await this.prisma.execution.findFirst({ where: { conversationId, status: 'WAITING' }, orderBy: { startedAt: 'desc' }, select: { id: true, context: true, playbookVersion: { select: { definition: true } } } });
+    const pending = waiting?.context && typeof waiting.context === 'object' && !Array.isArray(waiting.context) ? pendingWaitOf((waiting.context as { _runtime?: unknown })._runtime) : undefined;
+    if (!waiting || !pending) return false;
+    const job: AutomationJob = { executionId: waiting.id, action: 'menu_reply', resumeStepId: pending.stepId, messageId };
+    if (pending.kind === 'menu') {
+      await automationQueue.add('menu_reply', job, jobOptions);
+      return true;
+    }
+    // A message older than the wait would consume the fixed jobId with nothing to read and swallow the real reply.
+    const message = pending.since ? await this.prisma.message.findUnique({ where: { id: messageId }, select: { createdAt: true } }) : null;
+    if (message && message.createdAt < new Date(pending.since!)) return true;
+    const nodes = (waiting.playbookVersion.definition as { nodes?: Array<{ id: string; config?: Record<string, unknown> }> } | null)?.nodes ?? [];
+    const buffer = waitBufferSeconds(nodes.find(node => node.id === pending.nodeId)?.config ?? {});
+    // Fixed jobId: later messages inside the buffer are deduplicated, and the delayed job reads every reply since `since`.
+    await automationQueue.add('menu_reply', job, { ...jobOptions, jobId: `automation-wait-reply-${waiting.id}-${pending.stepId}`, delay: buffer * 1000 });
     return true;
   }
 
