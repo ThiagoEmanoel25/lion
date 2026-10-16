@@ -241,6 +241,12 @@ describe('portas de sucesso e erro', () => {
     expect(codes([{ id: 's', source: 'start', target: 'ok', port: 'success' }])).toContain('EDGE_PORT_INVALID');
   });
 
+  it('permite sucesso e erro para o mesmo destino', () => {
+    const result = validateAutomation(ported([{ id: 's', source: 'api', target: 'ok', port: 'success' }, { id: 'f', source: 'api', target: 'ok', port: 'failure' }]));
+    expect(result.issues.map(issue => issue.code)).not.toContain('DUPLICATE_CONNECTION');
+    expect(result.valid).toBe(true);
+  });
+
   it('valida a config do bloco de IA', () => {
     const definition = ported([{ id: 's', source: 'api', target: 'ok' }]);
     definition.nodes[1] = { ...definition.nodes[1]!, kind: 'ai', config: { systemPrompt: '' } } as never;

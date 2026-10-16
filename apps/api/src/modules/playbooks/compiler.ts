@@ -138,7 +138,7 @@ export function validateAutomation(value: unknown) {
     if (!nodes.has(edge.source)) issues.push({ level: 'error', code: 'EDGE_SOURCE_NOT_FOUND', message: 'A origem da conexão não existe.', edgeId: edge.id });
     if (!nodes.has(edge.target)) issues.push({ level: 'error', code: 'EDGE_TARGET_NOT_FOUND', message: 'O destino da conexão não existe.', edgeId: edge.id });
     if (edge.source === edge.target) issues.push({ level: 'error', code: 'SELF_LOOP', message: 'Um nó não pode apontar diretamente para si mesmo.', edgeId: edge.id, nodeId: edge.source });
-    const key = `${edge.source}:${edge.target}:${edge.label ?? ''}`;
+    const key = `${edge.source}:${edge.target}:${edge.label ?? ''}:${edgePort(edge)}`;
     if (connectionKeys.has(key)) issues.push({ level: 'error', code: 'DUPLICATE_CONNECTION', message: 'Esta conexão já existe.', edgeId: edge.id });
     connectionKeys.add(key);
     outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
