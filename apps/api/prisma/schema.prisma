@@ -114,6 +114,9 @@ model Workspace {
   invites      WorkspaceInvite[]
   aiAgents      AiAgent[]
   inboundWebhookEndpoints InboundWebhookEndpoint[]
+  kanbanBoards KanbanBoard[]
+  flowImportSessions FlowImportSession[]
+  flowShareCodes FlowShareCode[]
 }
 
 model User {
@@ -129,6 +132,8 @@ model User {
   sessions     Session[]
   assignedConversations Conversation[] @relation("ConversationAssignee")
   ownedContacts Contact[] @relation("ContactOwner")
+  createdFlowImportSessions FlowImportSession[] @relation("FlowImportCreatedBy")
+  createdFlowShareCodes FlowShareCode[] @relation("FlowShareCreatedBy")
 }
 
 model Membership {
@@ -261,6 +266,7 @@ model Contact {
   conversations Conversation[]
   tags        ContactTag[]
   outcomes    Outcome[]
+  kanbanCards KanbanCard[]
   @@unique([workspaceId, phone])
   @@index([workspaceId, stage, updatedAt])
   @@index([workspaceId, ownerId, updatedAt])
@@ -307,6 +313,7 @@ model Conversation {
   messages    Message[]
   executions  Execution[]
   outcomes    Outcome[]
+  kanbanCards KanbanCard[]
   @@index([workspaceId, status, updatedAt])
   @@index([workspaceId, assigneeId, status])
 }
@@ -365,6 +372,8 @@ model Playbook {
   activeVersion PlaybookVersion? @relation("ActivePlaybookVersion", fields: [activeVersionId], references: [id])
   channels      Channel[] @relation("ChannelActivePlaybook")
   inboundWebhookEndpoints InboundWebhookEndpoint[]
+  importSessions FlowImportSession[]
+  shareCodes FlowShareCode[]
   @@index([workspaceId, status])
 }
 
@@ -381,6 +390,44 @@ model PlaybookVersion {
   activeFor   Playbook? @relation("ActivePlaybookVersion")
   executions  Execution[]
   @@unique([playbookId, version])
+}
+
+model FlowImportSession {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  workspaceId String
+  createdById String
+  source      String   @default("leona")
+  status      String   @default("WAITING")
+  playbookId  String?
+  report      Json?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User @relation("FlowImportCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  playbook    Playbook? @relation(fields: [playbookId], references: [id], onDelete: SetNull)
+  @@index([workspaceId, createdAt])
+  @@index([expiresAt, status])
+}
+
+model FlowShareCode {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  workspaceId String
+  playbookId  String
+  createdById String
+  definition  Json
+  sourceName  String
+  report      Json
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  playbook    Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  createdBy   User @relation("FlowShareCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  @@index([workspaceId, playbookId, createdAt])
+  @@index([expiresAt, revokedAt])
 }
 
 model Execution {
@@ -548,6 +595,73 @@ model Outcome {
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   contact        Contact @relation(fields: [contactId], references: [id])
   @@index([workspaceId, type, occurredAt])
+}
+
+model KanbanBoard {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  columns     KanbanColumn[]
+  cards       KanbanCard[]
+  @@unique([workspaceId, name])
+  @@index([workspaceId, position])
+}
+
+model KanbanColumn {
+  id        String   @id @default(cuid())
+  boardId   String
+  name      String
+  color     String   @default("#17765b")
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  board     KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards     KanbanCard[]
+  eventsFrom KanbanCardEvent[] @relation("KanbanEventFrom")
+  eventsTo   KanbanCardEvent[] @relation("KanbanEventTo")
+  @@unique([boardId, name])
+  @@index([boardId, position])
+}
+
+model KanbanCard {
+  id             String   @id @default(cuid())
+  boardId        String
+  columnId       String
+  contactId      String
+  conversationId String?
+  position       Int      @default(0)
+  movedAt        DateTime @default(now())
+  movedByType    String
+  movedById      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  board          KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  column         KanbanColumn @relation(fields: [columnId], references: [id], onDelete: Restrict)
+  contact        Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  events         KanbanCardEvent[]
+  @@unique([boardId, contactId])
+  @@index([columnId, position])
+  @@index([conversationId])
+}
+
+model KanbanCardEvent {
+  id           String   @id @default(cuid())
+  cardId       String
+  fromColumnId String?
+  toColumnId   String?
+  movedByType  String
+  movedById    String
+  createdAt    DateTime @default(now())
+  card         KanbanCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  fromColumn   KanbanColumn? @relation("KanbanEventFrom", fields: [fromColumnId], references: [id], onDelete: SetNull)
+  toColumn     KanbanColumn? @relation("KanbanEventTo", fields: [toColumnId], references: [id], onDelete: SetNull)
+  @@index([cardId, createdAt])
+  @@index([toColumnId, createdAt])
 }
 
 model UsageRecord {
