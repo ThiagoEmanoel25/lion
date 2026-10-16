@@ -41,3 +41,10 @@ export function joinReplies(messages: Array<{ body: string | null; type: string 
   const last = messages[messages.length - 1];
   return { last_message: bodies.join('\n'), last_message_type: last?.type ?? 'TEXT' };
 }
+
+// A wait_response buffer already joined the reply into last_message; keep it while the latest message is one of those joined.
+export function aiLastMessage(context: Record<string, unknown>, latest: { id: string; body: string | null } | null): string {
+  const ids = record(context.wait)?.messageIds;
+  if (latest && Array.isArray(ids) && ids.includes(latest.id) && typeof context.last_message === 'string') return context.last_message;
+  return latest?.body ?? '';
+}

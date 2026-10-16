@@ -9,7 +9,7 @@ import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, rou
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey } from './ai-call.js';
-import { joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
+import { aiLastMessage, joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
@@ -307,8 +307,8 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'wait_response': {
-        // `since` bounds which inbound messages count as the reply: anything earlier predates the wait.
-        const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'reply', since: new Date().toISOString() };
+        // `since` bounds which inbound messages count as the reply; startedAt comes from the DB clock, like Message.createdAt.
+        const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'reply', since: step.startedAt.toISOString() };
         await this.prisma.$transaction([
           this.prisma.executionStep.update({ where: { id: step.id }, data: { output: { waitingForReply: true } } }),
           this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingWait } }) } })
@@ -325,7 +325,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'ai': {
         const config = node.config;
         const latest = await this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' } });
-        let aiContext: EngineContext = { ...context, last_message: latest?.body ?? '' };
+        let aiContext: EngineContext = { ...context, last_message: aiLastMessage(context, latest) };
         const responseVariable = typeof config.responseVariable === 'string' && config.responseVariable ? config.responseVariable : 'resposta.gpt';
         const failReasonVariable = typeof config.failReasonVariable === 'string' && config.failReasonVariable ? config.failReasonVariable : 'ai.fail.reason';
         const finish = async (port: 'success' | 'failure', nextContext: EngineContext, output: Record<string, unknown>) => {
@@ -450,19 +450,21 @@ export class AutomationEngineService implements OnModuleDestroy {
       return null;
     }
     let next: EngineContext = { ...context, _runtime: {} };
-    if (job.action === 'menu_timeout') {
+    const since = pending.since ? new Date(pending.since) : (await this.prisma.executionStep.findUnique({ where: { id: pending.stepId }, select: { startedAt: true } }))?.startedAt ?? new Date(0);
+    const messages = await this.prisma.message.findMany({ where: { conversationId, direction: 'INBOUND', createdAt: { gte: since } }, orderBy: { createdAt: 'asc' }, select: { id: true, body: true, type: true } });
+    // A reply that arrived before the timeout wins even when its buffered job has not fired yet.
+    if (job.action === 'menu_timeout' && !messages.length) {
       await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { timedOut: true }, finishedAt: new Date() } });
       const edge = selectPortEdge(definition.edges, node.id, 'timeout');
       if (edge && !waitTimeoutSeconds(node.config).endsWithoutTimeoutRoute) return { context: next, nextNodeId: edge.target };
       await this.prisma.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: null, finishedAt: new Date(), context: asJson(next) } });
       return null;
     }
-    const since = pending.since ? new Date(pending.since) : (await this.prisma.executionStep.findUnique({ where: { id: pending.stepId }, select: { startedAt: true } }))?.startedAt ?? new Date(0);
-    const messages = await this.prisma.message.findMany({ where: { conversationId, direction: 'INBOUND', createdAt: { gte: since } }, orderBy: { createdAt: 'asc' }, select: { id: true, body: true, type: true } });
     if (!messages.length) return null;
     const reply = joinReplies(messages);
-    next = setContextPath(setContextPath(next, 'last_message', reply.last_message), 'last_message_type', reply.last_message_type);
-    await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { messageIds: messages.map(message => message.id), last_message_type: reply.last_message_type }, finishedAt: new Date() } });
+    const messageIds = messages.map(message => message.id);
+    next = setContextPath(setContextPath(setContextPath(next, 'last_message', reply.last_message), 'last_message_type', reply.last_message_type), 'wait.messageIds', messageIds);
+    await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { messageIds, last_message_type: reply.last_message_type }, finishedAt: new Date() } });
     const edge = selectPortEdge(definition.edges, node.id, 'reply');
     if (edge) return { context: next, nextNodeId: edge.target };
     await this.failExecution(executionId, 'DEAD_END', `O nó ${node.id} não possui saída de resposta.`);

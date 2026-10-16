@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { joinReplies, pendingWaitOf, waitBufferSeconds, waitTimeoutSeconds } from './wait-response.js';
+import { aiLastMessage, joinReplies, pendingWaitOf, waitBufferSeconds, waitTimeoutSeconds } from './wait-response.js';
 
 describe('wait-response', () => {
   it('converte tempo + unidade e respeita 31 dias', () => {
@@ -22,5 +22,12 @@ describe('wait-response', () => {
     expect(pendingWaitOf({ pendingWait: { stepId: 's', nodeId: 'n', kind: 'reply', since: '2026-10-15T00:00:00.000Z' } })?.kind).toBe('reply');
     expect(pendingWaitOf({ pendingMenu: { stepId: 's', nodeId: 'n' } })).toEqual({ stepId: 's', nodeId: 'n', kind: 'menu' });
     expect(pendingWaitOf({})).toBeUndefined();
+  });
+  it('IA mantém a resposta juntada pelo buffer e usa a última mensagem fora dele', () => {
+    const context = { last_message: 'oi\nsegue o comprovante', wait: { messageIds: ['m1', 'm2', 'm3'] } };
+    expect(aiLastMessage(context, { id: 'm3', body: null })).toBe('oi\nsegue o comprovante');
+    expect(aiLastMessage(context, { id: 'm4', body: 'outra' })).toBe('outra');
+    expect(aiLastMessage({ last_message: 'velha' }, { id: 'm1', body: 'nova' })).toBe('nova');
+    expect(aiLastMessage(context, null)).toBe('');
   });
 });
