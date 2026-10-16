@@ -11,6 +11,16 @@ describe('outbound WhatsApp content', () => {
       .toEqual({ sticker: { url: 'https://cdn.test/a.webp' } });
   });
 
+  it('maps document (mimetype by extension) and video content', () => {
+    expect(regularOutboundContent({ type: 'DOCUMENT', body: 'Contrato', mediaUrl: 'https://cdn.test/a.pdf', providerPayload: { kind: 'file', fileName: 'Contrato.pdf' } }))
+      .toEqual({ document: { url: 'https://cdn.test/a.pdf' }, fileName: 'Contrato.pdf', mimetype: 'application/pdf', caption: 'Contrato' });
+    expect(regularOutboundContent({ type: 'DOCUMENT', body: null, mediaUrl: 'https://cdn.test/a.xyz', providerPayload: { kind: 'file', fileName: 'a.xyz' } }))
+      .toEqual({ document: { url: 'https://cdn.test/a.xyz' }, fileName: 'a.xyz', mimetype: 'application/octet-stream' });
+    expect(regularOutboundContent({ type: 'VIDEO', body: 'Olha', mediaUrl: 'https://cdn.test/a.mp4', providerPayload: {} }))
+      .toEqual({ video: { url: 'https://cdn.test/a.mp4' }, caption: 'Olha' });
+    expect(regularOutboundContent({ type: 'TEXT', body: 'Oi', mediaUrl: null, providerPayload: {} })).toEqual({ text: 'Oi' });
+  });
+
   it('recognizes interactive messages and accepts label/title during migration', () => {
     const payload = { kind: 'buttons', footer: 'Rodape', buttons: [{ id: 'yes', label: 'Sim' }, { id: 'no', title: 'Não' }] };
     expect(regularOutboundContent({ type: 'TEMPLATE', body: 'Escolha', mediaUrl: null, providerPayload: payload })).toBeNull();

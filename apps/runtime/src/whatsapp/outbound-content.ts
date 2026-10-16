@@ -3,7 +3,7 @@ import { MENU_MAX_OPTIONS } from '@nexo/contracts';
 
 type Button = { id: string; label: string; description?: string };
 type MenuMode = keyof typeof MENU_MAX_OPTIONS;
-type ProviderPayload = { kind?: unknown; ptt?: unknown; buttons?: unknown; footer?: unknown; mode?: unknown; buttonText?: unknown };
+type ProviderPayload = { kind?: unknown; fileName?: unknown; ptt?: unknown; buttons?: unknown; footer?: unknown; mode?: unknown; buttonText?: unknown };
 
 const payloadObject = (value: unknown): ProviderPayload => value && typeof value === 'object' && !Array.isArray(value) ? value as ProviderPayload : {};
 
@@ -20,6 +20,9 @@ export function parseButtons(value: unknown, mode: MenuMode = 'buttons'): Button
   }).slice(0, MENU_MAX_OPTIONS[mode]);
 }
 
+const MIMETYPES: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', mp4: 'video/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+const mimetypeOf = (fileName: string) => MIMETYPES[fileName.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
+
 export function regularOutboundContent(message: { type: string; body: string | null; mediaUrl: string | null; providerPayload: unknown }): AnyMessageContent | null {
   const payload = payloadObject(message.providerPayload);
   const mediaUrl = message.mediaUrl?.trim();
@@ -27,6 +30,11 @@ export function regularOutboundContent(message: { type: string; body: string | n
   if (payload.kind === 'sticker' && mediaUrl) return { sticker: { url: mediaUrl } };
   if (message.type === 'IMAGE' && mediaUrl) return { image: { url: mediaUrl }, ...(message.body ? { caption: message.body } : {}) };
   if (message.type === 'AUDIO' && mediaUrl) return { audio: { url: mediaUrl }, ptt: payload.ptt === true };
+  if (message.type === 'VIDEO' && mediaUrl) return { video: { url: mediaUrl }, ...(message.body ? { caption: message.body } : {}) };
+  if (message.type === 'DOCUMENT' && mediaUrl) {
+    const fileName = typeof payload.fileName === 'string' && payload.fileName ? payload.fileName : 'arquivo';
+    return { document: { url: mediaUrl }, fileName, mimetype: mimetypeOf(fileName), ...(message.body ? { caption: message.body } : {}) };
+  }
   return { text: message.body ?? '' };
 }
 
