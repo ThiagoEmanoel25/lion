@@ -6,10 +6,10 @@ import { AutomationDefinitionSchema } from '@nexo/contracts';
 import {kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
-import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
-import { buildAiMessages, callOpenAi, resolveOpenAiKey } from './ai-call.js';
+import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
 import { aiLastMessage, joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
 import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
@@ -370,18 +370,42 @@ export class AutomationEngineService implements OnModuleDestroy {
           const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { channel: true } });
           if (!conversation || conversation.channel.provider !== 'baileys' || conversation.channel.status !== 'CONNECTED') return fail('O canal precisa estar conectado para enviar a resposta da IA.');
         }
-        const readsMedia = Boolean(latest) && ((config.understandImage === true && latest!.type === 'IMAGE') || (config.understandPdf === true && latest!.type === 'DOCUMENT'));
+        const readsMedia = Boolean(latest) && (
+          (config.understandAudio === true && latest!.type === 'AUDIO') ||
+          ((config.understandImage === true || config.identifyReceipt === true) && latest!.type === 'IMAGE') ||
+          ((config.understandPdf === true || config.identifyReceipt === true) && latest!.type === 'DOCUMENT')
+        );
         const stored = readsMedia ? await this.prisma.messageMedia.findUnique({ where: { messageId: latest!.id } }) : null;
         if (readsMedia && !stored?.data) return fail('Arquivo grande demais ou indisponível para a IA.');
-        const media = readsMedia && stored?.data ? { contentType: stored.contentType, data: Buffer.from(stored.data), fileName: stored.fileName } : null;
+        let media = readsMedia && stored?.data ? { contentType: stored.contentType, data: Buffer.from(stored.data), fileName: stored.fileName } : null;
+        if (media && latest?.type === 'AUDIO') {
+          const transcription = await transcribeOpenAiAudio({ apiKey, media, baseUrl: process.env.OPENAI_BASE_URL });
+          if (!transcription.ok) return fail(transcription.reason);
+          aiContext = setContextPath(aiContext, 'last_message', transcription.text);
+          aiContext = setContextPath(aiContext, 'ai.transcription', transcription.text);
+          media = null;
+        }
         const previousTurns = Math.min(20, Math.max(1, Number(config.contextInteractions) || 1)) - 1;
         const previous = previousTurns > 0 && latest ? await this.prisma.message.findMany({ where: { workspaceId, conversationId, createdAt: { lt: latest.createdAt }, body: { not: null } }, orderBy: { createdAt: 'desc' }, take: previousTurns, select: { direction: true, body: true } }) : [];
         const history = previous.reverse().map(item => ({ role: item.direction === 'INBOUND' ? 'user' as const : 'assistant' as const, content: item.body ?? '' }));
         const userMessage = renderTemplate(typeof config.userMessage === 'string' ? config.userMessage : '{{last_message}}', aiContext);
-        const result = await callOpenAi({ apiKey, model: typeof config.model === 'string' && config.model ? config.model : 'gpt-5.4-mini', baseUrl: process.env.OPENAI_BASE_URL, messages: buildAiMessages({ systemPrompt: stringConfig(node, 'systemPrompt'), userMessage, history, media }) });
+        const smartConditionals = Array.isArray(config.smartConditionals) ? config.smartConditionals.flatMap(item => {
+          const value = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+          return typeof value.id === 'string' && typeof value.label === 'string' && typeof value.instruction === 'string' ? [{ id: value.id, label: value.label, instruction: value.instruction }] : [];
+        }) : [];
+        const result = await callOpenAi({
+          apiKey,
+          model: typeof config.model === 'string' && config.model ? config.model : 'gpt-5.4-mini',
+          baseUrl: process.env.OPENAI_BASE_URL,
+          messages: buildAiMessages({ systemPrompt: stringConfig(node, 'systemPrompt'), userMessage, history, media }),
+          routing: { identifyReceipt: config.identifyReceipt === true, conditionals: smartConditionals }
+        });
         if (!result.ok) return fail(result.reason);
         aiContext = setContextPath(aiContext, responseVariable, result.text);
-        const successEdge = selectPortEdge(input.definition.edges, node.id, 'success');
+        const routeId = result.receiptValid ? 'receipt_valid' : result.routeId;
+        aiContext = setContextPath(aiContext, 'ai.route', routeId);
+        aiContext = setContextPath(aiContext, 'ai.receiptValid', result.receiptValid);
+        const successEdge = selectAiRouteEdge(input.definition.edges, node.id, routeId);
         if (!successEdge) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
         await this.prisma.$transaction(async tx => {
           await tx.usageRecord.create({ data: { workspaceId, kind: 'ai_tokens', quantity: result.tokens, unit: 'token', costCents: 0, provider: 'openai', referenceId: executionId } });
@@ -389,7 +413,7 @@ export class AutomationEngineService implements OnModuleDestroy {
             const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body: result.text.slice(0, 4096), authorType: 'automation', authorId: executionId } });
             await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
           }
-          await this.finishInTransaction(tx, executionId, step.id, successEdge.target, aiContext, asJson({ tokens: result.tokens, chars: result.text.length }));
+          await this.finishInTransaction(tx, executionId, step.id, successEdge.target, aiContext, asJson({ tokens: result.tokens, chars: result.text.length, routeId, receiptValid: result.receiptValid }));
         });
         return { next: successEdge.target };
       }

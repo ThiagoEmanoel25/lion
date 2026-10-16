@@ -1,4 +1,5 @@
 import {
+  AI_ROUTE_FIELD,
   AutomationAiConfigSchema,
   AutomationAudioConfigSchema,
   AutomationButtonsConfigSchema,
@@ -117,6 +118,21 @@ function menuRouteIssues(node: AutomationDefinition['nodes'][number], edges: Aut
   return issues;
 }
 
+function aiRouteIssues(node: AutomationDefinition['nodes'][number], edges: AutomationEdge[]): AutomationIssue[] {
+  const issues: AutomationIssue[] = [];
+  const error = (code: string, message: string, edgeId?: string): AutomationIssue => ({ level: 'error', code, message, nodeId: node.id, ...(edgeId ? { edgeId } : {}) });
+  const conditionIds = new Set((Array.isArray(node.config.smartConditionals) ? node.config.smartConditionals : []).flatMap(item => item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' ? [(item as { id: string }).id] : []));
+  if (node.config.identifyReceipt === true) conditionIds.add('receipt_valid');
+  const used = new Set<string>();
+  for (const edge of edges.filter(item => item.condition?.field === AI_ROUTE_FIELD)) {
+    const routeId = edge.condition?.operator === 'equals' && typeof edge.condition.value === 'string' ? edge.condition.value : '';
+    if (!conditionIds.has(routeId)) { issues.push(error('AI_ROUTE_INVALID', 'A saída da IA não corresponde a uma condicional configurada.', edge.id)); continue; }
+    if (used.has(routeId)) issues.push(error('AI_ROUTE_DUPLICATE', 'Cada saída inteligente aceita apenas uma conexão.', edge.id));
+    used.add(routeId);
+  }
+  return issues;
+}
+
 export function validateAutomation(value: unknown) {
   const parsed = AutomationDefinitionSchema.safeParse(value);
   if (!parsed.success) {
@@ -145,7 +161,7 @@ export function validateAutomation(value: unknown) {
     if (!nodes.has(edge.source)) issues.push({ level: 'error', code: 'EDGE_SOURCE_NOT_FOUND', message: 'A origem da conexão não existe.', edgeId: edge.id });
     if (!nodes.has(edge.target)) issues.push({ level: 'error', code: 'EDGE_TARGET_NOT_FOUND', message: 'O destino da conexão não existe.', edgeId: edge.id });
     if (edge.source === edge.target) issues.push({ level: 'error', code: 'SELF_LOOP', message: 'Um nó não pode apontar diretamente para si mesmo.', edgeId: edge.id, nodeId: edge.source });
-    const key = `${edge.source}:${edge.target}:${edge.label ?? ''}:${edgePort(edge)}`;
+    const key = `${edge.source}:${edge.target}:${edge.label ?? ''}:${edgePort(edge)}:${JSON.stringify(edge.condition ?? null)}`;
     if (connectionKeys.has(key)) issues.push({ level: 'error', code: 'DUPLICATE_CONNECTION', message: 'Esta conexão já existe.', edgeId: edge.id });
     connectionKeys.add(key);
     outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
@@ -160,7 +176,10 @@ export function validateAutomation(value: unknown) {
     const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
     if (node.kind !== 'condition' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
     if (menuRouted) issues.push(...menuRouteIssues(node, edges));
-    issues.push(...portIssues(node, edges, ports));
+    if (node.kind === 'ai') {
+      const fixedEdges = edges.filter(edge => edge.condition?.field !== AI_ROUTE_FIELD);
+      issues.push(...portIssues(node, fixedEdges, ports), ...aiRouteIssues(node, edges));
+    } else issues.push(...portIssues(node, edges, ports));
     if (node.kind === 'wait_response' && node.config.waitIndefinitely === true) for (const edge of edges) if (edgePort(edge) === 'timeout') issues.push({ level: 'error', code: 'TIMEOUT_ROUTE_INVALID', message: 'Sem tempo limite, o bloco não tem saída de timeout.', nodeId: node.id, edgeId: edge.id });
     if (node.kind === 'condition') {
       if (edges.length < 2) issues.push({ level: 'error', code: 'CONDITION_BRANCHES_REQUIRED', message: 'A condição precisa de ao menos duas saídas.', nodeId: node.id });
@@ -215,7 +234,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
     if (!node) { stoppedBecause = 'dead_end'; break; }
     const candidates: AutomationEdge[] = [...(outgoing.get(current) ?? [])].sort((a, b) => a.priority - b.priority);
     let selected: AutomationEdge | undefined = candidates[0];
-    if (nodePorts(node.kind).length) selected = candidates.find(edge => edgePort(edge) === nodePorts(node.kind)[0]);
+    if (nodePorts(node.kind).length) selected = candidates.find(edge => edge.condition?.field !== AI_ROUTE_FIELD && edgePort(edge) === nodePorts(node.kind)[0]);
     if (node.kind === 'buttons' && candidates.some(edge => edge.condition !== undefined || edge.isDefault)) {
       // Without a simulated choice, follow the first option so the rest of the path can be checked.
       selected = candidates.find(edge => edge.condition && conditionMatches(getPathValue(variables, edge.condition.field), edge.condition))

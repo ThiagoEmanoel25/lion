@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { conditionMatches, edgePort, getPathValue, MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema, type EdgePort } from '@nexo/contracts';
+import { AI_ROUTE_FIELD, conditionMatches, edgePort, getPathValue, MENU_DEFAULT_TIMEOUT_SECONDS, MENU_MAX_TIMEOUT_SECONDS, type AutomationDefinitionSchema, type EdgePort } from '@nexo/contracts';
 
 export { conditionMatches, getPathValue };
 
@@ -84,5 +84,13 @@ export function setContextPath<T extends Record<string, unknown>>(context: T, pa
 }
 
 export function selectPortEdge(edges: AutomationEdge[], nodeId: string, port: EdgePort): AutomationEdge | undefined {
-  return edges.find(edge => edge.source === nodeId && edgePort(edge) === port);
+  return edges.find(edge => edge.source === nodeId && edge.condition?.field !== AI_ROUTE_FIELD && edgePort(edge) === port);
+}
+
+export function selectAiRouteEdge(edges: AutomationEdge[], nodeId: string, routeId: string | null): AutomationEdge | undefined {
+  if (routeId) {
+    const routed = edges.find(edge => edge.source === nodeId && edge.condition?.field === AI_ROUTE_FIELD && edge.condition.operator === 'equals' && edge.condition.value === routeId);
+    if (routed) return routed;
+  }
+  return selectPortEdge(edges, nodeId, 'success');
 }

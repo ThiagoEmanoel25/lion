@@ -132,12 +132,26 @@ export const AutomationWebhookConfigSchema=z.object({
   responseVariable:z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,119}$/).optional(),
   responseFields:z.array(AutomationResponseFieldSchema).max(20).default([])
 }).strict();
+export const AutomationAiConditionalSchema=z.object({
+  id:z.string().trim().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9_-]*$/,'Use letras, números, _ ou -, começando por letra.'),
+  label:z.string().trim().min(1).max(80),
+  instruction:z.string().trim().min(1).max(500)
+}).strict();
+export const AI_ROUTE_FIELD='ai.route' as const;
 export const AutomationAiConfigSchema=z.object({
+  provider:z.literal('openai').default('openai'),
+  authMode:z.literal('workspace').default('workspace'),
   model:z.string().trim().min(1).max(60).regex(/^[\w.:-]+$/).default('gpt-5.4-mini'),
   systemPrompt:z.string().trim().min(1).max(12000),
   userMessage:z.string().max(4000).default('{{last_message}}'),
+  understandAudio:z.boolean().default(false),
   understandImage:z.boolean().default(false),
   understandPdf:z.boolean().default(false),
+  identifyReceipt:z.boolean().default(false),
+  smartConditionals:z.array(AutomationAiConditionalSchema).max(10).default([]).superRefine((items,ctx)=>{
+    const ids=new Set<string>();
+    items.forEach((item,index)=>{if(ids.has(item.id))ctx.addIssue({code:z.ZodIssueCode.custom,path:[index,'id'],message:'O identificador deve ser único.'});ids.add(item.id)});
+  }),
   responseVariable:ContextPathSchema.default('resposta.gpt'),
   failReasonVariable:ContextPathSchema.default('ai.fail.reason'),
   autoSendResponse:z.boolean().default(false),

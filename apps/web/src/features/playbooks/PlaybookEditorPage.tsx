@@ -2,7 +2,7 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent} from 'reac
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Headset,Hourglass,Image,Italic,List,MessageSquare,Mic,Play,Plus,Search,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,FileText,GitBranch,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
@@ -67,6 +67,9 @@ function messageItemLabel(item:MessageItem){
 }
 // Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
 const MENU_CHOICE_FIELD='menu.choice';
+const AI_ROUTE_FIELD='ai.route';
+type AiConditional={id:string;label:string;instruction:string};
+function aiConditionalsOf(config:Record<string,unknown>):AiConditional[]{return (Array.isArray(config.smartConditionals)?config.smartConditionals:[]).flatMap(item=>{const value=item&&typeof item==='object'&&!Array.isArray(item)?item as Record<string,unknown>:{};return typeof value.id==='string'&&typeof value.label==='string'&&typeof value.instruction==='string'?[{id:value.id,label:value.label,instruction:value.instruction}]:[]})}
 const MENU_LIMIT={buttons:3,list:10} as const;
 const MENU_MAX_TIMEOUT_SECONDS=2_678_400;
 type MenuMode=keyof typeof MENU_LIMIT;
@@ -74,6 +77,7 @@ type MenuOption={id:string;label:string;description?:string};
 function menuOptionsOf(config:Record<string,unknown>):MenuOption[]{return (Array.isArray(config.buttons)?config.buttons:[]).flatMap(item=>{const option=item&&typeof item==='object'?item as Record<string,unknown>:{};return typeof option.id==='string'?[{id:option.id,label:typeof option.label==='string'?option.label:'',...(typeof option.description==='string'&&option.description?{description:option.description}:{})}]:[]})}
 // Which handle of the source node an edge leaves from; persisted edges only carry their condition.
 function sourceHandleFor(kind:AutomationNodeKind|undefined,edge:AutomationEdge){
+  if(kind==='ai'&&edge.condition?.field===AI_ROUTE_FIELD&&typeof edge.condition.value==='string')return `ai:${edge.condition.value}`;
   if(kind&&NODE_PORTS[kind])return edge.port??NODE_PORTS[kind]![0];
   if(kind==='condition'&&edge.isDefault)return 'fallback';
   if(kind==='buttons'){if(edge.isDefault)return 'timeout';if(edge.condition?.field===MENU_CHOICE_FIELD)return `opt:${String(edge.condition.value)}`}
@@ -106,12 +110,13 @@ function nodePreviewLabel(kind:AutomationNodeKind){
   return labels[kind];
 }
 function flowAction(action:'edit'|'duplicate'|'remove',id:string){window.dispatchEvent(new CustomEvent('nexo-flow-action',{detail:{action,id}}))}
-function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=kindMeta[data.kind];const Icon=meta.icon;const terminal=data.kind==='outcome'||data.kind==='handoff';const buttonItems=data.kind==='buttons'&&Array.isArray(data.config.buttons)?data.config.buttons as Array<{id?:string;label?:string}>:[];return <div className={`automation-node automation-node-${data.kind} ${selected?'selected':''}`}>
+function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=kindMeta[data.kind];const Icon=meta.icon;const terminal=data.kind==='outcome'||data.kind==='handoff';const buttonItems=data.kind==='buttons'&&Array.isArray(data.config.buttons)?data.config.buttons as Array<{id?:string;label?:string}>:[];const aiRoutes=data.kind==='ai'?[...(data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(data.config)]:[];return <div className={`automation-node automation-node-${data.kind} ${selected?'selected':''}`}>
   {data.kind!=='trigger'&&<Handle type="target" position={Position.Left} />}
   <div className="automation-node-head"><span className="automation-node-icon"><Icon size={16} aria-hidden="true"/></span><span><small>{meta.label}</small><b>{data.name}</b></span><span className="node-quick-actions nodrag"><button title="Editar bloco" aria-label={`Editar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('edit',id)}}>✎</button><button title="Duplicar bloco" aria-label={`Duplicar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('duplicate',id)}}>⧉</button><button className="node-delete-action" title="Excluir bloco" aria-label={`Excluir ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('remove',id)}}>×</button></span></div>
   <div className="node-config-preview"><span>{nodePreviewLabel(data.kind)}</span><strong>{nodeSummary(data.kind,data.config)||'Não configurado'}</strong></div>
   {data.kind==='condition'&&<div className="condition-node-routes"><span>Condição atendida</span><span>Caso contrário</span></div>}
   {data.kind==='buttons'&&<div className="node-button-list node-menu-routes">{buttonItems.map((button,index)=><div key={button.id||index}><span>{button.label||`Opção ${index+1}`}</span>{button.id&&<Handle id={`opt:${button.id}`} type="source" position={Position.Right}/>}</div>)}{Number(data.config.timeoutSeconds??0)>0&&<div className="menu-timeout-route"><span>Inatividade</span><Handle id="timeout" type="source" position={Position.Right}/></div>}</div>}
+  {data.kind==='ai'&&aiRoutes.length>0&&<div className="node-button-list ai-node-routes">{aiRoutes.map(route=><div key={route.id}><span>{route.label}</span><Handle id={`ai:${route.id}`} type="source" position={Position.Right}/></div>)}</div>}
   {!terminal&&data.kind!=='buttons'&&!NODE_PORTS[data.kind]&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
   {data.kind==='condition'&&<Handle id="fallback" type="source" position={Position.Right} style={{top:'78%'}} />}
   {NODE_PORTS[data.kind]&&<div className="node-ports">{NODE_PORTS[data.kind]!.filter(port=>!(data.kind==='wait_response'&&port==='timeout'&&waitIndefinite(data.config))).map(port=><div key={port} className={`node-port ${port}`}><span>{data.kind==='wait_response'?(port==='reply'?'Aguardar pela resposta do cliente.':`Ou caso não responda — Após ${Number(data.config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(data.config)]}`):PORT_LABELS[port]}</span><Handle id={port} type="source" position={Position.Right}/></div>)}</div>}
@@ -146,11 +151,12 @@ export function PlaybookEditorPage(){
     const handle=connection.sourceHandle??'';const source=nodes.find(node=>node.id===connection.source);
     let data:FlowEdgeData={isDefault:false,priority:0};let label:string|undefined;
     if(handle.startsWith('opt:')){const optionId=handle.slice(4);const options=source?menuOptionsOf(source.data.config):[];const index=options.findIndex(option=>option.id===optionId);data={condition:{field:MENU_CHOICE_FIELD,operator:'equals',value:optionId},isDefault:false,priority:Math.max(index,0)};label=options[index]?.label}
+    else if(handle.startsWith('ai:')&&source?.data.kind==='ai'){const routeId=handle.slice(3);const routes=[...(source.data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(source.data.config)];const index=routes.findIndex(route=>route.id===routeId);data={condition:{field:AI_ROUTE_FIELD,operator:'equals',value:routeId},isDefault:false,priority:Math.max(index,0)};label=routes[index]?.label}
     else if(handle==='timeout'&&source?.data.kind==='buttons'){data={isDefault:true,priority:1000};label='Inatividade'}
     else if(source&&NODE_PORTS[source.data.kind]&&(handle==='success'||handle==='failure'||handle==='reply'||handle==='timeout')){data={port:handle,isDefault:false,priority:NODE_PORTS[source.data.kind]!.indexOf(handle)};label=PORT_LABELS[handle]}
     else if(source?.data.kind==='condition'){const fallback=handle==='fallback';data={isDefault:fallback,priority:fallback?1000:0};label=fallback?'Caso contrário':'Condição atendida'}
     // A menu exit leads to a single place: reconnecting it replaces the previous edge.
-    const replaces=(edge:FlowEdge)=>(source?.data.kind==='buttons'||Boolean(source&&NODE_PORTS[source.data.kind]))&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
+    const replaces=(edge:FlowEdge)=>(source?.data.kind==='buttons'||Boolean(source&&NODE_PORTS[source.data.kind])||source?.data.kind==='ai')&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
     setEdges(current=>addEdge({...connection,id:crypto.randomUUID(),label,data,type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed}},current.filter(edge=>!replaces(edge))));setDirty(true);setResult(null)
   },[nodes]);
   function dragStart(event:DragEvent,kind:AutomationNodeKind){event.dataTransfer.setData('application/nexo-node',kind);event.dataTransfer.effectAllowed='move'}
@@ -168,6 +174,15 @@ export function PlaybookEditorPage(){
       if(!edge.sourceHandle?.startsWith('opt:'))return [edge];
       const optionId=edge.sourceHandle.slice(4);
       return labels.has(optionId)?[{...edge,label:labels.get(optionId)||edge.label}]:[];
+    }));
+    setInspectorOpen(false);
+  }
+  function saveAi(name:string,config:Record<string,unknown>){
+    if(!selectedNode)return;const nodeId=selectedNode.id;const routes=new Map([...(config.identifyReceipt===true?[['receipt_valid','Comprovante válido'] as const]:[]),...aiConditionalsOf(config).map(item=>[item.id,item.label] as const)]);
+    updateSelected({name,config});
+    setEdges(current=>current.flatMap(edge=>{
+      if(edge.source!==nodeId||!edge.sourceHandle?.startsWith('ai:'))return [edge];
+      const routeId=edge.sourceHandle.slice(3);return routes.has(routeId)?[{...edge,label:routes.get(routeId)||edge.label}]:[];
     }));
     setInspectorOpen(false);
   }
@@ -203,10 +218,12 @@ export function PlaybookEditorPage(){
         {toolsResults.length===0&&<p className="palette-empty">Nenhum bloco para “{toolsQuery}”. Tente “mensagem”, “condição” ou “etiqueta”.</p>}
       </aside>}
       {inspectorOpen&&selectedNode&&<div className="node-modal-backdrop" onMouseDown={()=>setInspectorOpen(false)} aria-hidden="true"/>}
-      {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
+      {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''} ${selectedNode?.data.kind==='ai'?'ai-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
           ? selectedNode.data.kind==='message'
             ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='ai'
+            ? <AiEditor key={selectedNode.id} node={selectedNode} aiKeyConfigured={aiKey.data?.configured} onSave={saveAi} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
@@ -239,7 +256,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
     case 'wait_response':return {timeoutValue:1,timeoutUnit:'hours',waitIndefinitely:false,bufferSeconds:0};
-    case 'ai':return {model:'gpt-5.4-mini',systemPrompt:'',userMessage:'{{last_message}}',understandImage:false,understandPdf:false,responseVariable:'resposta.gpt',failReasonVariable:'ai.fail.reason',autoSendResponse:false,contextInteractions:1};
+    case 'ai':return {provider:'openai',authMode:'workspace',model:'gpt-5.4-mini',systemPrompt:'',userMessage:'{{last_message}}',understandAudio:false,understandImage:false,understandPdf:false,identifyReceipt:false,smartConditionals:[],responseVariable:'resposta.gpt',failReasonVariable:'ai.fail.reason',autoSendResponse:false,contextInteractions:1};
   }
 }
 function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown>|undefined):Record<string,unknown>{
@@ -325,6 +342,45 @@ function WhatsAppField({id,value,onChange,rows=5,maxLength,placeholder,invalid}:
       {emojiOpen&&<div className="menu-emoji" role="listbox" aria-label="Emojis">{MENU_EMOJIS.map(emoji=><button type="button" role="option" aria-selected="false" key={emoji} onClick={()=>insertEmoji(emoji)}>{emoji}</button>)}</div>}
     </div>
   </div>
+}
+function ToggleCard({title,description,checked,onChange,tone,children}:{title:string;description:string;checked:boolean;onChange:(checked:boolean)=>void;tone?:'success';children?:React.ReactNode}){
+  return <div className={`ai-toggle-card ${tone??''}`}><div><b>{title}</b><p>{description}</p>{children}</div><button type="button" role="switch" aria-checked={checked} aria-label={title} className={`ai-switch ${checked?'active':''}`} onClick={()=>onChange(!checked)}><span/></button></div>
+}
+function AiEditor({node,aiKeyConfigured,onSave,onCancel}:{node:FlowNode;aiKeyConfigured:boolean|undefined;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const initial={...defaultConfig('ai'),...node.data.config};
+  const [name,setName]=useState(node.data.name);const [config,setConfig]=useState<Record<string,unknown>>(initial);const [submitted,setSubmitted]=useState(false);
+  const conditions=aiConditionalsOf(config);const contextCount=Math.min(20,Math.max(1,Number(config.contextInteractions)||1));
+  const patch=(key:string,value:unknown)=>setConfig(current=>({...current,[key]:value}));
+  const conditionErrors=conditions.map((item,index)=>!item.label.trim()||!item.instruction.trim()?`Preencha nome e instrução da condicional ${index+1}.`:conditions.some((other,i)=>i!==index&&other.id===item.id)?`A condicional ${index+1} está duplicada.`:'');
+  const promptError=!String(config.systemPrompt??'').trim()?'Escreva o comportamento da IA.':'';
+  function updateCondition(index:number,change:Partial<AiConditional>){patch('smartConditionals',conditions.map((item,i)=>i===index?{...item,...change}:item))}
+  function addCondition(){if(conditions.length>=10)return;patch('smartConditionals',[...conditions,{id:`condition_${crypto.randomUUID().slice(0,8)}`,label:'',instruction:''}])}
+  function save(){setSubmitted(true);if(promptError||conditionErrors.some(Boolean))return;onSave(name.trim()||'Bloco de IA',{...config,provider:'openai',authMode:'workspace',model:String(config.model||'gpt-5.4-mini').trim(),systemPrompt:String(config.systemPrompt).trim(),userMessage:String(config.userMessage??'{{last_message}}'),smartConditionals:conditions.map(item=>({...item,label:item.label.trim(),instruction:item.instruction.trim()})),contextInteractions:contextCount})}
+  return <><header><span className="palette-icon ai"><Bot size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Bloco de IA</b></div></header>
+    <div className="inspector-form ai-editor">
+      <label>Nome do bloco<input value={name} maxLength={120} onChange={event=>setName(event.target.value)}/></label>
+      <div className="ai-grid-two"><label>Provedor de IA<select value="openai" disabled><option value="openai">OpenAI (GPT)</option></select></label><label>Autenticação<select value="workspace" disabled><option value="workspace">Chave segura do workspace</option></select></label></div>
+      <div className={`ai-auth-card ${aiKeyConfigured?'configured':'missing'}`}><ShieldCheck size={19}/><div><b>{aiKeyConfigured?'Chave configurada e cifrada':'Chave ainda não configurada'}</b><p>{aiKeyConfigured?'O segredo é lido apenas pelo runtime e não fica salvo neste fluxo.':'Configure em Configurações → Inteligência artificial. Sem chave, o bloco seguirá pela saída de erro.'}</p></div></div>
+      <label>Modelo<select value={String(config.model??'gpt-5.4-mini')} onChange={event=>patch('model',event.target.value)}><option value="gpt-5.4-mini">GPT-5.4 Mini</option><option value="gpt-5.4">GPT-5.4</option><option value="gpt-4.1-mini">GPT-4.1 Mini</option></select><small>Se o modelo não estiver disponível para a chave, a execução seguirá pela saída de erro.</small></label>
+      <label>Mensagem enviada ao modelo<WhatsAppField value={String(config.userMessage??'{{last_message}}')} onChange={value=>patch('userMessage',value)} rows={5} maxLength={4000} placeholder="{{last_message}}"/><small>Use variáveis como {'{{last_message}}'} ou {'{{contact.name}}'}.</small></label>
+      <label>Campo para salvar a resposta da IA<input value={String(config.responseVariable??'resposta.gpt')} onChange={event=>patch('responseVariable',event.target.value)} placeholder="resposta.gpt"/><small>A resposta também fica disponível em ai.response durante a execução.</small></label>
+      <ToggleCard title="Enviar resposta automaticamente" description="Envia a resposta gerada como mensagem para o contato." tone="success" checked={config.autoSendResponse===true} onChange={value=>patch('autoSendResponse',value)}/>
+      <label>Prompt de IA / Comportamento<textarea rows={8} maxLength={12000} value={String(config.systemPrompt??'')} aria-invalid={Boolean(submitted&&promptError)} onChange={event=>patch('systemPrompt',event.target.value)} placeholder="Você é um assistente responsável por..."/>{submitted&&promptError?<small className="field-error">{promptError}</small>:<small>Defina papel, regras, tom e limites da resposta.</small>}</label>
+      <div className="ai-capabilities">
+        <ToggleCard title="Entender áudio" description="Transcreve e processa mensagens de áudio." checked={config.understandAudio===true} onChange={value=>patch('understandAudio',value)}/>
+        <ToggleCard title="Entender imagem" description="Permite analisar imagens recebidas." checked={config.understandImage===true} onChange={value=>patch('understandImage',value)}/>
+        <ToggleCard title="Entender PDF" description="Permite analisar documentos PDF recebidos." checked={config.understandPdf===true} onChange={value=>patch('understandPdf',value)}/>
+        <ToggleCard title="Identificar comprovante" description="Analisa imagem/PDF e cria a saída “Comprovante válido” no topo do bloco." checked={config.identifyReceipt===true} onChange={value=>patch('identifyReceipt',value)}/>
+      </div>
+      <section className="ai-conditionals"><div className="ai-section-head"><div><b>Condicionais inteligentes ({conditions.length}/10)</b><p>A IA classifica a resposta e segue pela primeira saída correspondente. A ordem define a prioridade.</p></div><button type="button" onClick={addCondition} disabled={conditions.length>=10}><Plus size={16}/> Adicionar condicional</button></div>
+        {conditions.length===0&&<div className="ai-empty"><GitBranch size={22}/><span>Nenhuma classificação adicional. O fluxo usará a saída de sucesso.</span></div>}
+        <ol>{conditions.map((item,index)=><li key={item.id}><div className="ai-condition-head"><span>{index+1}</span><b>Saída inteligente</b><button type="button" aria-label={`Remover condicional ${index+1}`} onClick={()=>patch('smartConditionals',conditions.filter((_,i)=>i!==index))}><X size={15}/></button></div><label>Nome da saída<input value={item.label} maxLength={80} aria-invalid={Boolean(submitted&&conditionErrors[index])} onChange={event=>updateCondition(index,{label:event.target.value})} placeholder="Ex.: Cliente quer comprar"/></label><label>Quando usar esta saída<textarea rows={3} maxLength={500} value={item.instruction} aria-invalid={Boolean(submitted&&conditionErrors[index])} onChange={event=>updateCondition(index,{instruction:event.target.value})} placeholder="Use quando o cliente demonstrar intenção clara de compra."/></label>{submitted&&conditionErrors[index]&&<small className="field-error">{conditionErrors[index]}</small>}</li>)}</ol>
+      </section>
+      <ToggleCard title={`Manter contexto da conversa (últimas ${contextCount} interações)`} description="Mantém o histórico recente para respostas mais coerentes; máximo de 20 interações." checked={contextCount>1} onChange={value=>patch('contextInteractions',value?5:1)}>{contextCount>1&&<input aria-label="Quantidade de interações" type="number" min="2" max="20" value={contextCount} onChange={event=>patch('contextInteractions',Math.min(20,Math.max(2,Number(event.target.value)||2)))}/>}</ToggleCard>
+      <label>Salvar motivo da falha em<input value={String(config.failReasonVariable??'ai.fail.reason')} onChange={event=>patch('failReasonVariable',event.target.value)} placeholder="ai.fail.reason"/></label>
+      <div className="ai-how"><Info size={18}/><div><b>Como funciona</b><p>O bloco envia a mensagem e o contexto ao modelo escolhido. A resposta é salva em uma variável e pode ser enviada automaticamente. Comprovantes e condicionais geram saídas próprias; falhas seguem pela saída de erro.</p></div></div>
+      <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar bloco</button></footer>
+    </div></>
 }
 const HTTPS_URL=/^https:\/\/\S+\.\S+/;
 function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
