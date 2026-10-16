@@ -11,5 +11,5 @@ export type ConnectionJob = {
   removeAuth?: boolean;
 };
 
-export type OutboundJob = { messageId: string; channelId?: string };
+export type OutboundJob = { messageId: string; channelId?: string; typed?: boolean };
 export type { AutomationJob } from './automation/automation-engine.service.js';

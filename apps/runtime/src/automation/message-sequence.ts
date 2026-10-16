@@ -32,3 +32,13 @@ export function itemMessage(item: SendItem, context: Record<string, unknown>): {
   if (item.mediaType === 'audio') return { type: 'AUDIO', body: null, mediaUrl, providerPayload: { kind: 'audio', ptt: item.ptt === true } };
   return { type: item.mediaType === 'video' ? 'VIDEO' : 'IMAGE', body: caption, mediaUrl, providerPayload: {} };
 }
+
+export type SequenceRef = { executionId: string; stepId: string; index: number };
+
+export function sequenceOf(providerPayload: unknown): SequenceRef | undefined {
+  const sequence = providerPayload && typeof providerPayload === 'object' && !Array.isArray(providerPayload) ? (providerPayload as { sequence?: Partial<SequenceRef> }).sequence : undefined;
+  return sequence && typeof sequence.executionId === 'string' && typeof sequence.stepId === 'string' && typeof sequence.index === 'number' ? { executionId: sequence.executionId, stepId: sequence.stepId, index: sequence.index } : undefined;
+}
+
+// Fixed jobId per (step, next index): the engine (pause) and the outbound worker (sent/failed, retries) can never schedule the same continuation twice.
+export const sequenceJobOptions = (stepId: string, index: number, delay = 0) => ({ jobId: `automation-seq-${stepId}-${index}`, delay, attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });

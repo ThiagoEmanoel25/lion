@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { itemMessage, pauseSeconds, sequenceItems } from './message-sequence.js';
+import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, sequenceOf } from './message-sequence.js';
 
 describe('sequenceItems', () => {
   it('turns the legacy { text } into one text item', () => {
@@ -43,5 +43,17 @@ describe('itemMessage', () => {
     expect(() => itemMessage({ type: 'text', text: '{{nope}}', typingSeconds: 0 }, ctx)).toThrow('EMPTY_MESSAGE');
     expect(() => itemMessage({ type: 'media', mediaType: 'image', url: '{{nope}}' }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
     expect(() => itemMessage({ type: 'file', url: 'http://x/a.pdf', fileName: 'a' }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
+  });
+});
+
+describe('sequenceOf / sequenceJobOptions', () => {
+  it('reads the sequence ref from providerPayload and ignores anything else', () => {
+    expect(sequenceOf({ typingSeconds: 3, sequence: { executionId: 'e', stepId: 's', index: 1 } })).toEqual({ executionId: 'e', stepId: 's', index: 1 });
+    expect(sequenceOf({ sequence: { executionId: 'e', stepId: 's' } })).toBeUndefined();
+    expect(sequenceOf(null)).toBeUndefined();
+  });
+  it('uses one fixed jobId per step and next index', () => {
+    expect(sequenceJobOptions('s', 2).jobId).toBe('automation-seq-s-2');
+    expect(sequenceJobOptions('s', 2, 3_000)).toMatchObject({ delay: 3_000, attempts: 5 });
   });
 });

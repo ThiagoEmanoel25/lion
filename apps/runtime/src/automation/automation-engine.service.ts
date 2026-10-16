@@ -10,6 +10,7 @@ import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey } from './ai-call.js';
 import { aiLastMessage, joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
+import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
@@ -19,8 +20,9 @@ const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis
 const outcomeTypes = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'HANDOFF', 'DISQUALIFIED']);
 
 // `menu_reply` / `menu_timeout` resume any pending wait (menu or wait_response); the names stay so already-queued jobs remain valid.
-export type AutomationJob = { executionId: string; action?: 'start' | 'resume' | 'menu_reply' | 'menu_timeout'; resumeStepId?: string; messageId?: string };
-type RuntimeState = { pendingDelayStepId?: string; pendingWait?: PendingWait; error?: { code: string; message: string } };
+export type AutomationJob = { executionId: string; action?: 'start' | 'resume' | 'menu_reply' | 'menu_timeout' | 'sequence_next'; resumeStepId?: string; messageId?: string; sequenceIndex?: number; failedIndex?: number };
+type PendingSequence = { stepId: string; index: number };
+type RuntimeState = { pendingDelayStepId?: string; pendingWait?: PendingWait; pendingSequence?: PendingSequence; error?: { code: string; message: string } };
 type EngineContext = Record<string, unknown> & { _runtime?: RuntimeState };
 
 class NodeExecutionError extends Error {
@@ -62,7 +64,8 @@ export class AutomationEngineService implements OnModuleDestroy {
       const pending = context._runtime;
       const delayDue = job.action === 'resume' && Boolean(job.resumeStepId) && pending?.pendingDelayStepId === job.resumeStepId;
       const menuDue = (job.action === 'menu_reply' || job.action === 'menu_timeout') && Boolean(job.resumeStepId) && pendingWaitOf(pending)?.stepId === job.resumeStepId;
-      if (!delayDue && !menuDue) return;
+      const sequenceDue = job.action === 'sequence_next' && pending?.pendingSequence?.stepId === job.resumeStepId && job.sequenceIndex === pending!.pendingSequence!.index + 1;
+      if (!delayDue && !menuDue && !sequenceDue) return;
     }
 
     const parsed = AutomationDefinitionSchema.safeParse(execution.playbookVersion.definition);
@@ -76,7 +79,13 @@ export class AutomationEngineService implements OnModuleDestroy {
 
     if (execution.status === 'WAITING') {
       const pendingWait = pendingWaitOf(context._runtime);
-      if (pendingWait) {
+      const pendingSequence = context._runtime?.pendingSequence;
+      if (pendingSequence) {
+        const resumed = await this.resumeSequence(execution, job, pendingSequence, { ...context, _runtime: {} }, definition);
+        if (!resumed) return;
+        context = resumed.context;
+        currentNodeId = resumed.nextNodeId;
+      } else if (pendingWait) {
         const resumed = await this.resumeWait(execution.id, execution.conversationId, job, pendingWait, context, definition);
         if (!resumed) return;
         context = resumed.context;
@@ -113,12 +122,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         if (result === 'waiting' || result === 'terminal') return;
         if (typeof result === 'object') routedNodeId = result.next;
       } catch (error) {
-        const code = error instanceof NodeExecutionError ? error.code : 'NODE_EXECUTION_FAILED';
-        const message = error instanceof Error ? error.message : 'Falha desconhecida durante a execução do nó.';
-        await this.prisma.$transaction([
-          this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'FAILED', reason: `${code}: ${message}`.slice(0, 1000), finishedAt: new Date() } }),
-          this.prisma.execution.update({ where: { id: execution.id }, data: { status: 'FAILED', currentNode: node.id, finishedAt: new Date() } })
-        ]);
+        await this.failStep(execution.id, step.id, node.id, error);
         throw error;
       }
       processed += 1;
@@ -154,15 +158,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { channel: true } });
         if (!conversation || conversation.workspaceId !== workspaceId) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
         if (conversation.channel.provider !== 'baileys' || conversation.channel.status !== 'CONNECTED') throw new NodeExecutionError('CHANNEL_UNAVAILABLE', 'O canal Baileys precisa estar conectado para enviar a mensagem.');
-        const body = renderTemplate(stringConfig(node, 'text'), context);
-        if (!body.trim()) throw new NodeExecutionError('EMPTY_MESSAGE', 'A mensagem ficou vazia após a interpolação.');
-        await this.prisma.$transaction(async tx => {
-          const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body, authorType: 'automation', authorId: executionId } });
-          await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
-          await tx.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { messageId: message.id }, finishedAt: new Date() } });
-          await tx.execution.update({ where: { id: executionId }, data: { currentNode: nextNodeId, context: asJson(context) } });
-        });
-        return 'continue';
+        return this.runSequenceItem(executionId, workspaceId, conversationId, step, node, context, 0, this.messageItems(node), nextNodeId);
       }
 
       case 'image':
@@ -433,6 +429,82 @@ export class AutomationEngineService implements OnModuleDestroy {
   private async finishInTransaction(tx: Prisma.TransactionClient, executionId: string, stepId: string, nextNodeId: string | undefined, context: EngineContext, output: Prisma.InputJsonValue) {
     await tx.executionStep.update({ where: { id: stepId }, data: { status: 'SUCCEEDED', output, finishedAt: new Date() } });
     await tx.execution.update({ where: { id: executionId }, data: { currentNode: nextNodeId, context: asJson(context) } });
+  }
+
+  private messageItems(node: AutomationNode) {
+    let items: SequenceItem[];
+    try { items = sequenceItems(node.config); } catch { throw new NodeExecutionError('INVALID_NODE_CONFIG', `O nó ${node.id} possui um conteúdo inválido.`); }
+    if (!items.length) throw new NodeExecutionError('INVALID_NODE_CONFIG', `O nó ${node.id} requer ao menos um conteúdo.`);
+    return items;
+  }
+
+  // Sends (or waits on) one item; the next item is scheduled by the outbound worker after SENT, or by the pause delay.
+  private async runSequenceItem(executionId: string, workspaceId: string, conversationId: string, step: ExecutionStep, node: AutomationNode, context: EngineContext, index: number, items: SequenceItem[], nextNodeId: string | undefined): Promise<'continue' | 'waiting'> {
+    const base: EngineContext = { ...context, _runtime: {} };
+    if (index >= items.length) {
+      await this.completeStep(executionId, step.id, nextNodeId, base, { items: items.length });
+      return 'continue';
+    }
+    const item = items[index]!;
+    const waiting = { status: 'WAITING' as const, currentNode: node.id, context: asJson({ ...base, _runtime: { pendingSequence: { stepId: step.id, index } } }) };
+    if (item.type === 'pause') {
+      await this.prisma.execution.update({ where: { id: executionId }, data: waiting });
+      try {
+        await this.queue.add('sequence_next', { executionId, action: 'sequence_next', resumeStepId: step.id, sequenceIndex: index + 1 }, sequenceJobOptions(step.id, index + 1, pauseSeconds(item) * 1000));
+      } catch (error) {
+        await this.failExecution(executionId, 'SEQUENCE_SCHEDULING_FAILED', error instanceof Error ? error.message : 'Não foi possível agendar a pausa.');
+        throw error;
+      }
+      return 'waiting';
+    }
+    let content: ReturnType<typeof itemMessage>;
+    try { content = itemMessage(item, context); } catch (error) {
+      const code = error instanceof Error ? error.message : 'INVALID_NODE_CONFIG';
+      throw new NodeExecutionError(code, code === 'EMPTY_MESSAGE' ? 'A mensagem ficou vazia após a interpolação.' : code === 'MEDIA_HTTPS_REQUIRED' ? 'A mídia precisa usar uma URL HTTPS.' : `O item ${index + 1} da mensagem é inválido.`);
+    }
+    const providerPayload = { ...content.providerPayload, sequence: { executionId, stepId: step.id, index } };
+    await this.prisma.$transaction(async tx => {
+      const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: content.type, status: 'PENDING', body: content.body, mediaUrl: content.mediaUrl, providerPayload: asJson(providerPayload), authorType: 'automation', authorId: executionId } });
+      await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
+      await tx.execution.update({ where: { id: executionId }, data: waiting });
+    });
+    return 'waiting';
+  }
+
+  // Continues a message sequence after an item was sent (or failed for good) or a pause elapsed.
+  private async resumeSequence(execution: { id: string; workspaceId: string; conversationId: string }, job: AutomationJob, pending: PendingSequence, context: EngineContext, definition: AutomationDefinition): Promise<{ context: EngineContext; nextNodeId: string } | null> {
+    const step = await this.prisma.executionStep.findUnique({ where: { id: pending.stepId } });
+    const node = step && definition.nodes.find(item => item.id === step.nodeId);
+    if (!step || !node) {
+      await this.failExecution(execution.id, 'NODE_NOT_FOUND', 'O nó da mensagem não foi encontrado.');
+      return null;
+    }
+    if (job.failedIndex !== undefined) {
+      await this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'FAILED', reason: `MESSAGE_ITEM_FAILED: item ${job.failedIndex + 1}`, finishedAt: new Date() } });
+      await this.failExecution(execution.id, 'MESSAGE_ITEM_FAILED', `Falha ao enviar o item ${job.failedIndex + 1} da mensagem.`);
+      return null;
+    }
+    const nextNodeId = selectNextEdge(node, definition.edges, context)?.target;
+    await this.prisma.execution.update({ where: { id: execution.id }, data: { status: 'RUNNING', context: asJson(context) } });
+    try {
+      const result = await this.runSequenceItem(execution.id, execution.workspaceId, execution.conversationId, step, node, context, job.sequenceIndex!, this.messageItems(node), nextNodeId);
+      if (result === 'waiting') return null;
+    } catch (error) {
+      await this.failStep(execution.id, step.id, node.id, error);
+      throw error;
+    }
+    if (nextNodeId) return { context, nextNodeId };
+    await this.failExecution(execution.id, 'DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+    return null;
+  }
+
+  private async failStep(executionId: string, stepId: string, nodeId: string, error: unknown) {
+    const code = error instanceof NodeExecutionError ? error.code : 'NODE_EXECUTION_FAILED';
+    const message = error instanceof Error ? error.message : 'Falha desconhecida durante a execução do nó.';
+    await this.prisma.$transaction([
+      this.prisma.executionStep.update({ where: { id: stepId }, data: { status: 'FAILED', reason: `${code}: ${message}`.slice(0, 1000), finishedAt: new Date() } }),
+      this.prisma.execution.update({ where: { id: executionId }, data: { status: 'FAILED', currentNode: nodeId, finishedAt: new Date() } })
+    ]);
   }
 
   private resumeWait(executionId: string, conversationId: string, job: AutomationJob, pending: PendingWait, context: EngineContext, definition: AutomationDefinition) {

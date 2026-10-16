@@ -1,5 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { Job, Queue, Worker } from 'bullmq';
+import { DelayedError, Job, Queue, Worker } from 'bullmq';
 import pino from 'pino';
 import { PrismaService } from './infra/prisma.service.js';
 import { RedisService } from './infra/redis.service.js';
@@ -13,6 +13,7 @@ import { firstName } from './automation/live-context.js';
 import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { matchesAutomationTrigger } from './automation/trigger.js';
 import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js';
+import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js';
 
 @Injectable()
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
@@ -22,6 +23,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   private outboxTimer?: NodeJS.Timeout;
   private mediaTimer?: NodeJS.Timeout;
   private relayingOutbox = false;
+  private automationQueue!: Queue<AutomationJob>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -32,11 +34,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    const outboundQueue = new Queue<OutboundJob>(QUEUES.whatsappOutbound, { connection: this.redis });
+    const connectionQueue = new Queue<ConnectionJob>(QUEUES.whatsappConnection, { connection: this.redis });
+    const automationQueue = this.automationQueue = new Queue<AutomationJob>(QUEUES.automationExecute, { connection: this.redis });
+    this.queues.push(outboundQueue, connectionQueue, automationQueue);
     const connectionWorker = new Worker<ConnectionJob>(QUEUES.whatsappConnection, job => this.handleConnection(job), {
       connection: this.redis,
       concurrency: 10
     });
-    const outboundWorker = new Worker<OutboundJob>(QUEUES.whatsappOutbound, job => this.handleOutbound(job), {
+    const outboundWorker = new Worker<OutboundJob>(QUEUES.whatsappOutbound, (job, token) => this.handleOutbound(job, token), {
       connection: this.redis,
       concurrency: 20,
       limiter: { max: 20, duration: 1_000 }
@@ -47,11 +53,6 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     });
     this.workers.push(connectionWorker, outboundWorker, automationWorker);
     for (const worker of this.workers) worker.on('failed', (job, error) => this.logger.error({ jobId: job?.id, err: error }, 'job failed'));
-
-    const outboundQueue = new Queue<OutboundJob>(QUEUES.whatsappOutbound, { connection: this.redis });
-    const connectionQueue = new Queue<ConnectionJob>(QUEUES.whatsappConnection, { connection: this.redis });
-    const automationQueue = new Queue<AutomationJob>(QUEUES.automationExecute, { connection: this.redis });
-    this.queues.push(outboundQueue, connectionQueue, automationQueue);
 
     this.outboxTimer = setInterval(() => { void this.relayOutbox(outboundQueue, automationQueue); }, 1_000);
     this.outboxTimer.unref();
@@ -69,13 +70,30 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     await this.sessions.connect(job.data.channelId, job.data.pairingPhoneNumber);
   }
 
-  private async handleOutbound(job: Job<OutboundJob>) {
+  private async handleOutbound(job: Job<OutboundJob>, token?: string) {
+    try {
+      await this.sendOutbound(job, token);
+    } catch (error) {
+      // Only the last attempt ends the item for good; the sequence then fails instead of continuing.
+      if (!(error instanceof DelayedError) && job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
+        const message = await this.prisma.message.findUnique({ where: { id: job.data.messageId }, select: { providerPayload: true } });
+        const sequence = sequenceOf(message?.providerPayload);
+        if (sequence) await this.automationQueue.add('sequence_next', { executionId: sequence.executionId, action: 'sequence_next', resumeStepId: sequence.stepId, sequenceIndex: sequence.index + 1, failedIndex: sequence.index }, sequenceJobOptions(sequence.stepId, sequence.index + 1));
+      }
+      throw error;
+    }
+  }
+
+  private async sendOutbound(job: Job<OutboundJob>, token?: string) {
     const message = await this.prisma.message.findUnique({
       where: { id: job.data.messageId },
       include: { conversation: { include: { contact: true, channel: true } } }
     });
     if (!message || message.direction !== 'OUTBOUND') return;
-    if (['SENT', 'DELIVERED', 'READ'].includes(message.status)) return;
+    const sequence = sequenceOf(message.providerPayload);
+    // Re-scheduling is idempotent (fixed jobId), so a retry after SENT still releases the next item.
+    const continueSequence = async () => { if (sequence) await this.automationQueue.add('sequence_next', { executionId: sequence.executionId, action: 'sequence_next', resumeStepId: sequence.stepId, sequenceIndex: sequence.index + 1 }, sequenceJobOptions(sequence.stepId, sequence.index + 1)); };
+    if (['SENT', 'DELIVERED', 'READ'].includes(message.status)) return continueSequence();
     const { channel, contact } = message.conversation;
     if (channel.provider !== 'baileys') throw new Error(`Channel ${channel.id} is not managed by Baileys`);
     let socket = this.sessions.getSocket(channel.id);
@@ -87,6 +105,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     const jid = contact.externalRef?.includes('@')
       ? contact.externalRef
       : `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`;
+    const payload = message.providerPayload && typeof message.providerPayload === 'object' && !Array.isArray(message.providerPayload) ? message.providerPayload as { typingSeconds?: unknown } : {};
+    const typingSeconds = typeof payload.typingSeconds === 'number' ? payload.typingSeconds : 0;
+    if (typingSeconds > 0 && !job.data.typed) {
+      await socket.sendPresenceUpdate('composing', jid);
+      await job.updateData({ ...job.data, typed: true });
+      await job.moveToDelayed(Date.now() + typingSeconds * 1000, token);
+      throw new DelayedError();
+    }
     try {
       const messageId = outboundMessageId(message.clientRequestId ?? message.id);
       const content = regularOutboundContent(message);
@@ -104,6 +130,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         where: { id: message.id },
         data: { externalId: externalId ?? message.externalId, status: 'SENT', sentAt: new Date(), errorCode: null }
       });
+      if (typingSeconds > 0) await socket.sendPresenceUpdate('paused', jid).catch(() => undefined);
     } catch (error) {
       await this.prisma.message.update({
         where: { id: message.id },
@@ -111,6 +138,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       });
       throw error;
     }
+    await continueSequence();
   }
 
   private async relayOutbox(outboundQueue: Queue<OutboundJob>, automationQueue: Queue<AutomationJob>) {
