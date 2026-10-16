@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { CONDITION_OPERATORS } from './conditions.js';
 export * from './conditions.js';
+import { EDGE_PORTS } from './ports.js';
+export * from './ports.js';
 
 export const RoleSchema = z.enum(['OWNER','ADMIN','SUPERVISOR','AGENT','VIEWER']);
 export type Role = z.infer<typeof RoleSchema>;
@@ -47,7 +49,7 @@ export const ChangeConversationModeInput = z.object({mode:z.enum(['AI','HUMAN','
 export const ChangeConversationStatusInput = z.object({status:z.enum(['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED','ASSIGNED','RESOLVED']),reason:z.string().trim().min(1).max(240)});
 export const CreatePlaybookInput = z.object({name:z.string().min(3).max(120),description:z.string().max(500).optional(),template:z.enum(['qualification','reactivation','support'])});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
@@ -91,20 +93,35 @@ export const AutomationTagConfigSchema=z.object({
   tagId:z.string().cuid().optional(),
   tag:z.string().trim().min(1).max(80).optional()
 }).strict().refine(value=>value.tagIds.length>0||value.tags.length>0||Boolean(value.tagId)||Boolean(value.tag),{message:'Informe ao menos uma etiqueta.'});
+const ContextPathSchema=z.string().trim().min(1).max(120).regex(/^[A-Za-z_][\w.-]*$/,'Use letras, números, _, - e pontos, começando por letra.');
+export const AutomationResponseFieldSchema=z.object({path:z.string().trim().min(1).max(200),variable:ContextPathSchema}).strict();
 export const AutomationWebhookConfigSchema=z.object({
   url:HttpsUrlSchema,
   method:z.enum(['GET','POST','PUT','PATCH','DELETE']).default('POST'),
   headers:z.record(z.string().trim().min(1).max(120),z.string().max(2000)).default({}),
   body:z.string().max(20_000).optional(),
-  responseVariable:z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,119}$/).optional()
+  responseVariable:z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,119}$/).optional(),
+  responseFields:z.array(AutomationResponseFieldSchema).max(20).default([])
 }).strict();
+export const AutomationAiConfigSchema=z.object({
+  model:z.string().trim().min(1).max(60).regex(/^[\w.:-]+$/).default('gpt-5.4-mini'),
+  systemPrompt:z.string().trim().min(1).max(12000),
+  userMessage:z.string().max(4000).default('{{last_message}}'),
+  understandImage:z.boolean().default(false),
+  understandPdf:z.boolean().default(false),
+  responseVariable:ContextPathSchema.default('resposta.gpt'),
+  failReasonVariable:ContextPathSchema.default('ai.fail.reason'),
+  autoSendResponse:z.boolean().default(false),
+  contextInteractions:z.number().int().min(1).max(20).default(1)
+}).strict();
+export const SetAiKeyInput=z.object({apiKey:z.string().trim().min(20).max(300).regex(/^sk-/,'A chave da OpenAI começa com sk-.')});
 export const AutomationNodeSchema=z.object({id:z.string().trim().min(1).max(80),kind:AutomationNodeKindSchema,name:z.string().trim().min(1).max(120),config:z.record(z.string(),z.unknown()).default({}),position:z.object({x:z.number().finite(),y:z.number().finite()})});
 export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(CONDITION_OPERATORS),value:z.unknown().optional()}).superRefine((rule,ctx)=>{
   if((rule.operator==='in'||rule.operator==='not_in')&&(!Array.isArray(rule.value)||rule.value.length===0))ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Selecione ao menos um valor.'});
   if((rule.operator==='between'||rule.operator==='not_between')&&(!Array.isArray(rule.value)||rule.value.length!==2))ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Informe o início e o fim do intervalo.'});
 });
 export const AutomationConditionConfigSchema=z.object({logic:z.enum(['all','any']).default('all'),rules:z.array(AutomationEdgeConditionSchema).min(1).max(20)}).strict();
-export const AutomationEdgeSchema=z.object({id:z.string().trim().min(1).max(80),source:z.string().trim().min(1).max(80),target:z.string().trim().min(1).max(80),label:z.string().trim().max(80).optional(),condition:AutomationEdgeConditionSchema.optional(),isDefault:z.boolean().default(false),priority:z.number().int().min(0).max(1000).default(0)});
+export const AutomationEdgeSchema=z.object({id:z.string().trim().min(1).max(80),source:z.string().trim().min(1).max(80),target:z.string().trim().min(1).max(80),label:z.string().trim().max(80).optional(),condition:AutomationEdgeConditionSchema.optional(),isDefault:z.boolean().default(false),priority:z.number().int().min(0).max(1000).default(0),port:z.enum(EDGE_PORTS).optional()});
 export const AutomationDefinitionSchema=z.object({start:z.string().min(1),nodes:z.array(AutomationNodeSchema).min(1).max(100),edges:z.array(AutomationEdgeSchema).max(200),settings:z.object({maxSteps:z.number().int().min(1).max(100).default(30),timeoutSeconds:z.number().int().min(5).max(3600).default(300)}).default({maxSteps:30,timeoutSeconds:300})});
 export const SavePlaybookVersionInput=z.object({expectedVersion:z.number().int().min(0),definition:AutomationDefinitionSchema});
 export const SimulatePlaybookInput=z.object({definition:AutomationDefinitionSchema.optional(),version:z.number().int().positive().optional(),variables:z.record(z.string(),z.unknown()).default({})}).refine(value=>value.definition!==undefined||value.version!==undefined,{message:'Informe definition ou version.'});

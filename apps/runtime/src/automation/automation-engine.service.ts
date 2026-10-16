@@ -313,6 +313,10 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'terminal';
       }
 
+      case 'ai':
+        // Placeholder: behavior implemented in a later task (spec A, task 6).
+        throw new NodeExecutionError('AI_NOT_IMPLEMENTED', 'O bloco de IA ainda não está disponível.');
+
       case 'webhook': {
         const url = stringConfig(node, 'url');
         if (!url.startsWith('https://')) throw new NodeExecutionError('WEBHOOK_HTTPS_REQUIRED', 'O webhook deve usar HTTPS.');
