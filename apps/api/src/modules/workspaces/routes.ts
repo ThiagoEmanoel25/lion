@@ -13,7 +13,7 @@ const memberInclude={user:{select:{id:true,name:true,email:true,isActive:true}},
 const departmentInclude={members:{include:{membership:{include:{user:{select:{id:true,name:true,email:true}}}}}}};
 
 export const workspaceRoutes:FastifyPluginAsync=async app=>{
-  app.get('/v1/workspace',{preHandler:[app.authenticate]},async request=>app.prisma.workspace.findUniqueOrThrow({where:{id:request.auth.workspaceId},omit:{openaiApiKeyEncrypted:true},include:{memberships:{include:memberInclude,orderBy:{createdAt:'asc'}}}}));
+  app.get('/v1/workspace',{preHandler:[app.authenticate]},async request=>app.prisma.workspace.findUniqueOrThrow({where:{id:request.auth.workspaceId},include:{memberships:{include:memberInclude,orderBy:{createdAt:'asc'}}}}));
   app.patch('/v1/workspace',{preHandler:[app.requirePermission('workspace.manage')]},async request=>{const input=UpdateWorkspaceInput.parse(request.body);if(input.timezone){try{Intl.DateTimeFormat('pt-BR',{timeZone:input.timezone})}catch{throw new DomainError('INVALID_TIMEZONE','Fuso horário inválido.',422)}}const workspace=await app.prisma.workspace.update({where:{id:request.auth.workspaceId},data:input,omit:{openaiApiKeyEncrypted:true}});await audit(app.prisma,{workspaceId:workspace.id,actorId:request.auth.userId,action:'workspace.updated',targetType:'Workspace',targetId:workspace.id,changes:json(input),ip:request.ip});return workspace});
 
   const aiKeyView=(workspace:{openaiApiKeyEncrypted:string|null;openaiApiKeyLast4:string|null})=>({configured:Boolean(workspace.openaiApiKeyEncrypted),last4:workspace.openaiApiKeyLast4});
