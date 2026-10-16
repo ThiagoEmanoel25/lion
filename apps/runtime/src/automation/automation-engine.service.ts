@@ -8,6 +8,9 @@ import { RedisService } from '../infra/redis.service.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
+import { buildAiMessages, callOpenAi } from './ai-call.js';
+import { FieldCipher } from '../crypto/field-cipher.js';
+import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
@@ -33,6 +36,7 @@ const stringConfig = (node: AutomationNode, key: string) => {
 @Injectable()
 export class AutomationEngineService implements OnModuleDestroy {
   private readonly queue: Queue<AutomationJob>;
+  private readonly cipher = new FieldCipher(loadConfig().encryptionKey);
 
   constructor(private readonly prisma: PrismaService, private readonly redis: RedisService, private readonly agents: AgentRuntimeService) {
     this.queue = new Queue<AutomationJob>(AUTOMATION_QUEUE, { connection: this.redis });
@@ -301,9 +305,43 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'terminal';
       }
 
-      case 'ai':
-        // Placeholder: behavior implemented in a later task (spec A, task 6).
-        throw new NodeExecutionError('AI_NOT_IMPLEMENTED', 'O bloco de IA ainda não está disponível.');
+      case 'ai': {
+        const config = node.config;
+        const latest = await this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, include: { media: true } });
+        let aiContext: EngineContext = { ...context, last_message: latest?.body ?? '' };
+        const responseVariable = typeof config.responseVariable === 'string' && config.responseVariable ? config.responseVariable : 'resposta.gpt';
+        const failReasonVariable = typeof config.failReasonVariable === 'string' && config.failReasonVariable ? config.failReasonVariable : 'ai.fail.reason';
+        const finish = async (port: 'success' | 'failure', nextContext: EngineContext, output: Record<string, unknown>) => {
+          const edge = selectPortEdge(input.definition.edges, node.id, port);
+          if (!edge) {
+            if (port === 'failure') throw new NodeExecutionError('AI_FAILED', String(output.reason));
+            throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+          }
+          await this.completeStep(executionId, step.id, edge.target, nextContext, asJson(output));
+          return { next: edge.target };
+        };
+        const fail = (reason: string) => finish('failure', setContextPath(aiContext, failReasonVariable, reason), { reason });
+        const apiKey = await this.openAiKey(workspaceId);
+        if (!apiKey) return fail('Chave da OpenAI não configurada.');
+        const readsMedia = Boolean(latest) && ((config.understandImage === true && latest!.type === 'IMAGE') || (config.understandPdf === true && latest!.type === 'DOCUMENT'));
+        if (readsMedia && !latest!.media?.data) return fail('Arquivo grande demais ou indisponível para a IA.');
+        const media = readsMedia && latest!.media?.data ? { contentType: latest!.media.contentType, data: Buffer.from(latest!.media.data), fileName: latest!.media.fileName } : null;
+        const previousTurns = Math.min(20, Math.max(1, Number(config.contextInteractions) || 1)) - 1;
+        const previous = previousTurns > 0 && latest ? await this.prisma.message.findMany({ where: { workspaceId, conversationId, createdAt: { lt: latest.createdAt }, body: { not: null } }, orderBy: { createdAt: 'desc' }, take: previousTurns, select: { direction: true, body: true } }) : [];
+        const history = previous.reverse().map(item => ({ role: item.direction === 'INBOUND' ? 'user' as const : 'assistant' as const, content: item.body ?? '' }));
+        const userMessage = renderTemplate(typeof config.userMessage === 'string' ? config.userMessage : '{{last_message}}', aiContext);
+        const result = await callOpenAi({ apiKey, model: typeof config.model === 'string' && config.model ? config.model : 'gpt-5.4-mini', baseUrl: process.env.OPENAI_BASE_URL, messages: buildAiMessages({ systemPrompt: stringConfig(node, 'systemPrompt'), userMessage, history, media }) });
+        if (!result.ok) return fail(result.reason);
+        await this.prisma.usageRecord.create({ data: { workspaceId, kind: 'ai_tokens', quantity: result.tokens, unit: 'token', costCents: 0, provider: 'openai', referenceId: executionId } });
+        aiContext = setContextPath(aiContext, responseVariable, result.text);
+        if (config.autoSendResponse === true) {
+          await this.prisma.$transaction(async tx => {
+            const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body: result.text.slice(0, 4096), authorType: 'automation', authorId: executionId } });
+            await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
+          });
+        }
+        return finish('success', aiContext, { tokens: result.tokens, chars: result.text.length });
+      }
 
       case 'webhook': {
         const url = stringConfig(node, 'url');
@@ -354,6 +392,12 @@ export class AutomationEngineService implements OnModuleDestroy {
         await this.prisma.$transaction(async tx=>{const message=await tx.message.create({data:{workspaceId,conversationId,direction:'OUTBOUND',type:'TEXT',status:'PENDING',body:decision.text!,authorType:'ai_agent',authorId:decision.agentId}});await tx.outboxEvent.create({data:{workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});await this.finishInTransaction(tx,executionId,step.id,nextNodeId,{...context,agent:{confidence:decision.confidence,agentId:decision.agentId}},{messageId:message.id,confidence:decision.confidence,agentId:decision.agentId,knowledgeChunks:decision.knowledgeChunks})});return 'continue';
       }
     }
+  }
+
+  private async openAiKey(workspaceId: string): Promise<string | null> {
+    const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { openaiApiKeyEncrypted: true } });
+    if (workspace?.openaiApiKeyEncrypted) return this.cipher.decrypt(workspace.openaiApiKeyEncrypted);
+    return process.env.OPENAI_API_KEY || null;
   }
 
   private async completeStep(executionId: string, stepId: string, nextNodeId: string | undefined, context: EngineContext, output: Prisma.InputJsonValue) {
