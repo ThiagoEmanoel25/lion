@@ -14,7 +14,7 @@ import './flow-builder.css';
 
 type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unknown>};
 type FlowNode=Node<FlowNodeData,'automation'>;
-type FlowEdgeData={condition?:AutomationEdge['condition'];isDefault?:boolean;priority?:number};
+type FlowEdgeData={condition?:AutomationEdge['condition'];isDefault?:boolean;priority?:number;port?:AutomationEdge['port']};
 type FlowEdge=Edge<FlowEdgeData>;
 
 const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;description:string;rule:string}>=[
@@ -30,12 +30,16 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'webhook',icon:Webhook,label:'Integração',description:'Faz uma requisição HTTP',rule:'URL válida e obrigatoriamente HTTPS.'},
   {kind:'assign',icon:Building2,label:'Departamento',description:'Define fila ou responsável',rule:'Exige uma fila ou um responsável.'},
   {kind:'tag',icon:Tag,label:'Etiquetas',description:'Adiciona ou remove etiquetas',rule:'Exige ao menos uma etiqueta selecionada ou informada.'},
+  {kind:'ai',icon:Sparkles,label:'IA',description:'Bloco de IA (em construção)',rule:'Saídas de sucesso e erro.'},
   {kind:'handoff',icon:Headset,label:'Handoff',description:'Transfere para humano',rule:'Bloco final da jornada.'},
   {kind:'outcome',icon:CircleCheck,label:'Resultado',description:'Encerra com sucesso',rule:'Tipo obrigatório entre lead qualificado, agendamento, venda, resolvido, transferência e desqualificado. Bloco final da jornada.'}
 ];
 const kindMeta=Object.fromEntries(catalog.map(item=>[item.kind,item])) as Record<AutomationNodeKind,(typeof catalog)[number]>;
+// Mirrors packages/contracts/src/ports.ts (NODE_PORTS).
+const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'>>>={webhook:['success','failure'],ai:['success','failure']};
+const PORT_LABELS={success:'sucesso',failure:'erro'} as const;
 const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff']);
-function connectionRule(kind:AutomationNodeKind){return terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
+function connectionRule(kind:AutomationNodeKind){return NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
 // Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
 const MENU_CHOICE_FIELD='menu.choice';
 const MENU_LIMIT={buttons:3,list:10} as const;
@@ -45,6 +49,7 @@ type MenuOption={id:string;label:string;description?:string};
 function menuOptionsOf(config:Record<string,unknown>):MenuOption[]{return (Array.isArray(config.buttons)?config.buttons:[]).flatMap(item=>{const option=item&&typeof item==='object'?item as Record<string,unknown>:{};return typeof option.id==='string'?[{id:option.id,label:typeof option.label==='string'?option.label:'',...(typeof option.description==='string'&&option.description?{description:option.description}:{})}]:[]})}
 // Which handle of the source node an edge leaves from; persisted edges only carry their condition.
 function sourceHandleFor(kind:AutomationNodeKind|undefined,edge:AutomationEdge){
+  if(kind&&NODE_PORTS[kind])return edge.port??'success';
   if(kind==='condition'&&edge.isDefault)return 'fallback';
   if(kind==='buttons'){if(edge.isDefault)return 'timeout';if(edge.condition?.field===MENU_CHOICE_FIELD)return `opt:${String(edge.condition.value)}`}
   return undefined;
@@ -68,7 +73,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'IA:'};
   return labels[kind];
 }
 function flowAction(action:'edit'|'duplicate'|'remove',id:string){window.dispatchEvent(new CustomEvent('nexo-flow-action',{detail:{action,id}}))}
@@ -78,8 +83,9 @@ function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=k
   <div className="node-config-preview"><span>{nodePreviewLabel(data.kind)}</span><strong>{nodeSummary(data.kind,data.config)||'Não configurado'}</strong></div>
   {data.kind==='condition'&&<div className="condition-node-routes"><span>Condição atendida</span><span>Caso contrário</span></div>}
   {data.kind==='buttons'&&<div className="node-button-list node-menu-routes">{buttonItems.map((button,index)=><div key={button.id||index}><span>{button.label||`Opção ${index+1}`}</span>{button.id&&<Handle id={`opt:${button.id}`} type="source" position={Position.Right}/>}</div>)}{Number(data.config.timeoutSeconds??0)>0&&<div className="menu-timeout-route"><span>Inatividade</span><Handle id="timeout" type="source" position={Position.Right}/></div>}</div>}
-  {!terminal&&data.kind!=='buttons'&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
+  {!terminal&&data.kind!=='buttons'&&!NODE_PORTS[data.kind]&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
   {data.kind==='condition'&&<Handle id="fallback" type="source" position={Position.Right} style={{top:'78%'}} />}
+  {NODE_PORTS[data.kind]&&<div className="node-ports">{NODE_PORTS[data.kind]!.map(port=><div key={port} className={`node-port ${port}`}><span>{PORT_LABELS[port]}</span><Handle id={port} type="source" position={Position.Right}/></div>)}</div>}
 </div>}
 const nodeTypes={automation:AutomationNodeCard};
 
@@ -90,10 +96,10 @@ function normalizeDefinition(value:AutomationDefinition|undefined):AutomationDef
 function toFlow(definition:AutomationDefinition){
   const nodes:FlowNode[]=definition.nodes.map(node=>({id:node.id,type:'automation',position:node.position,data:{kind:node.kind,name:node.name,config:node.config}}));
   const kinds=new Map(definition.nodes.map(node=>[node.id,node.kind]));
-  const edges:FlowEdge[]=definition.edges.map(edge=>({id:edge.id,source:edge.source,sourceHandle:sourceHandleFor(kinds.get(edge.source),edge),target:edge.target,label:edge.label,data:{condition:edge.condition,isDefault:edge.isDefault??false,priority:edge.priority??0},type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed},animated:edge.label==='baixa confiança'}));
+  const edges:FlowEdge[]=definition.edges.map(edge=>({id:edge.id,source:edge.source,sourceHandle:sourceHandleFor(kinds.get(edge.source),edge),target:edge.target,label:edge.label,data:{condition:edge.condition,isDefault:edge.isDefault??false,priority:edge.priority??0,port:edge.port},type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed},animated:edge.label==='baixa confiança'}));
   return {nodes,edges}
 }
-function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
+function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),...(edge.data?.port?{port:edge.data.port}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
 
 export function PlaybookEditorPage(){
   const {id=''}=useParams();const playbook=usePlaybook(id);const agents=useAgents();const contactMeta=useContactMeta();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
@@ -112,9 +118,10 @@ export function PlaybookEditorPage(){
     let data:FlowEdgeData={isDefault:false,priority:0};let label:string|undefined;
     if(handle.startsWith('opt:')){const optionId=handle.slice(4);const options=source?menuOptionsOf(source.data.config):[];const index=options.findIndex(option=>option.id===optionId);data={condition:{field:MENU_CHOICE_FIELD,operator:'equals',value:optionId},isDefault:false,priority:Math.max(index,0)};label=options[index]?.label}
     else if(handle==='timeout'){data={isDefault:true,priority:1000};label='Inatividade'}
+    else if(source&&NODE_PORTS[source.data.kind]&&(handle==='success'||handle==='failure')){data={port:handle,isDefault:false,priority:handle==='success'?0:1};label=PORT_LABELS[handle]}
     else if(source?.data.kind==='condition'){const fallback=handle==='fallback';data={isDefault:fallback,priority:fallback?1000:0};label=fallback?'Caso contrário':'Condição atendida'}
     // A menu exit leads to a single place: reconnecting it replaces the previous edge.
-    const replaces=(edge:FlowEdge)=>source?.data.kind==='buttons'&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
+    const replaces=(edge:FlowEdge)=>(source?.data.kind==='buttons'||Boolean(source&&NODE_PORTS[source.data.kind]))&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
     setEdges(current=>addEdge({...connection,id:crypto.randomUUID(),label,data,type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed}},current.filter(edge=>!replaces(edge))));setDirty(true);setResult(null)
   },[nodes]);
   function dragStart(event:DragEvent,kind:AutomationNodeKind){event.dataTransfer.setData('application/nexo-node',kind);event.dataTransfer.effectAllowed='move'}
@@ -199,6 +206,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'tag':return {mode:'add',tagIds:[],tags:[]};
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
+    case 'ai':return {};
   }
 }
 function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown>|undefined):Record<string,unknown>{
@@ -237,7 +245,7 @@ function NodeInspector({node,agents,agentsLoading,tags,isStart,onName,onConfig,o
     {kind==='sticker'&&<><label>URL HTTPS da figurinha<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/figurinha.webp" /></label><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
     {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
     {kind==='delay'&&<><div className="duration-fields"><label>Duração<input type="number" min="1" max={delayUnit==='days'?31:2678400} step="1" value={Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))} onChange={event=>onConfig('seconds',Number(event.target.value)*delayFactor)}/></label><label>Unidade<select value={delayUnit} onChange={event=>{const unit=event.target.value;const factor=unit==='days'?86400:unit==='hours'?3600:unit==='minutes'?60:1;onConfigs({unit,seconds:Math.max(1,Math.round(Number(config.seconds??300)/delayFactor))*factor})}}><option value="seconds">Segundos</option><option value="minutes">Minutos</option><option value="hours">Horas</option><option value="days">Dias</option></select></label></div><p className="field-help">O fluxo pausa e retoma automaticamente. Limite total: 31 dias.</p></>}
-    {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH (legado)</option><option value="DELETE">DELETE (legado)</option></select></label><JsonHeadersField value={config.headers} onChange={value=>onConfig('headers',value)}/>{String(config.method??'POST')!=='GET'&&<label>Corpo da requisição<textarea rows={5} value={String(config.body??'')} onChange={event=>onConfig('body',event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><small>JSON ou texto; variáveis com {'{{caminho}}'}.</small></label>}<label>Salvar resposta na variável<input value={String(config.responseVariable??'')} onChange={event=>onConfig('responseVariable',event.target.value||undefined)} placeholder="integration.response" /></label><p className="field-help">Respostas JSON são convertidas em objeto; respostas comuns ficam como texto.</p></>}
+    {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH (legado)</option><option value="DELETE">DELETE (legado)</option></select></label><JsonHeadersField value={config.headers} onChange={value=>onConfig('headers',value)}/>{String(config.method??'POST')!=='GET'&&<label>Corpo da requisição<textarea rows={5} value={String(config.body??'')} onChange={event=>onConfig('body',event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><small>JSON ou texto; variáveis com {'{{caminho}}'}.</small></label>}<label>Salvar resposta na variável<input value={String(config.responseVariable??'')} onChange={event=>onConfig('responseVariable',event.target.value||undefined)} placeholder="integration.response" /></label><div className="response-fields"><b>Campos da resposta</b>{(Array.isArray(config.responseFields)?config.responseFields as Array<{path:string;variable:string}>:[]).map((field,index,all)=><div key={index}><input aria-label={`Caminho do campo ${index+1}`} value={field.path} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,path:event.target.value}:item))} placeholder="body.accepted"/><input aria-label={`Variável do campo ${index+1}`} value={field.variable} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,variable:event.target.value}:item))} placeholder="kovil.receipt.accepted"/><button type="button" aria-label={`Remover campo ${index+1}`} onClick={()=>onConfig('responseFields',all.filter((_,i)=>i!==index))}><X size={14}/></button></div>)}<button type="button" className="add-button-option" disabled={Array.isArray(config.responseFields)&&config.responseFields.length>=20} onClick={()=>onConfig('responseFields',[...(Array.isArray(config.responseFields)?config.responseFields:[]),{path:'',variable:''}])}>+ Adicionar campo</button><p className="field-help">Caminho em status, body ou headers da resposta (ex.: body.accepted) e a variável que recebe o valor.</p></div><p className="field-help">Respostas 2xx seguem por sucesso; erro HTTP, timeout de 15 s ou falha de rede seguem por erro.</p></>}
     {kind==='assign'&&<><label>Fila<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Comercial" /></label><div className="config-separator"><span>ou</span></div><label>ID do responsável<input value={String(config.assigneeId??'')} onChange={event=>onConfig('assigneeId',event.target.value)} placeholder="ID do usuário no workspace" /></label><p className="field-help">Preencha ao menos uma fila ou um responsável.</p></>}
     {kind==='tag'&&<><label>Ação<select value={String(config.mode??'add')} onChange={event=>onConfig('mode',event.target.value)}><option value="add">Adicionar etiquetas</option><option value="remove">Remover etiquetas</option></select></label><div className="tag-picker"><b>Etiquetas do workspace</b>{tags.length?tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={selectedTagIds.includes(tag.id)} onChange={event=>onConfig('tagIds',event.target.checked?[...selectedTagIds,tag.id]:selectedTagIds.filter(id=>id!==tag.id))}/><i style={{background:tag.color}}/>{tag.name}</label>):<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>}</div><label>Outras etiquetas, separadas por vírgula<input value={customTags.join(', ')} onChange={event=>onConfig('tags',event.target.value.split(',').map(value=>value.trim()).filter(Boolean))} placeholder="vip, retorno" /></label><p className="field-help">Ao adicionar, nomes novos são criados. Ao remover, nomes inexistentes são ignorados.</p></>}
     {kind==='handoff'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Atendimento" /></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>onConfig('reason',event.target.value)} placeholder="Explique por que a conversa será transferida." /></label></>}
