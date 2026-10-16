@@ -305,6 +305,9 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'terminal';
       }
 
+      case 'wait_response':
+        throw new NodeExecutionError('NOT_IMPLEMENTED', 'Aguarda Resposta ainda não é executado pelo runtime.');
+
       case 'ai': {
         const config = node.config;
         const latest = await this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' } });

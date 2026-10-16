@@ -49,7 +49,7 @@ export const ChangeConversationModeInput = z.object({mode:z.enum(['AI','HUMAN','
 export const ChangeConversationStatusInput = z.object({status:z.enum(['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED','ASSIGNED','RESOLVED']),reason:z.string().trim().min(1).max(240)});
 export const CreatePlaybookInput = z.object({name:z.string().min(3).max(120),description:z.string().max(500).optional(),template:z.enum(['qualification','reactivation','support'])});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
@@ -115,6 +115,19 @@ export const AutomationAiConfigSchema=z.object({
   contextInteractions:z.number().int().min(1).max(20).default(1)
 }).strict();
 export const SetAiKeyInput=z.object({apiKey:z.string().trim().min(20).max(300).regex(/^sk-/,'A chave da OpenAI começa com sk-.')});
+export const WAIT_MAX_SECONDS=2_678_400;
+export const WAIT_MAX_BUFFER_SECONDS=300;
+export const WAIT_UNIT_SECONDS={minutes:60,hours:3_600,days:86_400} as const;
+export const AutomationWaitResponseConfigSchema=z.object({
+  waitIndefinitely:z.boolean().default(false),
+  timeoutValue:z.number().int().min(1).optional(),
+  timeoutUnit:z.enum(['minutes','hours','days']).default('hours'),
+  bufferSeconds:z.number().int().min(0).max(WAIT_MAX_BUFFER_SECONDS).default(0)
+}).superRefine((value,ctx)=>{
+  if(value.waitIndefinitely)return;
+  if(value.timeoutValue===undefined){ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'Informe o tempo de espera.'});return}
+  if(value.timeoutValue*WAIT_UNIT_SECONDS[value.timeoutUnit]>WAIT_MAX_SECONDS)ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'A espera máxima é de 31 dias.'});
+});
 export const AutomationNodeSchema=z.object({id:z.string().trim().min(1).max(80),kind:AutomationNodeKindSchema,name:z.string().trim().min(1).max(120),config:z.record(z.string(),z.unknown()).default({}),position:z.object({x:z.number().finite(),y:z.number().finite()})});
 export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(CONDITION_OPERATORS),value:z.unknown().optional()}).superRefine((rule,ctx)=>{
   if((rule.operator==='in'||rule.operator==='not_in')&&(!Array.isArray(rule.value)||rule.value.length===0))ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Selecione ao menos um valor.'});

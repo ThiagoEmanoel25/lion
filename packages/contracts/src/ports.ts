@@ -5,7 +5,8 @@ export type EdgePort = typeof EDGE_PORTS[number];
 
 export const NODE_PORTS: Readonly<Partial<Record<string, readonly EdgePort[]>>> = {
   webhook: ['success', 'failure'],
-  ai: ['success', 'failure']
+  ai: ['success', 'failure'],
+  wait_response: ['reply', 'timeout']
 };
 
 export function nodePorts(kind: string): readonly EdgePort[] {

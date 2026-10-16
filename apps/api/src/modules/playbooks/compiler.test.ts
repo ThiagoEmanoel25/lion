@@ -258,3 +258,52 @@ describe('portas de sucesso e erro', () => {
     expect(simulateAutomation(definition!).path).toEqual(['start', 'api', 'ok']);
   });
 });
+
+const waitDefinition = (config: Record<string, unknown>, edges: Array<Record<string, unknown>>) => ({
+  start: 'start',
+  nodes: [
+    { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+    { id: 'wait', kind: 'wait_response', name: 'Aguarda', config, position: { x: 100, y: 0 } },
+    { id: 'ok', kind: 'outcome', name: 'Ok', config: { type: 'RESOLVED' }, position: { x: 200, y: 0 } },
+    { id: 'late', kind: 'handoff', name: 'Sem resposta', config: {}, position: { x: 200, y: 100 } }
+  ],
+  edges: [{ id: 'e1', source: 'start', target: 'wait' }, ...edges],
+  settings: { maxSteps: 10, timeoutSeconds: 60 }
+});
+
+describe('wait_response', () => {
+  it('aceita resposta + timeout', () => {
+    const result = validateAutomation(waitDefinition({ timeoutValue: 2, timeoutUnit: 'hours' }, [
+      { id: 'r', source: 'wait', target: 'ok', port: 'reply' },
+      { id: 't', source: 'wait', target: 'late', port: 'timeout' }
+    ]));
+    expect(result.issues.filter(issue => issue.level === 'error')).toEqual([]);
+  });
+  it('exige a saída de resposta', () => {
+    const result = validateAutomation(waitDefinition({ timeoutValue: 2, timeoutUnit: 'hours' }, [{ id: 't', source: 'wait', target: 'late', port: 'timeout' }]));
+    expect(result.issues.map(issue => issue.code)).toContain('REPLY_ROUTE_REQUIRED');
+  });
+  it('rejeita timeout quando espera indefinidamente', () => {
+    const result = validateAutomation(waitDefinition({ waitIndefinitely: true }, [
+      { id: 'r', source: 'wait', target: 'ok', port: 'reply' },
+      { id: 't', source: 'wait', target: 'late', port: 'timeout' }
+    ]));
+    expect(result.issues.map(issue => issue.code)).toContain('TIMEOUT_ROUTE_INVALID');
+  });
+  it('rejeita espera acima de 31 dias e buffer acima de 300 s', () => {
+    expect(validateAutomation(waitDefinition({ timeoutValue: 32, timeoutUnit: 'days' }, [{ id: 'r', source: 'wait', target: 'ok', port: 'reply' }])).issues.map(issue => issue.code)).toContain('INVALID_WAIT_RESPONSE_CONFIG');
+    expect(validateAutomation(waitDefinition({ timeoutValue: 1, timeoutUnit: 'days', bufferSeconds: 301 }, [{ id: 'r', source: 'wait', target: 'ok', port: 'reply' }])).issues.map(issue => issue.code)).toContain('INVALID_WAIT_RESPONSE_CONFIG');
+  });
+  it('rejeita conexão sem porta saindo do bloco', () => {
+    const result = validateAutomation(waitDefinition({ timeoutValue: 1, timeoutUnit: 'days' }, [{ id: 'r', source: 'wait', target: 'ok' }]));
+    expect(result.issues.map(issue => issue.code)).toContain('EDGE_PORT_INVALID');
+  });
+  it('a simulação segue a saída de resposta', () => {
+    const validation = validateAutomation(waitDefinition({ timeoutValue: 1, timeoutUnit: 'days' }, [
+      { id: 'r', source: 'wait', target: 'ok', port: 'reply' },
+      { id: 't', source: 'wait', target: 'late', port: 'timeout' }
+    ]));
+    if (!validation.definition) throw new Error('fixture inválida');
+    expect(simulateAutomation(validation.definition).steps.map(step => step.nodeId)).toEqual(['start', 'wait', 'ok']);
+  });
+});

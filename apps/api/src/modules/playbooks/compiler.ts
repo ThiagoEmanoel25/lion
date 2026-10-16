@@ -10,6 +10,7 @@ import {
   AutomationStickerConfigSchema,
   AutomationTagConfigSchema,
   AutomationTriggerConfigSchema,
+  AutomationWaitResponseConfigSchema,
   AutomationWebhookConfigSchema,
   conditionMatches,
   edgePort,
@@ -65,6 +66,8 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return typeof config.type === 'string' && outcomeKinds.has(config.type) ? [] : [error('OUTCOME_TYPE_REQUIRED', 'Informe um tipo de desfecho válido.')];
     case 'ai':
       return validateConfig(AutomationAiConfigSchema, 'INVALID_AI_CONFIG', 'Bloco de IA inválido');
+    case 'wait_response':
+      return validateConfig(AutomationWaitResponseConfigSchema, 'INVALID_WAIT_RESPONSE_CONFIG', 'Aguarda Resposta inválido');
     default:
       return [];
   }
@@ -85,7 +88,8 @@ function portIssues(node: AutomationDefinition['nodes'][number], edges: Automati
     if (used.has(port)) issues.push(error('PORT_DUPLICATE_ROUTE', 'Cada saída deste bloco aceita uma conexão.', edge.id));
     used.add(port);
   }
-  if (edges.length && !used.has('success')) issues.push(error('SUCCESS_ROUTE_REQUIRED', 'Ligue a saída de sucesso.'));
+  const required = ports[0]!;
+  if (edges.length && !used.has(required)) issues.push(error(required === 'reply' ? 'REPLY_ROUTE_REQUIRED' : 'SUCCESS_ROUTE_REQUIRED', required === 'reply' ? 'Ligue a saída de resposta.' : 'Ligue a saída de sucesso.'));
   return issues;
 }
 
@@ -154,6 +158,7 @@ export function validateAutomation(value: unknown) {
     if (node.kind !== 'condition' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
     if (menuRouted) issues.push(...menuRouteIssues(node, edges));
     issues.push(...portIssues(node, edges, ports));
+    if (node.kind === 'wait_response' && node.config.waitIndefinitely === true) for (const edge of edges) if (edgePort(edge) === 'timeout') issues.push({ level: 'error', code: 'TIMEOUT_ROUTE_INVALID', message: 'Sem tempo limite, o bloco não tem saída de timeout.', nodeId: node.id, edgeId: edge.id });
     if (node.kind === 'condition') {
       if (edges.length < 2) issues.push({ level: 'error', code: 'CONDITION_BRANCHES_REQUIRED', message: 'A condição precisa de ao menos duas saídas.', nodeId: node.id });
       if (edges.filter(edge => edge.isDefault).length !== 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição precisa de exatamente uma saída padrão.', nodeId: node.id });
@@ -207,7 +212,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
     if (!node) { stoppedBecause = 'dead_end'; break; }
     const candidates: AutomationEdge[] = [...(outgoing.get(current) ?? [])].sort((a, b) => a.priority - b.priority);
     let selected: AutomationEdge | undefined = candidates[0];
-    if (nodePorts(node.kind).length) selected = candidates.find(edge => edgePort(edge) === 'success');
+    if (nodePorts(node.kind).length) selected = candidates.find(edge => edgePort(edge) === nodePorts(node.kind)[0]);
     if (node.kind === 'buttons' && candidates.some(edge => edge.condition !== undefined || edge.isDefault)) {
       // Without a simulated choice, follow the first option so the rest of the path can be checked.
       selected = candidates.find(edge => edge.condition && conditionMatches(getPathValue(variables, edge.condition.field), edge.condition))
