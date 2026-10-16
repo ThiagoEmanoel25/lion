@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAiMessages, callOpenAi } from './ai-call.js';
+import { buildAiMessages, callOpenAi, resolveOpenAiKey } from './ai-call.js';
 
 const reply = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
 
@@ -28,5 +28,19 @@ describe('callOpenAi', () => {
     expect(await callOpenAi({ ...base, fetchImpl: reply(429, {}) })).toEqual({ ok: false, reason: 'Limite ou créditos da OpenAI esgotados.' });
     expect(await callOpenAi({ ...base, fetchImpl: reply(200, { choices: [{ message: { content: '' } }] }) })).toEqual({ ok: false, reason: 'A IA não retornou texto.' });
     expect(await callOpenAi({ ...base, fetchImpl: (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch })).toEqual({ ok: false, reason: 'Não foi possível conectar à OpenAI.' });
+  });
+});
+
+describe('resolveOpenAiKey', () => {
+  const bad = 'Chave da OpenAI inválida ou corrompida. Salve a chave novamente em Configurações.';
+  it('chave salva válida é descriptografada', () => {
+    expect(resolveOpenAiKey('enc', 'env', v => `dec:${v}`)).toEqual({ ok: true, key: 'dec:enc' });
+  });
+  it('falha ao descriptografar não cai para a chave do ambiente', () => {
+    expect(resolveOpenAiKey('enc', 'env', () => { throw new Error('bad'); })).toEqual({ ok: false, reason: bad });
+  });
+  it('sem chave salva usa o ambiente; sem nada, não configurada', () => {
+    expect(resolveOpenAiKey(null, 'env', v => v)).toEqual({ ok: true, key: 'env' });
+    expect(resolveOpenAiKey(null, undefined, v => v)).toEqual({ ok: false, reason: 'Chave da OpenAI não configurada.' });
   });
 });

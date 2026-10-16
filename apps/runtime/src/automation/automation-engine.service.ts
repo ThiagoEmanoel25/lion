@@ -8,7 +8,7 @@ import { RedisService } from '../infra/redis.service.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
-import { buildAiMessages, callOpenAi } from './ai-call.js';
+import { buildAiMessages, callOpenAi, resolveOpenAiKey } from './ai-call.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
@@ -321,8 +321,9 @@ export class AutomationEngineService implements OnModuleDestroy {
           return { next: edge.target };
         };
         const fail = (reason: string) => finish('failure', setContextPath(aiContext, failReasonVariable, reason), { reason });
-        const apiKey = await this.openAiKey(workspaceId);
-        if (!apiKey) return fail('Chave da OpenAI não configurada.');
+        const key = await this.openAiKey(workspaceId);
+        if (!key.ok) return fail(key.reason);
+        const apiKey = key.key;
         const readsMedia = Boolean(latest) && ((config.understandImage === true && latest!.type === 'IMAGE') || (config.understandPdf === true && latest!.type === 'DOCUMENT'));
         if (readsMedia && !latest!.media?.data) return fail('Arquivo grande demais ou indisponível para a IA.');
         const media = readsMedia && latest!.media?.data ? { contentType: latest!.media.contentType, data: Buffer.from(latest!.media.data), fileName: latest!.media.fileName } : null;
@@ -394,10 +395,9 @@ export class AutomationEngineService implements OnModuleDestroy {
     }
   }
 
-  private async openAiKey(workspaceId: string): Promise<string | null> {
+  private async openAiKey(workspaceId: string) {
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { openaiApiKeyEncrypted: true } });
-    if (workspace?.openaiApiKeyEncrypted) return this.cipher.decrypt(workspace.openaiApiKeyEncrypted);
-    return process.env.OPENAI_API_KEY || null;
+    return resolveOpenAiKey(workspace?.openaiApiKeyEncrypted ?? null, process.env.OPENAI_API_KEY, value => this.cipher.decrypt(value));
   }
 
   private async completeStep(executionId: string, stepId: string, nextNodeId: string | undefined, context: EngineContext, output: Prisma.InputJsonValue) {

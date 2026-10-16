@@ -39,3 +39,10 @@ export async function callOpenAi(input: { apiKey: string; model: string; message
     clearTimeout(timer);
   }
 }
+
+export function resolveOpenAiKey(stored: string | null, envKey: string | undefined, decrypt: (value: string) => string): { ok: true; key: string } | { ok: false; reason: string } {
+  if (stored) {
+    try { return { ok: true, key: decrypt(stored) }; } catch { return { ok: false, reason: 'Chave da OpenAI inválida ou corrompida. Salve a chave novamente em Configurações.' }; }
+  }
+  return envKey ? { ok: true, key: envKey } : { ok: false, reason: 'Chave da OpenAI não configurada.' };
+}
