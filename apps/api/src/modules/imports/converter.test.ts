@@ -3,6 +3,7 @@ import {fileURLToPath} from 'node:url';
 import {describe,expect,it} from 'vitest';
 import {AutomationDefinitionSchema} from '@nexo/contracts';
 import {convertLeonaFlow,redactDefinitionSecrets} from './converter.js';
+import {validateAutomation} from '../playbooks/compiler.js';
 
 const load=(name:string)=>JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/${name}`,import.meta.url)),'utf8'));
 const fixture=load('leona-flow.redacted.json');
@@ -90,6 +91,20 @@ describe('conversor Leona',()=>{
     expect(cfg('pixel')[0]).not.toHaveProperty('pixelId');
     expect(items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(false);
     expect(items.some(item=>item.sourceType==='ai'&&item.message.includes('chave'))).toBe(true);
+  });
+
+  it('export real: pixel ganha saídas sucesso e falha, condição sem efeito é removida e pixel não conta como convertido',()=>{
+    const result=convertLeonaFlow(load('leona-real-export.redacted.json'));const {edges,nodes}=result.definition;
+    const pixelOut=edges.filter(edge=>edge.source==='leona_5346058');
+    expect(pixelOut.map(edge=>edge.port).sort()).toEqual(['failure','success']);
+    expect(new Set(pixelOut.map(edge=>edge.target))).toEqual(new Set(['leona_5346068']));
+    expect(new Set(edges.map(edge=>edge.id)).size).toBe(edges.length);
+    expect(nodes.some(node=>node.id==='leona_5343660')).toBe(false);
+    expect(edges).toEqual(expect.arrayContaining([expect.objectContaining({source:'leona_5343625',target:'leona_5343987'})]));
+    expect(edges.some(edge=>edge.source==='leona_5343660'||edge.target==='leona_5343660')).toBe(false);
+    expect(result.report.items).toEqual(expect.arrayContaining([{sourceId:'5343660',sourceType:'condition',status:'adjusted',message:'Condição sem efeito removida: os dois caminhos iam para o mesmo bloco'}]));
+    expect(result.report.items.some(item=>item.sourceId==='5346058'&&item.status==='converted')).toBe(false);
+    expect(validateAutomation(result.definition).issues.some(issue=>issue.code==='DUPLICATE_CONNECTION')).toBe(false);
   });
 
   it('mantém modo remove das etiquetas e corpo de requisição em objeto',()=>{

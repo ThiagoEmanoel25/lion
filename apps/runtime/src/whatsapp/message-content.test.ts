@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ctwaClidOf, withCtwa, MEDIA_MAX_BYTES, MEDIA_DOWNLOAD_TIMEOUT_MS, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
+import { ctwaOf, withCtwa, MEDIA_MAX_BYTES, MEDIA_DOWNLOAD_TIMEOUT_MS, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
 
 describe('message content', () => {
   it('extracts text wrapped in an ephemeral message', () => {
@@ -45,18 +45,18 @@ describe('message content', () => {
     expect(options.maxContentLength).toBeGreaterThan(MEDIA_MAX_BYTES);
   });
   it('reads ctwaClid from any message type, inside envelopes', () => {
-    expect(ctwaClidOf({ extendedTextMessage: { text: 'oi', contextInfo: { externalAdReply: { ctwaClid: 'clid_1' } } } })).toBe('clid_1');
-    expect(ctwaClidOf({ ephemeralMessage: { message: { imageMessage: { contextInfo: { externalAdReply: { ctwaClid: 'clid_2' } } } } } })).toBe('clid_2');
-    expect(ctwaClidOf({ conversation: 'oi' })).toBeNull();
-    expect(ctwaClidOf({ extendedTextMessage: { contextInfo: { externalAdReply: { ctwaClid: '' } } } })).toBeNull();
-    expect(ctwaClidOf(null)).toBeNull();
+    expect(ctwaOf({ extendedTextMessage: { text: 'oi', contextInfo: { externalAdReply: { ctwaClid: 'clid_1' } } } })).toEqual({ clid: 'clid_1' });
+    expect(ctwaOf({ ephemeralMessage: { message: { imageMessage: { contextInfo: { externalAdReply: { ctwaClid: 'clid_2', sourceId: 'ad_9' } } } } } })).toEqual({ clid: 'clid_2', sourceId: 'ad_9' });
+    expect(ctwaOf({ conversation: 'oi' })).toBeNull();
+    expect(ctwaOf({ extendedTextMessage: { contextInfo: { externalAdReply: { ctwaClid: '' } } } })).toBeNull();
+    expect(ctwaOf(null)).toBeNull();
   });
 
   it('stores ctwa once and keeps other metadata', () => {
     const now = new Date('2026-10-17T12:00:00.000Z');
-    expect(withCtwa({ foo: 1 }, 'clid', now)).toEqual({ foo: 1, ctwa: { clid: 'clid', receivedAt: '2026-10-17T12:00:00.000Z' } });
-    expect(withCtwa(null, 'clid', now)).toEqual({ ctwa: { clid: 'clid', receivedAt: '2026-10-17T12:00:00.000Z' } });
-    expect(withCtwa({ ctwa: { clid: 'old' } }, 'new', now)).toBeNull();
+    expect(withCtwa({ foo: 1 }, { clid: 'clid' }, now)).toEqual({ foo: 1, ctwa: { clid: 'clid', receivedAt: '2026-10-17T12:00:00.000Z' } });
+    expect(withCtwa(null, { clid: 'clid', sourceId: 'ad_9' }, now)).toEqual({ ctwa: { clid: 'clid', sourceId: 'ad_9', receivedAt: '2026-10-17T12:00:00.000Z' } });
+    expect(withCtwa({ ctwa: { clid: 'old' } }, { clid: 'new' }, now)).toBeNull();
     expect(withCtwa({ foo: 1 }, null, now)).toBeNull();
   });
 });

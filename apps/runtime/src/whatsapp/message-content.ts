@@ -74,17 +74,17 @@ export function storableMedia(raw: proto.IMessage | null | undefined): StorableM
 }
 
 // Click-to-WhatsApp ads attach the ad click id to the first message, on whichever content type carries contextInfo.
-export function ctwaClidOf(raw: proto.IMessage | null | undefined): string | null {
+export function ctwaOf(raw: proto.IMessage | null | undefined): { clid: string; sourceId?: string } | null {
   const message = unwrap(raw);
   for (const content of Object.values(message ?? {})) {
-    const clid = (content as { contextInfo?: proto.IContextInfo | null } | null)?.contextInfo?.externalAdReply?.ctwaClid;
-    if (clid) return clid;
+    const ad = (content as { contextInfo?: proto.IContextInfo | null } | null)?.contextInfo?.externalAdReply;
+    if (ad?.ctwaClid) return { clid: ad.ctwaClid, ...(ad.sourceId ? { sourceId: ad.sourceId } : {}) };
   }
   return null;
 }
 
 // Returns the metadata to write, or null when there is nothing new: the first ad click wins.
-export function withCtwa(metadata: unknown, clid: string | null, now: Date): Record<string, unknown> | null {
+export function withCtwa(metadata: unknown, ctwa: { clid: string; sourceId?: string } | null, now: Date): Record<string, unknown> | null {
   const current = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : {};
-  return clid && !current.ctwa ? { ...current, ctwa: { clid, receivedAt: now.toISOString() } } : null;
+  return ctwa && !current.ctwa ? { ...current, ctwa: { ...ctwa, receivedAt: now.toISOString() } } : null;
 }

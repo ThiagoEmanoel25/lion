@@ -100,7 +100,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='assign')return `Atribuir para ${String(config.queue||config.assigneeId||'destino não definido')}`;
   if(kind==='handoff')return `Transferir para ${String(config.queue||'atendimento humano')}`;
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
-  if(kind==='pixel'){const label=PIXEL_EVENT_OPTIONS.find(item=>item[0]===config.eventName)?.[1]??'Evento não definido';const value=String(config.value??'').trim();return value?`${label} · ${/^[\d.,]+$/.test(value)?`R$ ${value}`:value}`:label}
+  if(kind==='pixel'){const label=PIXEL_EVENT_OPTIONS.find(item=>item[0]===config.eventName)?.[1]??'Evento não definido';const value=String(config.value??'').trim();const currency=String(config.currency??'BRL');return value?`${label} · ${/^[\d.,]+$/.test(value)?(currency==='BRL'?`R$ ${value}`:`${value} ${currency}`):value}`:label}
   if(kind==='kanban')return config.boardId&&config.columnId?'Criar ou mover card na coluna selecionada':'Selecione quadro e coluna';
   if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
   if(kind==='ai')return `${String(config.model||'gpt-5.4-mini')} · resposta em ${String(config.responseVariable||'resposta.gpt')}`;

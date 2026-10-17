@@ -4,7 +4,7 @@ import {pixelRoutes} from './routes.js';
 
 process.env.FIELD_ENCRYPTION_KEY=Buffer.alloc(32,1).toString('base64');
 const TOKEN='EAAB-super-secret-token-9876';
-async function build(){
+async function build(granted=['workspace.manage','playbook.write']){
   const rows:any[]=[];const audits:any[]=[];
   const prisma:any={
     auditLog:{create:async({data}:any)=>{audits.push(data)}},
@@ -18,12 +18,22 @@ async function build(){
   };
   const app=Fastify();
   let count=0;app.decorate('redis',{eval:async()=>++count} as any);
-  app.decorate('prisma',prisma);app.decorate('requirePermission',(()=>async(request:any)=>{request.auth={workspaceId:'w',userId:'u'}}) as any);
+  app.decorate('prisma',prisma);app.decorate('requirePermission',((permission:string)=>async(request:any,reply:any)=>{if(!granted.includes(permission))return reply.status(403).send({code:'FORBIDDEN'});request.auth={workspaceId:'w',userId:'u'}}) as any);
   await app.register(pixelRoutes);
   return {app,rows,audits};
 }
 
 describe('rotas de pixel',()=>{
+  it('quem edita fluxos (playbook.write) lista e testa pixels, mas não cadastra, edita nem remove',async()=>{
+    const {app,rows}=await build(['playbook.write']);
+    rows.push({id:'clx000000000000000000009',name:'P1',pixelId:'123456',pageId:null,testEventCode:null,accessTokenLast4:'9876',accessTokenEncrypted:'x'});
+    expect((await app.inject({method:'GET',url:'/v1/workspace/pixels'})).statusCode).toBe(200);
+    expect((await app.inject({method:'POST',url:`/v1/workspace/pixels/${rows[0].id}/test-event`})).statusCode).toBe(422);
+    expect((await app.inject({method:'POST',url:'/v1/workspace/pixels',payload:{name:'P2',pixelId:'1',accessToken:TOKEN}})).statusCode).toBe(403);
+    expect((await app.inject({method:'PATCH',url:`/v1/workspace/pixels/${rows[0].id}`,payload:{name:'P3'}})).statusCode).toBe(403);
+    expect((await app.inject({method:'DELETE',url:`/v1/workspace/pixels/${rows[0].id}`})).statusCode).toBe(403);
+  });
+
   it('nunca devolve nem audita o token',async()=>{
     const {app,rows,audits}=await build();
     const created=await app.inject({method:'POST',url:'/v1/workspace/pixels',payload:{name:'P1',pixelId:'123456',accessToken:TOKEN,testEventCode:'TEST1'}});

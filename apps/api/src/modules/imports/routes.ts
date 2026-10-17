@@ -5,6 +5,7 @@ import {AutomationDefinitionSchema,ImportNexoShareInput,LEONA_IMPORT_CODE_TTL_SE
 import {DomainError} from '@nexo/domain';
 import {audit} from '../../core/audit.js';
 import {convertLeonaFlow,redactDefinitionSecrets,type ImportReport} from './converter.js';
+import {validateAutomation,type AutomationIssue} from '../playbooks/compiler.js';
 
 const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const json=(value:unknown)=>value as Prisma.InputJsonValue;
@@ -23,7 +24,7 @@ async function rateLimit(app:FastifyInstance,ip:string,importCode:string){
   if(ipCount>30||codeCount>5)throw new DomainError('IMPORT_RATE_LIMIT','Muitas tentativas de importação. Aguarde alguns minutos.',429);
 }
 
-async function resolveTags(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
+export async function resolveTags(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
   const resolve=async(name:string,sourceId:string)=>{const clean=name.trim();let tag=await tx.tag.findUnique({where:{workspaceId_name:{workspaceId,name:clean}}});if(!tag){tag=await tx.tag.create({data:{workspaceId,name:clean}});report.items.push({sourceId,sourceType:'tags',status:'adjusted',message:`Etiqueta “${clean}” criada no workspace.`})}return tag.id};
   for(const node of definition.nodes.filter(item=>item.kind==='tag')){
     const names=Array.isArray(node.config.tags)?node.config.tags.filter((item):item is string=>typeof item==='string'&&Boolean(item.trim())):[];if(!names.length)continue;
@@ -60,7 +61,18 @@ export async function resolvePixels(tx:Prisma.TransactionClient,workspaceId:stri
     const {pixelId:_untrusted,pixelName,...rest}=node.config;const name=typeof pixelName==='string'?pixelName.trim():'';
     const pixel=name?await tx.metaPixel.findFirst({where:{workspaceId,name},select:{id:true}}):null;
     node.config=pixel?{...rest,pixelId:pixel.id}:rest;
-    if(!pixel)report.items.push({sourceId:node.id,sourceType:'pixel',status:'pending',message:name?`Configure o pixel ‘${name}’ em Configurações.`:'Selecione o pixel do bloco após importar.'});
+    report.items.push(pixel?{sourceId:node.id,sourceType:'pixel',status:'converted',message:`Bloco “${node.name}” ligado ao pixel ‘${name}’.`}:{sourceId:node.id,sourceType:'pixel',status:'pending',message:name?`Configure o pixel ‘${name}’ em Configurações.`:'Selecione o pixel do bloco após importar.'});
+  }
+  report.totals=totals(report.items);
+}
+
+// Lists everything that still blocks publishing, so the report never hides a compiler error.
+export function reportCompilerIssues(definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
+  for(const issue of validateAutomation(definition).issues as AutomationIssue[]){
+    if(issue.level!=='error')continue;const sourceId=issue.nodeId??issue.edgeId;
+    // resolvePixels already asked to configure this pixel; the missing pixelId is the same pending item.
+    if(issue.code==='INVALID_PIXEL_CONFIG'&&report.items.some(item=>item.status==='pending'&&item.sourceId===sourceId))continue;
+    report.items.push({...(sourceId?{sourceId}:{}),sourceType:'compiler',status:'pending',message:issue.message.slice(0,500)});
   }
   report.totals=totals(report.items);
 }
@@ -102,6 +114,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
       await resolveTags(tx,existing.workspaceId,converted.definition,converted.report);
       await resolveKanban(tx,existing.workspaceId,converted.definition,converted.report);
       await resolvePixels(tx,existing.workspaceId,converted.definition,converted.report);
+      reportCompilerIssues(converted.definition,converted.report);
       const playbook=await createImportedPlaybook(tx,{workspaceId:existing.workspaceId,userId:existing.createdById,name:converted.suggestedName,definition:converted.definition});
       await tx.flowImportSession.update({where:{id:existing.id},data:{status:'COMPLETED',playbookId:playbook.id,report:json(converted.report)}});
       await audit(tx,{workspaceId:existing.workspaceId,actorId:existing.createdById,action:'playbook.imported_from_leona',targetType:'Playbook',targetId:playbook.id,changes:{report:converted.report.totals}});
@@ -144,7 +157,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const input=ImportNexoShareInput.parse(request.body);const share=await app.prisma.flowShareCode.findUnique({where:{code:input.code}});
     if(!share||share.revokedAt||share.expiresAt<=new Date())throw new DomainError('SHARE_CODE_INVALID','Código inexistente, expirado ou revogado.',410);
     const definition=AutomationDefinitionSchema.parse(share.definition);const sourceReport=structuredClone(share.report) as ImportReport;
-    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
+    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
     return reply.status(201).send({playbookId:playbook.id,report:sourceReport});
   });
 };

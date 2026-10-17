@@ -10,10 +10,14 @@ describe('pixel', () => {
     expect(parsePixelValue('1.234')).toBe(1234);
     expect(parsePixelValue('15.90')).toBe(15.9);
     expect(parsePixelValue('0')).toBe(0);
+    expect(parsePixelValue('0.500')).toBe(0.5);
+    expect(parsePixelValue('00.123')).toBe(0.123);
+    expect(parsePixelValue('12.345')).toBe(12345);
+    expect(parsePixelValue('12.345,67')).toBe(12345.67);
   });
 
   it('rejects invalid values', () => {
-    for (const raw of ['', '  ', 'abc', '-5', '{{valor}}', '1,2,3', 'R$']) expect(parsePixelValue(raw)).toBeNull();
+    for (const raw of ['', '  ', 'abc', '-5', '{{valor}}', '1,2,3', 'R$', '1.23,4', '12.34,5']) expect(parsePixelValue(raw)).toBeNull();
   });
 
   it('builds the data[0] event, omitting empty page and value', () => {

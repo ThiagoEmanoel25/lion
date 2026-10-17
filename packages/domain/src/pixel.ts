@@ -2,11 +2,14 @@ export const META_GRAPH_VERSION = 'v25.0';
 export const PIXEL_TIMEOUT_SECONDS = 30;
 export const NO_CTWA_MESSAGE = 'Contato não veio de um anúncio de clique para o WhatsApp';
 
-// Accepts `15`, `15,90`, `R$ 15,90`, `1.234,56`; without a comma, `1.234` is thousands and `15.90` is decimal.
+// Accepts `15`, `15,90`, `R$ 15,90`, `1.234,56`. Without a comma a dot is a decimal point (`15.90`, `0.500`),
+// except in BR thousands notation with a non-zero lead: `12.345` reads as 12345, not 12.345.
 export function parsePixelValue(raw: string): number | null {
   let text = raw.replace(/R\$/gi, '').replace(/\s/g, '');
-  if (text.includes(',')) text = text.replace(/\./g, '').replace(',', '.');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(text)) text = text.replace(/\./g, '');
+  if (text.includes(',')) {
+    if (!/^(\d{1,3}(\.\d{3})*|\d+),\d+$/.test(text)) return null;
+    text = text.replace(/\./g, '').replace(',', '.');
+  } else if (/^[1-9]\d{0,2}(\.\d{3})+$/.test(text)) text = text.replace(/\./g, '');
   return /^\d+(\.\d+)?$/.test(text) ? Number(text) : null;
 }
 

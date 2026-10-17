@@ -12,14 +12,15 @@ const view=(row:Row)=>({id:row.id,name:row.name,pixelId:row.pixelId,pageId:row.p
 const duplicate=(error:any)=>{if(error?.code==='P2002')throw new DomainError('PIXEL_EXISTS','Já existe um pixel com este nome.',409);throw error};
 
 export const pixelRoutes:FastifyPluginAsync=async app=>{
-  const guard={preHandler:[app.requirePermission('workspace.manage')]};
+  // Listing and testing serve the playbook editor (the view has no secrets); managing pixels stays with workspace admins.
+  const guard={preHandler:[app.requirePermission('workspace.manage')]};const editor={preHandler:[app.requirePermission('playbook.write')]};
   const find=async(workspaceId:string,id:string)=>{const row=await app.prisma.metaPixel.findFirst({where:{id,workspaceId}});if(!row)throw new DomainError('NOT_FOUND','Pixel não encontrado.',404);return row};
-  app.get('/v1/workspace/pixels',guard,async request=>(await app.prisma.metaPixel.findMany({where:{workspaceId:request.auth.workspaceId},orderBy:{name:'asc'}})).map(view));
+  app.get('/v1/workspace/pixels',editor,async request=>(await app.prisma.metaPixel.findMany({where:{workspaceId:request.auth.workspaceId},orderBy:{name:'asc'}})).map(view));
   app.post('/v1/workspace/pixels',guard,async(request,reply)=>{const {accessToken,...input}=MetaPixelInput.parse(request.body);const row=await app.prisma.metaPixel.create({data:{...input,workspaceId:request.auth.workspaceId,accessTokenEncrypted:encryptWebhookSecret(accessToken),accessTokenLast4:keyLast4(accessToken)}}).catch(duplicate);await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'pixel.created',targetType:'MetaPixel',targetId:row.id,changes:{name:row.name,pixelId:row.pixelId},ip:request.ip});return reply.status(201).send(view(row))});
   app.patch('/v1/workspace/pixels/:id',guard,async request=>{const {id}=request.params as {id:string};const {accessToken,...input}=UpdateMetaPixelInput.parse(request.body);await find(request.auth.workspaceId,id);const row=await app.prisma.metaPixel.update({where:{id},data:{...input,...(accessToken?{accessTokenEncrypted:encryptWebhookSecret(accessToken),accessTokenLast4:keyLast4(accessToken)}:{})}}).catch(duplicate);await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'pixel.updated',targetType:'MetaPixel',targetId:id,changes:{...input,tokenChanged:Boolean(accessToken)},ip:request.ip});return view(row)});
   app.delete('/v1/workspace/pixels/:id',guard,async(request,reply)=>{const {id}=request.params as {id:string};await find(request.auth.workspaceId,id);await app.prisma.metaPixel.delete({where:{id}});await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'pixel.deleted',targetType:'MetaPixel',targetId:id,ip:request.ip});return reply.status(204).send()});
   // 5 test events per minute per user; same Redis counter pattern as the integration test route.
-  app.post('/v1/workspace/pixels/:id/test-event',guard,async request=>{
+  app.post('/v1/workspace/pixels/:id/test-event',editor,async request=>{
     const {id}=request.params as {id:string};
     if(Number(await app.redis.eval(RATE_SCRIPT,1,`rate:pixel-test:${request.auth.userId}:${Math.floor(Date.now()/60_000)}`,70))>5)throw new DomainError('RATE_LIMITED','Limite de 5 testes por minuto excedido.',429);
     const pixel=await app.prisma.metaPixel.findFirst({where:{id,workspaceId:request.auth.workspaceId},omit:{accessTokenEncrypted:false}});

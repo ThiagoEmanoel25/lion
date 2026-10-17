@@ -17,7 +17,7 @@ import { RedisService } from '../infra/redis.service.js';
 import { QUEUES, type ConnectionJob } from '../queues.js';
 import { acquireLock, type LockLease } from './distributed-lock.js';
 import { AuthStateStore } from './auth-state.store.js';
-import { MEDIA_MAX_BYTES, ctwaClidOf, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia, withCtwa } from './message-content.js';
+import { MEDIA_MAX_BYTES, ctwaOf, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia, withCtwa } from './message-content.js';
 
 type LiveSession = { socket: WASocket; lease: LockLease; renewTimer: NodeJS.Timeout; manualClose: boolean };
 
@@ -206,7 +206,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
             }
           });
           if (media) await tx.messageMedia.create({ data: { workspaceId: channel.workspaceId, messageId: created.id, contentType: media.contentType, fileName: media.fileName, size: media.size, data: mediaData as Uint8Array<ArrayBuffer> | null } });
-          const metadata = withCtwa(conversation.metadata, ctwaClidOf(incoming.message), new Date());
+          const metadata = withCtwa(conversation.metadata, ctwaOf(incoming.message), new Date());
           await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 }, updatedAt: new Date(), ...(metadata ? { metadata: metadata as Prisma.InputJsonObject } : {}) } });
           await tx.channel.update({ where: { id: channelId }, data: { lastInboundAt: new Date() } });
           await tx.outboxEvent.create({data:{workspaceId:channel.workspaceId,aggregate:'Conversation',aggregateId:conversation.id,type:'automation.inbound.received',payload:{conversationId:conversation.id,messageId:created.id,channelId}}});
