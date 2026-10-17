@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MEDIA_MAX_BYTES, MEDIA_DOWNLOAD_TIMEOUT_MS, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
+import { ctwaClidOf, withCtwa, MEDIA_MAX_BYTES, MEDIA_DOWNLOAD_TIMEOUT_MS, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia } from './message-content.js';
 
 describe('message content', () => {
   it('extracts text wrapped in an ephemeral message', () => {
@@ -43,5 +43,20 @@ describe('message content', () => {
     expect(MEDIA_DOWNLOAD_TIMEOUT_MS).toBe(30_000);
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(options.maxContentLength).toBeGreaterThan(MEDIA_MAX_BYTES);
+  });
+  it('reads ctwaClid from any message type, inside envelopes', () => {
+    expect(ctwaClidOf({ extendedTextMessage: { text: 'oi', contextInfo: { externalAdReply: { ctwaClid: 'clid_1' } } } })).toBe('clid_1');
+    expect(ctwaClidOf({ ephemeralMessage: { message: { imageMessage: { contextInfo: { externalAdReply: { ctwaClid: 'clid_2' } } } } } })).toBe('clid_2');
+    expect(ctwaClidOf({ conversation: 'oi' })).toBeNull();
+    expect(ctwaClidOf({ extendedTextMessage: { contextInfo: { externalAdReply: { ctwaClid: '' } } } })).toBeNull();
+    expect(ctwaClidOf(null)).toBeNull();
+  });
+
+  it('stores ctwa once and keeps other metadata', () => {
+    const now = new Date('2026-10-17T12:00:00.000Z');
+    expect(withCtwa({ foo: 1 }, 'clid', now)).toEqual({ foo: 1, ctwa: { clid: 'clid', receivedAt: '2026-10-17T12:00:00.000Z' } });
+    expect(withCtwa(null, 'clid', now)).toEqual({ ctwa: { clid: 'clid', receivedAt: '2026-10-17T12:00:00.000Z' } });
+    expect(withCtwa({ ctwa: { clid: 'old' } }, 'new', now)).toBeNull();
+    expect(withCtwa({ foo: 1 }, null, now)).toBeNull();
   });
 });

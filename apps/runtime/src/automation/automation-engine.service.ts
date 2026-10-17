@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
-import { AutomationDefinitionSchema, renderUrlTemplate } from '@nexo/contracts';
+import { AutomationDefinitionSchema, AutomationPixelConfigSchema, renderUrlTemplate } from '@nexo/contracts';
 import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
@@ -12,6 +12,7 @@ import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
 import { aiLastMessage, joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
 import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
+import { NO_CTWA_MESSAGE, PIXEL_TIMEOUT_SECONDS, buildPixelEvent, parsePixelValue, pixelOutcome, pixelRequest } from './pixel.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
@@ -277,8 +278,50 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'continue';
       }
 
-      case 'pixel':
-        throw new NodeExecutionError('NOT_IMPLEMENTED','O bloco Pixel ainda não está disponível.'); // Task 4 replaces this
+      case 'pixel': {
+        const config = AutomationPixelConfigSchema.safeParse(node.config);
+        if (!config.success) throw new NodeExecutionError('INVALID_NODE_CONFIG', `O nó ${node.id} possui uma configuração de Pixel inválida.`);
+        const { pixelId, eventName, currency } = config.data;
+        const finish = async (status: number | null, outcome: ReturnType<typeof pixelOutcome>) => {
+          const edge = selectPortEdge(input.definition.edges, node.id, outcome.port);
+          if (!edge) {
+            if (outcome.port === 'failure') throw new NodeExecutionError('PIXEL_FAILED', outcome.error!.message);
+            throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+          }
+          const nextContext = outcome.error ? setContextPath(context, 'pixel.error', outcome.error) : context;
+          await this.completeStep(executionId, step.id, edge.target, nextContext, asJson({ eventName, eventId: step.id, status, ...(outcome.error ? { error: outcome.error.message } : {}) }));
+          return { next: edge.target };
+        };
+        const fail = (message: string) => finish(null, { port: 'failure', error: { status: null, message } });
+        const pixel = await this.prisma.metaPixel.findFirst({ where: { id: pixelId, workspaceId }, select: { pixelId: true, accessTokenEncrypted: true, pageId: true } });
+        if (!pixel) return fail('O pixel configurado no bloco não existe mais.');
+        let accessToken: string;
+        try { accessToken = this.cipher.decrypt(pixel.accessTokenEncrypted); } catch { return fail('Não foi possível ler o token do pixel. Cadastre o token novamente.'); }
+        const rawValue = config.data.value ? renderTemplate(config.data.value, context) : '';
+        const value = rawValue.trim() ? parsePixelValue(rawValue) : undefined;
+        if (value === null || (eventName === 'Purchase' && value === undefined)) return fail(`Valor do evento inválido: "${rawValue.slice(0, 50)}".`);
+        const conversation = await this.prisma.conversation.findFirst({ where: { id: conversationId, workspaceId }, select: { metadata: true } });
+        const ctwa = objectContext(conversation?.metadata ?? null).ctwa as { clid?: unknown } | undefined;
+        if (typeof ctwa?.clid !== 'string' || !ctwa.clid) return fail(NO_CTWA_MESSAGE);
+        const pageId = (config.data.pageId ? renderTemplate(config.data.pageId, context).trim() : '') || pixel.pageId || undefined;
+        const request = pixelRequest(pixel.pixelId, accessToken, buildPixelEvent({ eventName, eventTime: Math.floor(Date.now() / 1000), eventId: step.id, ctwaClid: ctwa.clid, pageId, value, currency }));
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), PIXEL_TIMEOUT_SECONDS * 1000);
+        let status: number | null = null;
+        let body: unknown = null;
+        let error: string | undefined;
+        try {
+          const response = await fetch(request.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: request.body, redirect: 'manual', signal: controller.signal });
+          status = response.status;
+          const text = (await response.text()).slice(0, 10_000);
+          try { body = JSON.parse(text); } catch { body = text; }
+        } catch (caught) {
+          error = caught instanceof Error && caught.name === 'AbortError' ? `A Meta não respondeu em ${PIXEL_TIMEOUT_SECONDS} segundos.` : 'Não foi possível conectar à Meta.';
+        } finally {
+          clearTimeout(timeout);
+        }
+        return finish(status, pixelOutcome(status, body, error));
+      }
 
       case 'kanban': {
         const boardId=typeof node.config.boardId==='string'?node.config.boardId:'';

@@ -72,3 +72,19 @@ export function storableMedia(raw: proto.IMessage | null | undefined): StorableM
   const size = Number(media.fileLength ?? 0);
   return { contentType: media.mimetype ?? (image ? 'image/jpeg' : audio ? 'audio/ogg' : 'application/pdf'), fileName: document?.fileName ?? null, size, download: size > 0 && size <= MEDIA_MAX_BYTES };
 }
+
+// Click-to-WhatsApp ads attach the ad click id to the first message, on whichever content type carries contextInfo.
+export function ctwaClidOf(raw: proto.IMessage | null | undefined): string | null {
+  const message = unwrap(raw);
+  for (const content of Object.values(message ?? {})) {
+    const clid = (content as { contextInfo?: proto.IContextInfo | null } | null)?.contextInfo?.externalAdReply?.ctwaClid;
+    if (clid) return clid;
+  }
+  return null;
+}
+
+// Returns the metadata to write, or null when there is nothing new: the first ad click wins.
+export function withCtwa(metadata: unknown, clid: string | null, now: Date): Record<string, unknown> | null {
+  const current = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata as Record<string, unknown> : {};
+  return clid && !current.ctwa ? { ...current, ctwa: { clid, receivedAt: now.toISOString() } } : null;
+}
