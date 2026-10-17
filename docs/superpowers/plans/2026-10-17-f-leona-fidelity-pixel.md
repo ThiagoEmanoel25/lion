@@ -57,7 +57,7 @@
 
 ---
 
-### Tarefa 1: Importador lê `data.actions[]` (spec §1)
+### Task 1: Importador lê `data.actions[]` (spec §1)
 
 **Arquivos:** `apps/api/src/modules/imports/converter.ts`, `converter.test.ts` e, se a resolução de etiquetas por nome precisar, `routes.ts`.
 
@@ -81,7 +81,7 @@
   - o nó `pixel` continua como pendência (a Tarefa 5 troca isso).
 - **Commit:** `fix(imports): read real Leona action format`
 
-### Tarefa 2: Integração — paridade do mapeamento e correções da rota de teste (spec §2)
+### Task 2: Integração — paridade do mapeamento e correções da rota de teste (spec §2)
 
 **Arquivos:**
 - `packages/contracts/src/` (helper puro `extractResponseField(response:{status:number;body:unknown;headers:Record<string,string>}, path:string): {found:boolean;value:unknown}` + teste);
@@ -109,7 +109,7 @@
   - Link "Editar dados de teste", que abre o painel de simulação existente.
 - **Commit:** `feat: integration mapping parity and safer test route`
 
-### Tarefa 3: Pixel — dados, contrato, API de configuração e compiler (spec §3)
+### Task 3: Pixel — dados, contrato, API de configuração e compiler (spec §3)
 
 **Arquivos:**
 - `apps/api/prisma/schema.prisma` e uma migration nova em `apps/api/prisma/migrations/<timestamp>_meta_pixels/` (SQL escrito à mão, seguindo as migrations existentes; **não** aplicar em banco);
@@ -137,7 +137,7 @@
 - **Testes:** contrato (valor obrigatório em Purchase, moeda), compiler (portas, config, pixel inexistente) e rota (token nunca na resposta).
 - **Commit:** `feat: Meta pixel settings, pixel node contract and validation`
 
-### Tarefa 4: Pixel — runtime (captura do `ctwa_clid` e envio)
+### Task 4: Pixel — runtime (captura do `ctwa_clid` e envio)
 
 **Arquivos:**
 - novo `apps/runtime/src/automation/pixel.ts` + `pixel.test.ts`;
@@ -163,7 +163,7 @@
 - **Testes:** só dos helpers puros (o engine não tem harness). No relatório, traçar à mão o caminho com sucesso, o sem `ctwa` e o erro da Meta.
 - **Commit:** `feat(runtime): pixel node sends Conversions API events`
 
-### Tarefa 5: Pixel — envio de teste e importador
+### Task 5: Pixel — envio de teste e importador
 
 **Arquivos:**
 - `apps/api` (rota de teste do pixel);
@@ -184,7 +184,7 @@
   - Atualizar o teste do fixture real: o pixel vira bloco `pixel` com `Purchase`, `15`, `BRL`, e o `pageId` não pode ser o valor real (o fixture tem `<page-id>`).
 - **Commit:** `feat: pixel test event route and Leona pixel import`
 
-### Tarefa 6: Pixel — web (configuração e editor do bloco)
+### Task 6: Pixel — web (configuração e editor do bloco)
 
 **Arquivos:**
 - `apps/web/src/features/settings/SettingsPage.tsx` e `settings/api/queries.ts`;
