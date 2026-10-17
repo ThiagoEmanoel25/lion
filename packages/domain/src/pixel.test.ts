@@ -46,4 +46,8 @@ describe('pixel', () => {
     expect(pixelOutcome(500, null)).toEqual({ port: 'failure', error: { status: 500, message: 'A Meta respondeu HTTP 500.' } });
     expect(pixelOutcome(null, null, 'timeout')).toEqual({ port: 'failure', error: { status: null, message: 'timeout' } });
   });
+  it('puts test_event_code at the top level when given', () => {
+    expect(JSON.parse(pixelRequest('1', 'T', {}, 'TEST1').body).test_event_code).toBe('TEST1');
+    expect(JSON.parse(pixelRequest('1', 'T', {}).body)).not.toHaveProperty('test_event_code');
+  });
 });

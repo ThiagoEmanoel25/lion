@@ -1,4 +1,4 @@
-import {AutomationDefinitionSchema,type ImportReportSchema} from '@nexo/contracts';
+import {AutomationDefinitionSchema,PIXEL_EVENTS,type ImportReportSchema} from '@nexo/contracts';
 import type {z} from 'zod';
 
 type JsonObject=Record<string,unknown>;
@@ -110,7 +110,7 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items']){
   const acts=actionsOf(raw);
   if(acts.length){
     const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message});
-    const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags'};
+    const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags',pixel:'send_pixel_event'};
     const first=acts.find(action=>action.action_type===expected[type]);
     if(type==='message')return {...base,kind:'message' as const,config:{items:realMessageItems(acts,items,originalId,type)}};
     if(expected[type]){
@@ -135,6 +135,14 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items']){
           const mapping=object(c.response_mapping);const body=c.request_body;
           const fields=(Array.isArray(c.response_fields)?c.response_fields:[]).map(object).filter(field=>text(field.path)).map(field=>({path:text(field.path)!,variable:text(mapping[String(field.name)],field.name)!}));
           return {...base,kind:'webhook' as const,config:{url:text(c.request_url)??'https://example.com/revise',method:String(text(c.request_method)??'POST').toUpperCase(),headers:safeHeaders(c.request_headers,items,originalId),...(typeof body==='string'?(body?{body:replaceVariables(body,items,originalId)}:{}):body!==undefined&&body!==null?{body:JSON.stringify(strings(body,items,originalId))}:{}),responseFields:fields}};
+        }
+        if(type==='pixel'){
+          const label=text(c.event_type)??'';const found=PIXEL_EVENTS.find(event=>event.label.toLowerCase()===label.toLowerCase()||event.eventName.toLowerCase()===label.toLowerCase());
+          if(!found)pend(`Evento do pixel “${label}” não reconhecido; escolha o evento.`);
+          const tracking=text(c.tracking_type);if(tracking&&tracking.toLowerCase()!=='facebook')pend(`Rastreador “${tracking}” não é suportado; só Facebook.`);
+          const currency=String(text(c.currency)??'BRL').toUpperCase();if(!/^[A-Z]{3}$/.test(currency))pend(`Moeda “${currency}” inválida; usando BRL.`);
+          const value=text(typeof c.item_value==='number'?String(c.item_value):c.item_value);const pageId=text(c.page_id);
+          return {...base,kind:'pixel' as const,config:{pixelName:text(c.pixel_config_name)??'',eventName:found?.eventName??'LeadSubmitted',...(value?{value:replaceVariables(value,items,originalId)}:{}),currency:/^[A-Z]{3}$/.test(currency)?currency:'BRL',...(pageId?{pageId}:{})}};
         }
         if(type==='tags'){
           const names=(Array.isArray(c.tags)?c.tags:[]).filter((value):value is string=>typeof value==='string'&&Boolean(value.trim()));

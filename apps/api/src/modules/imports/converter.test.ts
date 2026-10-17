@@ -86,7 +86,9 @@ describe('conversor Leona',()=>{
     expect(cfg('tag')[0]).toMatchObject({mode:'add',tags:['PAGOUUPSELL']});
     const {items,totals}=result.report;
     for(const status of ['converted','adjusted','pending'] as const)expect(totals[status]).toBe(items.filter(item=>item.status===status).length);
-    expect(items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(true);
+    expect(cfg('pixel')[0]).toMatchObject({eventName:'Purchase',value:'15',currency:'BRL',pageId:'<page-id>',pixelName:'PIXEL - MARITZA'});
+    expect(cfg('pixel')[0]).not.toHaveProperty('pixelId');
+    expect(items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(false);
     expect(items.some(item=>item.sourceType==='ai'&&item.message.includes('chave'))).toBe(true);
   });
 
@@ -95,5 +97,17 @@ describe('conversor Leona',()=>{
     const result=convertLeonaFlow({nodes:[node('s','start','x',{}),node('t','tags','add_tags',{tags:['A'],action:'remove'}),node('h','integration','make_http_request',{request_url:'https://api.example.com/x',request_method:'POST',request_body:{phone:'{phone_number}'}})],edges:[]});
     expect(result.definition.nodes.find(n=>n.kind==='tag')?.config).toMatchObject({mode:'remove',tags:['A']});
     expect(result.definition.nodes.find(n=>n.kind==='webhook')?.config.body).toBe('{"phone":"{{contact.phone}}"}');
+  });
+
+  it('pixel: mapeia rótulos e marca rastreador diferente de Facebook como pendência',()=>{
+    const node=(id:string,type:string,action_type:string,config:object)=>({id,type,data:{actions:[{action_type,config,order:1}]}});
+    const convert=(config:object)=>convertLeonaFlow({nodes:[node('s','start','x',{}),node('p','pixel','send_pixel_event',config)],edges:[]});
+    const lead=convert({event_type:'Lead',currency:'USD',tracking_type:'Facebook',pixel_config_name:'P'});
+    expect(lead.definition.nodes.find(n=>n.kind==='pixel')?.config).toMatchObject({eventName:'LeadSubmitted',currency:'USD'});
+    expect(lead.report.items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(false);
+    const other=convert({event_type:'Compra',item_value:'1',tracking_type:'Google',pixel_config_name:'P'});
+    expect(other.report.items.some(item=>item.sourceType==='pixel'&&item.status==='pending'&&item.message.includes('Google'))).toBe(true);
+    const unknown=convert({event_type:'Xyz',tracking_type:'Facebook',pixel_config_name:'P'});
+    expect(unknown.report.items.some(item=>item.sourceType==='pixel'&&item.status==='pending'&&item.message.includes('Xyz'))).toBe(true);
   });
 });

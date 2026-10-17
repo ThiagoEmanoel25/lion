@@ -12,7 +12,7 @@ import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
 import { aiLastMessage, joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
 import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
-import { NO_CTWA_MESSAGE, PIXEL_TIMEOUT_SECONDS, buildPixelEvent, parsePixelValue, pixelOutcome, pixelRequest } from './pixel.js';
+import { NO_CTWA_MESSAGE, PIXEL_TIMEOUT_SECONDS, buildPixelEvent, parsePixelValue, pixelOutcome, pixelRequest } from '@nexo/domain';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';

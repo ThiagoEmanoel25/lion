@@ -17,7 +17,7 @@ async function limitedText(response:Response){
 }
 
 export class IntegrationUrlBlockedError extends Error{}
-const RATE_SCRIPT="local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n";
+export const RATE_SCRIPT="local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n";
 // 10 tests per minute per user; same Redis counter pattern as the inbound webhook rateLimit.
 export async function integrationTestRateLimit(redis:{eval:(...args:any[])=>Promise<unknown>},userId:string){
   if(Number(await redis.eval(RATE_SCRIPT,1,`rate:integration-test:${userId}:${Math.floor(Date.now()/60_000)}`,70))>10)throw new DomainError('RATE_LIMITED','Limite de 10 testes por minuto excedido.',429);

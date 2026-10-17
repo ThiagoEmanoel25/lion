@@ -18,9 +18,9 @@ export function buildPixelEvent(input: { eventName: string; eventTime: number; e
   };
 }
 
-export const pixelRequest = (pixelId: string, accessToken: string, event: object) => ({
+export const pixelRequest = (pixelId: string, accessToken: string, event: object, testEventCode?: string) => ({
   url: `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(pixelId)}/events`,
-  body: JSON.stringify({ data: [event], access_token: accessToken })
+  body: JSON.stringify({ data: [event], access_token: accessToken, ...(testEventCode ? { test_event_code: testEventCode } : {}) })
 });
 
 export function pixelOutcome(status: number | null, body: unknown, error?: string): { port: 'success' | 'failure'; error?: { status: number | null; message: string } } {

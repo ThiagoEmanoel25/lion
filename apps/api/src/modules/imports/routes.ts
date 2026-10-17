@@ -54,6 +54,17 @@ async function resolveKanban(tx:Prisma.TransactionClient,workspaceId:string,defi
   report.totals=totals(report.items);
 }
 
+// Never trusts an incoming pixelId (a share code may carry another workspace's id): resolves by name in the importing workspace.
+export async function resolvePixels(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
+  for(const node of definition.nodes.filter(item=>item.kind==='pixel')){
+    const {pixelId:_untrusted,pixelName,...rest}=node.config;const name=typeof pixelName==='string'?pixelName.trim():'';
+    const pixel=name?await tx.metaPixel.findFirst({where:{workspaceId,name},select:{id:true}}):null;
+    node.config=pixel?{...rest,pixelId:pixel.id}:rest;
+    if(!pixel)report.items.push({sourceId:node.id,sourceType:'pixel',status:'pending',message:name?`Configure o pixel ‘${name}’ em Configurações.`:'Selecione o pixel do bloco após importar.'});
+  }
+  report.totals=totals(report.items);
+}
+
 async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>}){
   return tx.playbook.create({data:{workspaceId:input.workspaceId,name:input.name,description:'Importado como rascunho. Revise as pendências antes de publicar.',status:'DRAFT',versions:{create:{version:1,definition:json(input.definition),checksum:checksum(input.definition),createdById:input.userId}}},include:{versions:true}});
 }
@@ -90,6 +101,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
       if(claimed.count!==1)throw new DomainError('IMPORT_CODE_INVALID','Código inválido, expirado ou já utilizado.',410);
       await resolveTags(tx,existing.workspaceId,converted.definition,converted.report);
       await resolveKanban(tx,existing.workspaceId,converted.definition,converted.report);
+      await resolvePixels(tx,existing.workspaceId,converted.definition,converted.report);
       const playbook=await createImportedPlaybook(tx,{workspaceId:existing.workspaceId,userId:existing.createdById,name:converted.suggestedName,definition:converted.definition});
       await tx.flowImportSession.update({where:{id:existing.id},data:{status:'COMPLETED',playbookId:playbook.id,report:json(converted.report)}});
       await audit(tx,{workspaceId:existing.workspaceId,actorId:existing.createdById,action:'playbook.imported_from_leona',targetType:'Playbook',targetId:playbook.id,changes:{report:converted.report.totals}});
@@ -109,6 +121,9 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const kanbanNodes=parsed.nodes.filter(node=>node.kind==='kanban');const boardIds=kanbanNodes.map(node=>node.config.boardId).filter((item):item is string=>typeof item==='string');
     const boards=boardIds.length?await app.prisma.kanbanBoard.findMany({where:{workspaceId:request.auth.workspaceId,id:{in:boardIds}},include:{columns:true}}):[];const boardsById=new Map(boards.map(board=>[board.id,board]));
     for(const node of kanbanNodes){const board=typeof node.config.boardId==='string'?boardsById.get(node.config.boardId):undefined;const column=board?.columns.find(item=>item.id===node.config.columnId);if(board&&column)node.config={boardName:board.name,columnName:column.name,mode:node.config.mode??'create_or_move'}}
+    const pixelNodes=parsed.nodes.filter(node=>node.kind==='pixel');const pixelIds=pixelNodes.map(node=>node.config.pixelId).filter((item):item is string=>typeof item==='string');
+    const pixels=pixelIds.length?await app.prisma.metaPixel.findMany({where:{workspaceId:request.auth.workspaceId,id:{in:pixelIds}},select:{id:true,name:true}}):[];const pixelNames=new Map(pixels.map(pixel=>[pixel.id,pixel.name]));
+    for(const node of pixelNodes){const {pixelId,...rest}=node.config;const name=typeof pixelId==='string'?pixelNames.get(pixelId):undefined;node.config=name?{...rest,pixelName:name}:rest}
     const redacted=redactDefinitionSecrets(parsed);const shareCode=await uniqueCode(app.prisma,'share',10);const expiresAt=new Date(Date.now()+NEXO_SHARE_CODE_TTL_DAYS*86_400_000);
     const created=await app.prisma.flowShareCode.create({data:{code:shareCode,workspaceId:request.auth.workspaceId,playbookId:id,createdById:request.auth.userId,definition:json(redacted.definition),sourceName:playbook.name,report:json(redacted.report),expiresAt}});
     await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.share_code_created',targetType:'Playbook',targetId:id,changes:{shareCodeId:created.id,expiresAt}});
@@ -129,7 +144,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const input=ImportNexoShareInput.parse(request.body);const share=await app.prisma.flowShareCode.findUnique({where:{code:input.code}});
     if(!share||share.revokedAt||share.expiresAt<=new Date())throw new DomainError('SHARE_CODE_INVALID','Código inexistente, expirado ou revogado.',410);
     const definition=AutomationDefinitionSchema.parse(share.definition);const sourceReport=structuredClone(share.report) as ImportReport;
-    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
+    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
     return reply.status(201).send({playbookId:playbook.id,report:sourceReport});
   });
 };
