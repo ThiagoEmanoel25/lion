@@ -132,6 +132,10 @@ export const AutomationWebhookConfigSchema=z.object({
   responseVariable:z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,119}$/).optional(),
   responseFields:z.array(AutomationResponseFieldSchema).max(20).default([])
 }).strict();
+export const TestIntegrationInput=z.object({
+  config:AutomationWebhookConfigSchema.pick({url:true,method:true,headers:true,body:true}),
+  variables:z.record(z.unknown()).default({})
+}).strict();
 export const AutomationAiConditionalSchema=z.object({
   id:z.string().trim().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9_-]*$/,'Use letras, números, _ ou -, começando por letra.'),
   label:z.string().trim().min(1).max(80),

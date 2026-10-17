@@ -2,10 +2,10 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent,type ReactN
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Trash2,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,PlaybookVersion} from '../../shared/types/api';
-import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useValidatePlaybook} from './api/queries';
+import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
 import {useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
@@ -218,12 +218,14 @@ export function PlaybookEditorPage(){
         {toolsResults.length===0&&<p className="palette-empty">Nenhum bloco para “{toolsQuery}”. Tente “mensagem”, “condição” ou “etiqueta”.</p>}
       </aside>}
       {inspectorOpen&&selectedNode&&<div className="node-modal-backdrop" onMouseDown={()=>setInspectorOpen(false)} aria-hidden="true"/>}
-      {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''} ${selectedNode?.data.kind==='ai'?'ai-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
+      {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''} ${selectedNode?.data.kind==='ai'?'ai-edit-modal':''} ${selectedNode?.data.kind==='webhook'?'integration-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
           ? selectedNode.data.kind==='message'
             ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='ai'
             ? <AiEditor key={selectedNode.id} node={selectedNode} aiKeyConfigured={aiKey.data?.configured} onSave={saveAi} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='webhook'
+            ? <WebhookEditor key={selectedNode.id} playbookId={id} node={selectedNode} variablesJson={simulationVariables} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
@@ -380,6 +382,46 @@ function AiEditor({node,aiKeyConfigured,onSave,onCancel}:{node:FlowNode;aiKeyCon
       <label>Salvar motivo da falha em<input value={String(config.failReasonVariable??'ai.fail.reason')} onChange={event=>patch('failReasonVariable',event.target.value)} placeholder="ai.fail.reason"/></label>
       <div className="ai-how"><Info size={18}/><div><b>Como funciona</b><p>O bloco envia a mensagem e o contexto ao modelo escolhido. A resposta é salva em uma variável e pode ser enviada automaticamente. Comprovantes e condicionais geram saídas próprias; falhas seguem pela saída de erro.</p></div></div>
       <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar bloco</button></footer>
+    </div></>
+}
+type IntegrationTab='headers'|'body'|'mapping';
+type IntegrationResponseField={path:string;variable:string};
+const INTEGRATION_METHODS=['GET','POST','PUT','PATCH','DELETE'] as const;
+function WebhookEditor({playbookId,node,variablesJson,onSave,onCancel}:{playbookId:string;node:FlowNode;variablesJson:string;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const initial={...defaultConfig('webhook'),...node.data.config};const testRequest=useTestIntegration();
+  const [name,setName]=useState(node.data.name);const [method,setMethod]=useState(String(initial.method??'POST'));const [url,setUrl]=useState(String(initial.url??''));
+  const [headersDraft,setHeadersDraft]=useState(()=>JSON.stringify(initial.headers&&typeof initial.headers==='object'&&!Array.isArray(initial.headers)?initial.headers:{},null,2));
+  const [body,setBody]=useState(String(initial.body??''));const [responseVariable,setResponseVariable]=useState(String(initial.responseVariable??'integration.response'));
+  const [fields,setFields]=useState<IntegrationResponseField[]>(()=>Array.isArray(initial.responseFields)?initial.responseFields.flatMap(item=>item&&typeof item==='object'&&!Array.isArray(item)&&typeof (item as {path?:unknown}).path==='string'&&typeof (item as {variable?:unknown}).variable==='string'?[item as IntegrationResponseField]:[]):[]);
+  const [tab,setTab]=useState<IntegrationTab>('headers');const [submitted,setSubmitted]=useState(false);const [localError,setLocalError]=useState('');
+  const urlError=!/^https:\/\/\S+$/i.test(url.trim())?'Informe uma URL HTTPS válida.':'';
+  function parsedHeaders(){try{const parsed:unknown=JSON.parse(headersDraft||'{}');if(!parsed||Array.isArray(parsed)||typeof parsed!=='object'||Object.values(parsed).some(value=>typeof value!=='string'))throw new Error();return parsed as Record<string,string>}catch{return null}}
+  const headersError=parsedHeaders()?'':'Use um objeto JSON com valores em texto.';
+  const fieldsError=fields.findIndex(field=>!field.path.trim()||!/^[A-Za-z_][\w.-]*$/.test(field.variable.trim()));
+  const variableError=responseVariable.trim()&&!/^[A-Za-z_][\w.-]*$/.test(responseVariable.trim())?'Use letras, números, _, - e pontos, começando por letra.':'';
+  function configValue(){const headers=parsedHeaders();if(!headers)return null;return {url:url.trim(),method,headers,...(!['GET','HEAD'].includes(method)&&body?{body}:{}),...(responseVariable.trim()?{responseVariable:responseVariable.trim()}:{}),responseFields:fields.map(field=>({path:field.path.trim(),variable:field.variable.trim()}))}}
+  function validate(){setSubmitted(true);setLocalError('');if(urlError||headersError||fieldsError>=0||variableError){if(headersError)setTab('headers');else if(fieldsError>=0)setTab('mapping');return false}return true}
+  function save(){if(!validate())return;const config=configValue();if(config)onSave(name.trim()||'Integração',config)}
+  async function test(){if(!validate())return;let variables:Record<string,unknown>={};try{const value:unknown=JSON.parse(variablesJson||'{}');if(!value||Array.isArray(value)||typeof value!=='object')throw new Error();variables=value as Record<string,unknown>}catch{setLocalError('Os dados de simulação do fluxo precisam ser um objeto JSON válido para testar variáveis.');return}const config=configValue();if(!config)return;try{await testRequest.mutateAsync({id:playbookId,config:{url:config.url,method:config.method,headers:config.headers,...('body'in config?{body:String(config.body)}:{})},variables})}catch(error){setLocalError(errorMessage(error))}}
+  const result=testRequest.data;
+  const updateField=(index:number,patch:Partial<IntegrationResponseField>)=>setFields(current=>current.map((field,i)=>i===index?{...field,...patch}:field));
+  return <><header><span className="palette-icon webhook"><Globe2 size={17} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Integração</b></div></header>
+    <div className="inspector-form integration-editor">
+      <label>Nome do bloco<input value={name} maxLength={120} onChange={event=>setName(event.target.value)}/></label>
+      <section className="integration-basics"><div className="integration-grid"><label>Tipo de requisição<select value={method} onChange={event=>setMethod(event.target.value)}>{INTEGRATION_METHODS.map(item=><option value={item} key={item}>{item}</option>)}</select></label><label>Tempo limite<input value="15 segundos" disabled/></label></div>
+        <label>URL da requisição *<div className="integration-url"><input type="url" value={url} aria-invalid={Boolean(submitted&&urlError)} onChange={event=>setUrl(event.target.value)} placeholder="https://api.exemplo.com/recurso"/><select title="Inserir variável" aria-label="Inserir variável na URL" value="" onChange={event=>{if(event.target.value)setUrl(current=>current+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option></select></div>{submitted&&urlError?<small className="field-error">{urlError}</small>:<small>Use variáveis como {'{{contact.name}}'}, {'{{contact.phone}}'} ou {'{{contact.email}}'}.</small>}</label>
+      </section>
+      <section className="integration-panel"><nav className="integration-tabs" aria-label="Configuração da integração">{([['headers','Header da requisição'],['body','Corpo da requisição'],['mapping','Mapear resposta']] as Array<[IntegrationTab,string]>).map(([id,label])=><button type="button" className={tab===id?'active':''} onClick={()=>setTab(id)} key={id}>{label}{id==='mapping'&&fields.length>0?<span>{fields.length}</span>:null}</button>)}</nav>
+        <div className="integration-tab-body">
+          {tab==='headers'&&<><div className="integration-tab-title"><div><b>Dados do header</b><p>Informe um objeto JSON. Variáveis são substituídas durante a execução.</p></div><button type="button" className="integration-test" onClick={test} disabled={testRequest.isPending}><Play size={15}/>{testRequest.isPending?'Testando…':'Testar requisição'}</button></div><label className="code-editor"><textarea rows={9} spellCheck={false} value={headersDraft} aria-invalid={Boolean(submitted&&headersError)} onChange={event=>setHeadersDraft(event.target.value)}/><Code size={16}/></label>{submitted&&headersError&&<small className="field-error">{headersError}</small>}</>}
+          {tab==='body'&&<><div className="integration-tab-title"><div><b>Corpo da requisição</b><p>{['GET','HEAD'].includes(method)?`${method} não envia corpo.`:'JSON ou texto com variáveis do fluxo.'}</p></div><button type="button" className="integration-test" onClick={test} disabled={testRequest.isPending}><Play size={15}/>{testRequest.isPending?'Testando…':'Testar requisição'}</button></div><label className="code-editor"><textarea rows={10} spellCheck={false} disabled={['GET','HEAD'].includes(method)} value={body} onChange={event=>setBody(event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><Code size={16}/></label></>}
+          {tab==='mapping'&&<><div className="integration-tab-title"><div><b>Mapear resposta</b><p>Salve a resposta completa e campos específicos em variáveis do fluxo.</p></div><button type="button" className="integration-test" onClick={test} disabled={testRequest.isPending}><Play size={15}/>{testRequest.isPending?'Testando…':'Testar requisição'}</button></div><label>Salvar resposta completa em<input value={responseVariable} aria-invalid={Boolean(submitted&&variableError)} onChange={event=>setResponseVariable(event.target.value)} placeholder="integration.response"/>{submitted&&variableError&&<small className="field-error">{variableError}</small>}</label><div className="integration-mappings"><div className="integration-mapping-head"><b>Campos específicos ({fields.length}/20)</b><button type="button" disabled={fields.length>=20} onClick={()=>setFields(current=>[...current,{path:'',variable:''}])}><Plus size={15}/> Adicionar campo</button></div>{fields.length===0&&<p className="integration-empty">Nenhum campo específico. A resposta completa ainda pode ser salva acima.</p>}{fields.map((field,index)=><div className="integration-mapping-row" key={index}><input aria-label={`Caminho ${index+1}`} value={field.path} onChange={event=>updateField(index,{path:event.target.value})} placeholder="body.accepted"/><input aria-label={`Variável ${index+1}`} value={field.variable} aria-invalid={Boolean(submitted&&index===fieldsError)} onChange={event=>updateField(index,{variable:event.target.value})} placeholder="pagamento.aprovado"/><button type="button" aria-label={`Remover campo ${index+1}`} onClick={()=>setFields(current=>current.filter((_,i)=>i!==index))}><Trash2 size={15}/></button></div>)}</div></>}
+        </div>
+      </section>
+      {(localError||testRequest.isError)&&<div className="integration-result error"><b>Falha no teste</b><p>{localError||errorMessage(testRequest.error)}</p></div>}
+      {result&&<div className={`integration-result ${result.ok?'success':'error'}`}><div><b>{result.ok?'Requisição concluída':'A API respondeu com erro'}</b><span>HTTP {result.status} · {result.durationMs} ms</span></div><pre>{JSON.stringify(result.body,null,2)}</pre></div>}
+      <div className="integration-note"><Info size={17}/><p>Respostas HTTP 2xx seguem pela saída <b>sucesso</b>. Erros HTTP, falhas de rede e timeout seguem pela saída <b>erro</b>.</p></div>
+      <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar integração</button></footer>
     </div></>
 }
 const HTTPS_URL=/^https:\/\/\S+\.\S+/;

@@ -3,7 +3,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { AutomationDefinitionSchema } from '@nexo/contracts';
-import {kanbanAction} from '@nexo/domain';
+import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
@@ -419,9 +419,9 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'webhook': {
-        const url = stringConfig(node, 'url');
-        if (!url.startsWith('https://')) throw new NodeExecutionError('WEBHOOK_HTTPS_REQUIRED', 'O webhook deve usar HTTPS.');
-        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 30);
+        const url = renderTemplate(stringConfig(node, 'url'), context);
+        try{await assertPublicHttpsUrl(url)}catch(error){throw new NodeExecutionError('WEBHOOK_URL_BLOCKED',error instanceof Error?error.message:'A URL da integração não é permitida.')}
+        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 15);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
         let status: number | null = null;
@@ -431,9 +431,10 @@ export class AutomationEngineService implements OnModuleDestroy {
         try {
           const method = typeof node.config.method === 'string' ? node.config.method.toUpperCase() : 'POST';
           const configuredHeaders = node.config.headers && typeof node.config.headers === 'object' && !Array.isArray(node.config.headers) ? node.config.headers as Record<string, unknown> : {};
-          const headers = Object.fromEntries(Object.entries(configuredHeaders).filter((entry): entry is [string, string] => typeof entry[1] === 'string').map(([key, value]) => [key, renderTemplate(value, context)]));
+          const blockedHeaders=new Set(['connection','content-length','host','proxy-authorization','transfer-encoding','upgrade']);
+          const headers = Object.fromEntries(Object.entries(configuredHeaders).filter((entry): entry is [string, string] => typeof entry[1] === 'string'&&!blockedHeaders.has(entry[0].toLowerCase())).map(([key, value]) => [key, renderTemplate(value, context)]));
           const configuredBody = typeof node.config.body === 'string' && node.config.body.trim() ? renderTemplate(node.config.body, context) : JSON.stringify({ executionId, conversationId, context });
-          const response = await fetch(url, { method, headers: { 'content-type': 'application/json', 'idempotency-key': step.id, ...headers }, ...(!['GET', 'HEAD'].includes(method) ? { body: configuredBody } : {}), signal: controller.signal });
+          const response = await fetch(url, { method, headers: { 'content-type': 'application/json', 'idempotency-key': step.id, ...headers }, ...(!['GET', 'HEAD'].includes(method) ? { body: configuredBody } : {}), redirect:'manual', signal: controller.signal });
           status = response.status;
           body = (await response.text()).slice(0, 10_000);
           responseHeaders = Object.fromEntries(response.headers.entries());
