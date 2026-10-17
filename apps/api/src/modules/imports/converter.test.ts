@@ -4,7 +4,8 @@ import {describe,expect,it} from 'vitest';
 import {AutomationDefinitionSchema} from '@nexo/contracts';
 import {convertLeonaFlow,redactDefinitionSecrets} from './converter.js';
 
-const fixture=JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/leona-flow.redacted.json',import.meta.url)),'utf8'));
+const load=(name:string)=>JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/${name}`,import.meta.url)),'utf8'));
+const fixture=load('leona-flow.redacted.json');
 
 describe('conversor Leona',()=>{
   it('converte blocos conhecidos, variáveis e desvia blocos no-op',()=>{
@@ -51,5 +52,41 @@ describe('conversor Leona',()=>{
       {id:'condition',type:'condition',position:{x:200,y:0},data:{conditions:[{field:'system/tag',operator:'different',value:{name:'Cliente VIP'}}]}}
     ],edges:[{id:'edge',source:'start',target:'condition'}]});
     expect(result.definition.nodes.find(item=>item.kind==='condition')?.config.rules).toEqual([{field:'contact.tagIds',operator:'not_in',value:['Cliente VIP']}]);
+  });
+
+  it('lê o export real da Leona (data.actions[]) sem perder conteúdo',()=>{
+    const raw=load('leona-real-export.redacted.json');const result=convertLeonaFlow(raw);
+    expect(()=>AutomationDefinitionSchema.parse(result.definition)).not.toThrow();
+    const cfg=(kind:string)=>result.definition.nodes.filter(node=>node.kind===kind).map(node=>node.config as Record<string,any>);
+    const texts=cfg('message').flatMap(config=>(config.items as any[]).filter(item=>item.type==='text').map(item=>item.text as string));
+    expect(texts.length).toBeGreaterThan(5);
+    expect(texts.some(value=>value.includes('Mensagem importada'))).toBe(false);
+    expect(texts[0]).toContain('{{contact.customFields.link_grupo}}');
+    const waits=cfg('wait_response');
+    expect(waits.map(config=>config.timeoutValue).sort()).toEqual([20,20,31,31,31]);
+    expect(waits.every(config=>config.timeoutUnit==='days'&&config.bufferSeconds===0)).toBe(true);
+    expect(waits.filter(config=>config.waitIndefinitely).length).toBe(3);
+    const hook=cfg('webhook')[0]!;
+    expect(hook.url).toBe('https://api.kovil.com.br/integrations/leona/receipts/8039/resolve');
+    expect(hook.responseFields.map((field:any)=>field.variable).sort()).toEqual(['kovil.receipt.accepted','kovil.receipt.duplicate','kovil.receipt.error']);
+    expect(hook.headers).toEqual({'Content-Type':'application/json'});
+    expect(hook.body).toContain('{{contact.phone}}');
+    const rules=cfg('condition').flatMap(config=>config.rules as any[]);
+    expect(rules).toEqual(expect.arrayContaining([
+      {field:'contact.tagIds',operator:'in',value:['venda-atendente']},
+      {field:'resposta.gpt',operator:'contains',value:'#R$'},
+      {field:'resposta.gpt',operator:'not_contains',value:'#R$0,00'}
+    ]));
+    const ai=cfg('ai')[0]!;
+    expect(ai.systemPrompt).toContain('comprovantes de pagamento');
+    expect(ai.userMessage).toBe('{{last_message}}');
+    expect(ai.understandImage).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('<redacted>');
+    expect(JSON.stringify(result)).not.toContain('Authorization');
+    expect(cfg('tag')[0]).toMatchObject({mode:'add',tags:['PAGOUUPSELL']});
+    const {items,totals}=result.report;
+    for(const status of ['converted','adjusted','pending'] as const)expect(totals[status]).toBe(items.filter(item=>item.status===status).length);
+    expect(items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(true);
+    expect(items.some(item=>item.sourceType==='ai'&&item.message.includes('chave'))).toBe(true);
   });
 });

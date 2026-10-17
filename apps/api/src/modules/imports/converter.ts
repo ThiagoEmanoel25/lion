@@ -66,8 +66,40 @@ function conditionRules(config:JsonObject,items:ImportReport['items'],id:string)
 
 function safeHeaders(value:unknown,items:ImportReport['items'],id:string){
   const headers:Record<string,string>={};
-  for(const [key,raw] of Object.entries(object(value))){if(sensitiveKey.test(key)){items.push({sourceId:id,sourceType:'integration',status:'pending',message:`Cabeçalho sensível “${key}” não foi importado; configure-o no Nexo.`});continue}if(typeof raw==='string')headers[key]=raw}
+  for(const [key,raw] of Object.entries(object(value))){if(sensitiveKey.test(key)){items.push({sourceId:id,sourceType:'integration',status:'pending',message:'Um cabeçalho sensível não foi importado; configure-o no Nexo.'});continue}if(typeof raw==='string')headers[key]=raw}
   return headers;
+}
+
+type Item=ImportReport['items'][number];
+const actionsOf=(node:JsonObject)=>{const list=object(node.data).actions;return Array.isArray(list)?list.map(object).filter(action=>typeof action.action_type==='string').sort((a,b)=>num(a.order)-num(b.order)):[]};
+const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
+const mediaUrl=(config:JsonObject,...keys:string[])=>text(...keys.map(key=>config[key]),object(config.media_file_info).direct_url,object(config.media_file_info).url);
+
+function realMessageItems(actions:JsonObject[],items:ImportReport['items'],id:string,type:string){
+  const out:JsonObject[]=[];const flag=(status:Item['status'],message:string)=>items.push({sourceId:id,sourceType:type,status,message});
+  for(const action of actions){
+    const c=object(action.config);const kind=action.action_type;
+    if(kind==='send_message'){const body=text(c.message_text);if(!body){flag('pending','Mensagem sem texto (message_text) não foi importada.');continue}const delay=num(c.typing_delay_seconds);if(delay<0||delay>30)flag('adjusted','Tempo de digitação limitado a 0–30 segundos.');out.push({type:'text',text:replaceVariables(body,items,id),typingSeconds:clamp(delay,0,30)})}
+    else if(kind==='send_file'){const url=mediaUrl(c,'file_url','url');if(!url){flag('pending','Arquivo sem URL (file_url) não foi importado.');continue}out.push({type:'file',url,fileName:text(c.file_name,object(c.media_file_info).filename)??'arquivo'})}
+    else if(kind==='send_multi_media'){const url=mediaUrl(c,'url');if(!url){flag('pending','Mídia sem URL (media_file_info.direct_url) não foi importada.');continue}if(Array.isArray(c.messages)&&c.messages.length)flag('pending','Mensagens extras de “send_multi_media” (messages[]) não foram importadas.');const mediaType=['image','video','audio'].includes(String(c.media_type))?String(c.media_type):'image';const caption=text(c.caption);out.push({type:'media',mediaType,url,...(caption&&mediaType!=='audio'?{caption:replaceVariables(caption,items,id)}:{})})}
+    else if(kind==='delay_between_messages'){const min=num(c.delay_min_seconds??c.delay_seconds);const max=num(c.delay_max_seconds??c.delay_seconds);if(min>300||max>300)flag('adjusted','Pausa limitada a 300 segundos.');const lo=clamp(min,0,300);out.push({type:'pause',minSeconds:lo,maxSeconds:clamp(Math.max(max,lo),lo,300)})}
+    else flag('pending',`Ação “${String(kind)}” não é suportada em mensagens e foi ignorada.`);
+  }
+  if(!out.length){flag('pending','Mensagem sem conteúdo legível (message_text); revise o conteúdo.');return [{type:'text',text:'Mensagem importada — revise o conteúdo.',typingSeconds:0}]}
+  return out;
+}
+
+const fieldOperators:Record<string,string>={contains:'contains',not_contains:'not_contains',equal:'equals',not_equal:'not_equals'};
+function realConditionRules(c:JsonObject,items:ImportReport['items'],id:string){
+  const rules:JsonObject[]=[];
+  for(const raw of Array.isArray(c.conditions)?c.conditions:[]){
+    const rule=object(raw);const tagName=text(rule.tagName);
+    if(rule.category==='system'&&rule.systemSubtype==='tag'&&tagName&&['equal','not_equal'].includes(String(rule.systemOperator)))rules.push({field:'contact.tagIds',operator:rule.systemOperator==='equal'?'in':'not_in',value:[tagName.trim()]});
+    else if(rule.category==='custom_field'&&text(rule.fieldName)&&fieldOperators[String(rule.fieldOperator)])rules.push({field:text(rule.fieldName),operator:fieldOperators[String(rule.fieldOperator)],value:strings(String(rule.fieldValue??''),items,id)});
+    else items.push({sourceId:id,sourceType:'condition',status:'pending',message:`Regra não suportada ignorada: ${JSON.stringify(rule)}`});
+  }
+  if(!rules.length)items.push({sourceId:id,sourceType:'condition',status:'pending',message:'Condicional sem regras legíveis; revise as condições.'});
+  return {logic:c.ruleType==='any'?'any':'all',rules:rules.length?rules:[{field:'last_message',operator:'exists'}]};
 }
 
 function mapNode(raw:JsonObject,index:number,items:ImportReport['items']){
@@ -75,6 +107,44 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items']){
   const positionRaw=object(raw.position);const position={x:num(positionRaw.x,num(raw.x,index*260)),y:num(positionRaw.y,num(raw.y,160))};
   const name=text(raw.name,object(raw.data).label,object(raw.data).name)??type;
   const base={id,name,position};
+  const acts=actionsOf(raw);
+  if(acts.length){
+    const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message});
+    const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags'};
+    const first=acts.find(action=>action.action_type===expected[type]);
+    if(type==='message')return {...base,kind:'message' as const,config:{items:realMessageItems(acts,items,originalId,type)}};
+    if(expected[type]){
+      for(const extra of acts.filter(action=>action!==first))pend(`Ação extra “${String(extra.action_type)}” não foi importada.`);
+      if(!first)pend(`Bloco “${type}” sem a ação “${expected[type]}”; revise.`);
+      else{
+        const c=object(first.config);
+        if(type==='wait_response'){
+          if(c.reply_to_lead_enabled===true||c.react_to_lead_check_enabled===true)pend('Responder/reagir ao lead no Aguarda Resposta não foi importado.');
+          const unit=String(c.timeout_unit);if(!['minutes','hours','days'].includes(unit))pend('Unidade de tempo do Aguarda Resposta (timeout_unit) não reconhecida; usando horas.');
+          return {...base,kind:'wait_response' as const,config:{waitIndefinitely:c.wait_indefinitely===true,timeoutValue:Math.max(1,num(c.timeout_value,1)),timeoutUnit:['minutes','hours','days'].includes(unit)?unit:'hours',bufferSeconds:c.buffer_enabled===true?clamp(num(c.buffer_value),0,300):0}};
+        }
+        if(type==='condition')return {...base,kind:'condition' as const,config:realConditionRules(c,items,originalId)};
+        if(type==='ai'){
+          if(text(c.api_key))pend('A chave da IA não foi copiada. Configure a chave do workspace explicitamente.');
+          if(Object.entries(c).some(([key,value])=>/^validate_receipt_/.test(key)&&value===true)||Object.entries(c).some(([key,value])=>/^expected_pix_key/.test(key)&&text(value)))pend('Validação de comprovante e chave Pix esperada não foram importadas.');
+          if(!text(c.system_prompt))pend('Bloco de IA sem prompt (system_prompt); revise as instruções.');
+          return {...base,kind:'ai' as const,config:{model:text(c.model)??'gpt-5.4-mini',systemPrompt:replaceVariables(text(c.system_prompt)??'Revise as instruções importadas.',items,originalId),userMessage:replaceVariables(text(c.user_message)??'{last_message}',items,originalId),understandImage:c.understand_image===true,understandPdf:c.understand_pdf===true,understandAudio:c.understand_audio===true,responseVariable:text(c.response_variable)??'resposta.gpt',failReasonVariable:text(c.fail_reason_variable)??'ai.fail.reason',autoSendResponse:c.auto_send_response===true,contextInteractions:clamp(num(c.context_interactions,1),1,20)}};
+        }
+        if(type==='integration'){
+          if(!text(c.request_url))pend('Integração sem URL (request_url); revise.');
+          const mapping=object(c.response_mapping);const body=c.request_body;
+          const fields=(Array.isArray(c.response_fields)?c.response_fields:[]).map(object).filter(field=>text(field.path)).map(field=>({path:text(field.path)!,variable:text(mapping[String(field.name)],field.name)!}));
+          return {...base,kind:'webhook' as const,config:{url:text(c.request_url)??'https://example.com/revise',method:String(text(c.request_method)??'POST').toUpperCase(),headers:safeHeaders(c.request_headers,items,originalId),...(typeof body==='string'&&body?{body:replaceVariables(body,items,originalId)}:{}),responseFields:fields}};
+        }
+        if(type==='tags'){
+          const names=(Array.isArray(c.tags)?c.tags:[]).filter((value):value is string=>typeof value==='string'&&Boolean(value.trim()));
+          if(!names.length)pend('Bloco de etiquetas sem nomes (tags); revise.');
+          if(c.action==='remove')pend('Remover etiquetas não é suportado; as etiquetas serão adicionadas.');
+          return {...base,kind:'tag' as const,config:{mode:'add',tagIds:[],tags:names.length?names:['Etiqueta importada']}};
+        }
+      }
+    }
+  }
   if(type==='start'||type==='trigger')return {...base,kind:'trigger' as const,config:{event:'message.received'}};
   if(type==='message'||type==='send_message'||type==='send_file'||type==='send_multi_media'||type==='delay_between_messages')return {...base,kind:'message' as const,config:{items:messageItems(config,items,originalId)}};
   if(type==='wait_response')return {...base,kind:'wait_response' as const,config:{waitIndefinitely:config.waitIndefinitely===true||config.wait_indefinitely===true,timeoutValue:Math.max(1,num(config.timeoutValue??config.timeout_value,1)),timeoutUnit:text(config.timeoutUnit,config.timeout_unit)??'hours',bufferSeconds:Math.max(0,Math.min(300,num(config.bufferSeconds??config.buffer_seconds)))}};
