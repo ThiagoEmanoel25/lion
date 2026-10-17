@@ -1,0 +1,1328 @@
+{
+ "nodes": [
+  {
+   "id": "5343625",
+   "type": "start",
+   "data": {
+    "label": "Início",
+    "nodeType": "start",
+    "description": null,
+    "actions": [],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 100,
+    "y": 100
+   },
+   "width": 240,
+   "height": 83
+  },
+  {
+   "id": "5343660",
+   "type": "condition",
+   "data": {
+    "label": "Condicional",
+    "nodeType": "condition",
+    "description": "Avaliar condições e direcionar o fluxo",
+    "actions": [
+     {
+      "id": 10818501,
+      "action_type": "evaluate_condition",
+      "config": {
+       "ruleType": "all",
+       "conditions": [
+        {
+         "id": "condition_1791309324297",
+         "tagId": 121593,
+         "tagName": "venda-atendente",
+         "category": "system",
+         "systemSubtype": "tag",
+         "systemOperator": "equal"
+        }
+       ]
+      },
+      "order": 1,
+      "flow_node_id": 5343660,
+      "created_at": "2026-10-06T15:09:00-03:00",
+      "updated_at": "2026-10-06T15:09:00-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 418,
+    "y": 156.0098975731156
+   },
+   "width": 240,
+   "height": 147
+  },
+  {
+   "id": "5343987",
+   "type": "message",
+   "data": {
+    "label": "Mensagem",
+    "nodeType": "message",
+    "description": "",
+    "actions": [
+     {
+      "id": 10816922,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "✅ ¡Muchas gracias por tu contribución! Ya tienes el kit completo de la Gelatina Bariatrica. \n\n*Los bonos especiales están en la descripción del grupo*\n\n{link_grupo}",
+       "typing_delay_seconds": 3
+      },
+      "order": 1,
+      "flow_node_id": 5343987,
+      "created_at": "2026-10-06T14:59:40-03:00",
+      "updated_at": "2026-10-06T14:59:40-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 1408.6465327693486,
+    "y": 209.1891466503618
+   },
+   "width": 240,
+   "height": 130
+  },
+  {
+   "id": "5343992",
+   "type": "message",
+   "data": {
+    "label": "Mensagem",
+    "nodeType": "message",
+    "description": "",
+    "actions": [
+     {
+      "id": 10817131,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "✨ Antes de cerrar este momento, quiero compartir algo contigo…\n\nMuchas personas que empiezan con la Gelatina Bariátrica notan resultados desde los primeros días.\nPero después de una semana, surge una pregunta muy común:\n\n*¿Cómo puedo hacer que estos resultados lleguen más rápido?* 🔥",
+       "typing_delay_seconds": 18
+      },
+      "order": 1,
+      "flow_node_id": 5343992,
+      "created_at": "2026-10-06T15:01:24-03:00",
+      "updated_at": "2026-10-10T15:15:49-03:00"
+     },
+     {
+      "id": 10817130,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Y la respuesta está en atacar el problema desde varios frentes al mismo tiempo.\nNo solo la alimentación… sino también el movimiento, la inflamación y la limpieza del cuerpo.\n\nPor eso preparé algo especial para las personas que ya tienen el kit de la Gelatina Bariátrica y quieren ir más lejos.",
+       "typing_delay_seconds": 9
+      },
+      "order": 2,
+      "flow_node_id": 5343992,
+      "created_at": "2026-10-06T15:01:24-03:00",
+      "updated_at": "2026-10-10T15:15:49-03:00"
+     },
+     {
+      "id": 10817127,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "📦 *Kit Acelerador de Resultados* — 4 guías completas:\n\n📅 *Plan de 21 Días con Huevo* — un menú listo para cada día, sin tener que pensar qué comer\n💪 *Guía de Ejercicios en Casa* — rutinas simples para quemar grasa sin gym ni equipos\n🌿 *Guía Anti-Inflamación & Barriga Plana* — elimina la hinchazón que frena tu pérdida de peso\n💧 *Método Detox de 7 Días* — limpieza profunda con resultados visibles desde el primer día\n\nEste kit fue pensado exactamente para complementar lo que ya tienes y *acelerar los resultados que estás buscando.* ✨",
+       "typing_delay_seconds": 13
+      },
+      "order": 3,
+      "flow_node_id": 5343992,
+      "created_at": "2026-10-06T15:01:23-03:00",
+      "updated_at": "2026-10-06T15:01:23-03:00"
+     },
+     {
+      "id": 10817129,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "🎁 El valor normal de este kit es de ~10.000 Bs~\nPero como ya eres parte de nuestra comunidad…\n\n🌟 Hoy puedes recibirlo por solo *1.000 Bs* como contribución simbólica.\n\nY como siempre… *primero te lo envío y luego haces tu contribución.* 😊",
+       "typing_delay_seconds": 8
+      },
+      "order": 4,
+      "flow_node_id": 5343992,
+      "created_at": "2026-10-06T15:01:24-03:00",
+      "updated_at": "2026-10-06T15:01:24-03:00"
+     },
+     {
+      "id": 10817128,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "¿Quieres que te mande el kit ahora mismo?",
+       "typing_delay_seconds": 9
+      },
+      "order": 5,
+      "flow_node_id": 5343992,
+      "created_at": "2026-10-06T15:01:23-03:00",
+      "updated_at": "2026-10-06T15:01:23-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 1699.49028602085,
+    "y": 321.18917053665274
+   },
+   "width": 240,
+   "height": 318
+  },
+  {
+   "id": "5344287",
+   "type": "wait_response",
+   "data": {
+    "label": "Aguarda Resposta",
+    "nodeType": "wait_response",
+    "description": "",
+    "actions": [
+     {
+      "id": 10817892,
+      "action_type": "wait_for_response",
+      "config": {
+       "buffer_value": 30,
+       "timeout_unit": "days",
+       "timeout_value": 20,
+       "buffer_enabled": false,
+       "wait_indefinitely": false,
+       "reply_to_lead_enabled": false,
+       "react_to_lead_check_enabled": false,
+       "react_to_lead_reaction_emoji": "✅",
+       "reply_to_lead_next_messages_count": 1
+      },
+      "order": 1,
+      "flow_node_id": 5344287,
+      "created_at": "2026-10-06T15:02:35-03:00",
+      "updated_at": "2026-10-06T15:02:35-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 1968.6982593168957,
+    "y": 727.2823235731084
+   },
+   "width": 240,
+   "height": 226
+  },
+  {
+   "id": "5345054",
+   "type": "message",
+   "data": {
+    "label": "Mensagem",
+    "nodeType": "message",
+    "description": "",
+    "actions": [
+     {
+      "id": 10818836,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "¡Perfecto! 😊 Aquí tienes tu Kit Acelerador de Resultados completo…",
+       "typing_delay_seconds": 5
+      },
+      "order": 1,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818835,
+      "action_type": "send_file",
+      "config": {
+       "file_url": "",
+       "file_name": "Plan-21-Dias-con-Huevo.pdf",
+       "media_source": "file",
+       "media_file_info": {
+        "url": "https://leona-production.b-cdn.net/jkctev1pyfgtnu4lmjjfd26u3cro",
+        "direct_url": "https://leona-production.b-cdn.net/jkctev1pyfgtnu4lmjjfd26u3cro",
+        "filename": "f3quodvle9b9ixx9ixrxblte40ap.pdf",
+        "size": 10902939,
+        "content_type": "application/pdf",
+        "storage_type": "aws"
+       }
+      },
+      "order": 2,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:17:03-03:00"
+     },
+     {
+      "id": 10818841,
+      "action_type": "delay_between_messages",
+      "config": {
+       "delay_seconds": 0,
+       "delay_max_seconds": 9,
+       "delay_min_seconds": 0
+      },
+      "order": 3,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818838,
+      "action_type": "send_file",
+      "config": {
+       "file_url": "",
+       "file_name": "Guia-Ejercicios-en-Casa_1.pdf",
+       "media_source": "file",
+       "media_file_info": {
+        "url": "https://leona-production.b-cdn.net/cms0tg2r7yf72tcj04l4jm32h16s",
+        "direct_url": "https://leona-production.b-cdn.net/cms0tg2r7yf72tcj04l4jm32h16s",
+        "filename": "jd7b0nxxdfx91x9syy1kq3nq71aa.pdf",
+        "size": 31080,
+        "content_type": "application/pdf",
+        "storage_type": "aws"
+       }
+      },
+      "order": 4,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818839,
+      "action_type": "delay_between_messages",
+      "config": {
+       "delay_seconds": 0,
+       "delay_max_seconds": 12,
+       "delay_min_seconds": 0
+      },
+      "order": 5,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818845,
+      "action_type": "send_file",
+      "config": {
+       "file_url": "",
+       "file_name": "Guia-Anti-Inflamacion-Barriga-Plana.pdf",
+       "media_source": "file",
+       "media_file_info": {
+        "url": "https://leona-production.b-cdn.net/h29kkeme7qf3xwlu0i8t90ss16m3",
+        "direct_url": "https://leona-production.b-cdn.net/h29kkeme7qf3xwlu0i8t90ss16m3",
+        "filename": "hrhchsedfnr38eto3jhrwbox4lql.pdf",
+        "size": 10450124,
+        "content_type": "application/pdf",
+        "storage_type": "aws"
+       }
+      },
+      "order": 6,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:17:03-03:00"
+     },
+     {
+      "id": 10818837,
+      "action_type": "delay_between_messages",
+      "config": {
+       "delay_seconds": 0,
+       "delay_max_seconds": 10,
+       "delay_min_seconds": 0
+      },
+      "order": 7,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818840,
+      "action_type": "send_file",
+      "config": {
+       "file_url": "",
+       "file_name": "Metodo-Detox-7-Dias.pdf",
+       "media_source": "file",
+       "media_file_info": {
+        "url": "https://leona-production.b-cdn.net/tps4kptw5nuz64teesbyf51qt41r",
+        "direct_url": "https://leona-production.b-cdn.net/tps4kptw5nuz64teesbyf51qt41r",
+        "filename": "6hstbiuwblctk2k2fa3b9dvij9v2.pdf",
+        "size": 10356518,
+        "content_type": "application/pdf",
+        "storage_type": "aws"
+       }
+      },
+      "order": 8,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:17:02-03:00"
+     },
+     {
+      "id": 10818843,
+      "action_type": "delay_between_messages",
+      "config": {
+       "delay_seconds": 0,
+       "delay_max_seconds": 10,
+       "delay_min_seconds": 0
+      },
+      "order": 9,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818842,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "¡Listo! Ya te envié los 4 archivos aquí arriba ⬆️\nSolo tienes que hacer clic y descargarlos. 🥰",
+       "typing_delay_seconds": 3
+      },
+      "order": 10,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     },
+     {
+      "id": 10818844,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Ahora te comparto los datos para tu contribución de *1.500 Bs* 🙏",
+       "typing_delay_seconds": 3
+      },
+      "order": 11,
+      "flow_node_id": 5345054,
+      "created_at": "2026-10-06T15:16:58-03:00",
+      "updated_at": "2026-10-06T15:16:58-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 2832.4282900518483,
+    "y": 50.124238572288135
+   },
+   "width": 240,
+   "height": 544
+  },
+  {
+   "id": "5345157",
+   "type": "wait_response",
+   "data": {
+    "label": "Aguarda Resposta",
+    "nodeType": "wait_response",
+    "description": "",
+    "actions": [
+     {
+      "id": 10818863,
+      "action_type": "wait_for_response",
+      "config": {
+       "buffer_value": 30,
+       "timeout_unit": "days",
+       "timeout_value": 31,
+       "buffer_enabled": false,
+       "wait_indefinitely": true,
+       "reply_to_lead_enabled": false,
+       "react_to_lead_check_enabled": false,
+       "react_to_lead_reaction_emoji": "✅",
+       "reply_to_lead_next_messages_count": 1
+      },
+      "order": 1,
+      "flow_node_id": 5345157,
+      "created_at": "2026-10-06T15:18:10-03:00",
+      "updated_at": "2026-10-06T15:18:17-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 2520.89591127378,
+    "y": 969.4501281172572
+   },
+   "width": 240,
+   "height": 226
+  },
+  {
+   "id": "5345173",
+   "type": "message",
+   "data": {
+    "label": "Mensagem",
+    "nodeType": "message",
+    "description": "",
+    "actions": [
+     {
+      "id": 10819067,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Ahora necesito tu contribución 😊\n\nForma de pago: Valor Único\n\nVoy a dejar aquí 4 valores y eliges el que consideres más justo:\n \n*1.000Bs. → colaboración justa* 💕\n*1.500Bs. → muy agradecido* 🌹\n*1.800Bs. → apoyo al proyecto* 🙏🏻\n\nDeja que tu corazón sea guiado por Dios y contribuye con el valor que sientas en tu corazón 🙏💟",
+       "typing_delay_seconds": 3
+      },
+      "order": 1,
+      "flow_node_id": 5345173,
+      "created_at": "2026-10-06T15:20:52-03:00",
+      "updated_at": "2026-10-06T15:20:52-03:00"
+     },
+     {
+      "id": 10819070,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Estos son los datos de pago .\n\nBanco BBVA Provincial\nPagomovil",
+       "typing_delay_seconds": 7
+      },
+      "order": 2,
+      "flow_node_id": 5345173,
+      "created_at": "2026-10-06T15:20:52-03:00",
+      "updated_at": "2026-10-06T15:20:52-03:00"
+     },
+     {
+      "id": 10819069,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "*04122706793*\n",
+       "typing_delay_seconds": 3
+      },
+      "order": 3,
+      "flow_node_id": 5345173,
+      "created_at": "2026-10-06T15:20:52-03:00",
+      "updated_at": "2026-10-06T15:20:52-03:00"
+     },
+     {
+      "id": 10819068,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Nombre: Cesar Coloma\n\nCedula: *24374537*\n",
+       "typing_delay_seconds": 3
+      },
+      "order": 4,
+      "flow_node_id": 5345173,
+      "created_at": "2026-10-06T15:20:52-03:00",
+      "updated_at": "2026-10-06T15:20:52-03:00"
+     },
+     {
+      "id": 10819071,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Estoy esperando tu aportación 🥰",
+       "typing_delay_seconds": 3
+      },
+      "order": 5,
+      "flow_node_id": 5345173,
+      "created_at": "2026-10-06T15:20:52-03:00",
+      "updated_at": "2026-10-06T15:20:52-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 3237.782738987532,
+    "y": 69.68632685830795
+   },
+   "width": 240,
+   "height": 304
+  },
+  {
+   "id": "5345336",
+   "type": "kanban",
+   "data": {
+    "label": "Kanban",
+    "nodeType": "kanban",
+    "description": "Criar ou mover card no Kanban selecionado",
+    "actions": [],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 3596.1645462418387,
+    "y": 36.09983235601335
+   },
+   "width": 240,
+   "height": 124
+  },
+  {
+   "id": "5345718",
+   "type": "wait_response",
+   "data": {
+    "label": "Aguarda Resposta",
+    "nodeType": "wait_response",
+    "description": "",
+    "actions": [
+     {
+      "id": 10819969,
+      "action_type": "wait_for_response",
+      "config": {
+       "buffer_value": 30,
+       "timeout_unit": "days",
+       "timeout_value": 20,
+       "buffer_enabled": false,
+       "wait_indefinitely": false,
+       "reply_to_lead_enabled": false,
+       "react_to_lead_check_enabled": false,
+       "react_to_lead_reaction_emoji": "✅",
+       "reply_to_lead_next_messages_count": 1
+      },
+      "order": 1,
+      "flow_node_id": 5345718,
+      "created_at": "2026-10-06T15:22:52-03:00",
+      "updated_at": "2026-10-06T15:22:52-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 4150.242773770083,
+    "y": 438.81683032881546
+   },
+   "width": 240,
+   "height": 226
+  },
+  {
+   "id": "5345758",
+   "type": "wait_response",
+   "data": {
+    "label": "Aguarda Resposta",
+    "nodeType": "wait_response",
+    "description": "",
+    "actions": [
+     {
+      "id": 10820028,
+      "action_type": "wait_for_response",
+      "config": {
+       "buffer_value": 30,
+       "timeout_unit": "days",
+       "timeout_value": 31,
+       "buffer_enabled": false,
+       "wait_indefinitely": true,
+       "reply_to_lead_enabled": false,
+       "react_to_lead_check_enabled": false,
+       "react_to_lead_reaction_emoji": "✅",
+       "reply_to_lead_next_messages_count": 1
+      },
+      "order": 1,
+      "flow_node_id": 5345758,
+      "created_at": "2026-10-06T15:23:50-03:00",
+      "updated_at": "2026-10-06T15:23:54-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 4724.414834482409,
+    "y": 1013.6619621149243
+   },
+   "width": 240,
+   "height": 226
+  },
+  {
+   "id": "5345766",
+   "type": "ai",
+   "data": {
+    "label": "Bloco de IA",
+    "nodeType": "ai",
+    "description": "Integração com GPT e Gemini para respostas inteligentes",
+    "actions": [
+     {
+      "id": 10820101,
+      "action_type": "ai_call",
+      "config": {
+       "model": "gpt-5.4-mini",
+       "api_key": "<redacted>",
+       "provider": "gpt",
+       "user_message": "{last_message}",
+       "system_prompt": "Você é um assistente automatizado responsável por analisar comprovantes de pagamento enviados pelo lead.\n\nSempre responda em espanhol.\n\nSua função NÃO é conversar com o lead.\nSua função é APENAS analisar o comprovante, identificar o valor pago e retornar o valor convertido para o sistema no formato especificado.\n\n🔹 REGRA 1 — COMPROVANTE DE PAGAMENTO\n\nSe o lead enviar imagem, PDF ou áudio que seja claramente um comprovante de pagamento (transferência, depósito, pagamento bancário ou similar):\n\nAnalise a mídia.\n\nIdentifique o valor pago em Bolívares Venezuelanos (VES).\n\nConverta o valor para Reais Brasileiros (R$) utilizando a taxa de câmbio fixa abaixo:\n\n**1 VES = R$ 0,00538**\n\nFórmula obrigatória:\n\n**VALOR EM VES × 0,00538 = VALOR EM R$**\n\nExemplos de conversão:\n\n1.000 VES = #R$5,38\n5.000 VES = #R$26,90\n10.000 VES = #R$53,80\n50.000 VES = #R$269,00\n100.000 VES = #R$538,00\n\nIMPORTANTE — FORMATO DE SAÍDA\n\nRetorne somente para o sistema exatamente neste formato:\n\n**#R$XX,XX**\n\nSubstitua XX,XX pelo valor convertido em R$.\n\nRegras do formato:\n\nUse #R$ no início do valor (obrigatório).\nUse vírgula (,) como separador decimal.\nUse duas casas decimais.\nNão inclua texto, espaços ou explicações.\nSua resposta deve conter exclusivamente o valor final.\n\n🔹 REGRA GERAL\n\nNunca invente valores.\n\nFoco em mídia: analise apenas o que está visível ou audível em arquivos (rejeite comprovantes enviados apenas como mensagem de texto).\n\nSempre identifique primeiro o valor em VES.\n\nSempre converta utilizando exatamente a taxa fixa de **0,00538**.\n\nNunca retorne frases, palavras ou saudações antes ou depois do valor.\n\n\n[KOVIL_RECEIPT_V1]\nFormato interno para integração de comprovantes. Esta regra substitui APENAS a regra antiga de devolver exclusivamente #R$XX,XX; mantenha todas as taxas de conversão e regras de validação acima.\nAnalise apenas o último comprovante recebido, não reutilize comprovantes anteriores do contexto para responder a uma nova mensagem de texto. Se houver comprovante válido e legível, devolva SOMENTE um objeto JSON válido, sem Markdown, sem bloco de código e sem texto adicional:\n{\"value\":\"#R$XX,XX\",\"reference\":\"referência/número da operação exatamente como impresso\",\"date\":\"YYYY-MM-DD\",\"original_amount\":0,\"original_currency\":\"VES\"}\nvalue: valor positivo convertido para reais pelas taxas já definidas acima, com duas casas decimais. reference: identificador bancário real da transação, nunca telefone, nome, conta ou valor. date: data de pagamento impressa, convertida para YYYY-MM-DD. original_amount: número com o valor original do comprovante; original_currency: código ISO da moeda original, sem inventar moeda ou taxa.\nNão copie valores ou identificadores deste exemplo. Não invente referência nem data. Se faltar valor positivo, data ou referência legível, ou não for comprovante de pagamento realizado, NÃO inclua #R$ e siga a orientação de pedir um comprovante legível. Este JSON é interno e nunca deve ser enviado ao cliente.",
+       "api_key_source": "manual",
+       "understand_pdf": true,
+       "expected_pix_key": "",
+       "maintain_context": false,
+       "understand_audio": false,
+       "understand_image": true,
+       "expected_pix_keys": [],
+       "response_variable": "resposta.gpt",
+       "auto_send_response": false,
+       "understand_receipt": false,
+       "context_interactions": 1,
+       "fail_reason_variable": "ai.fail.reason",
+       "expected_recipient_name": "",
+       "expected_recipient_names": [],
+       "validate_receipt_pix_key": false,
+       "validate_receipt_recipient": false
+      },
+      "order": 1,
+      "flow_node_id": 5345766,
+      "created_at": "2026-10-06T15:26:16-03:00",
+      "updated_at": "2026-10-13T15:21:56-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 4976.132113740891,
+    "y": 353.82697387148494
+   },
+   "width": 240,
+   "height": 222
+  },
+  {
+   "id": "5345807",
+   "type": "condition",
+   "data": {
+    "label": "Condicional",
+    "nodeType": "condition",
+    "description": "Avaliar condições e direcionar o fluxo",
+    "actions": [
+     {
+      "id": 10820121,
+      "action_type": "evaluate_condition",
+      "config": {
+       "ruleType": "all",
+       "conditions": [
+        {
+         "id": "condition_1791311254521",
+         "category": "custom_field",
+         "fieldName": "resposta.gpt",
+         "fieldValue": "#R$",
+         "fieldOperator": "contains"
+        },
+        {
+         "id": "kovil-positive-receipt",
+         "category": "custom_field",
+         "fieldName": "resposta.gpt",
+         "fieldValue": "#R$0,00",
+         "fieldOperator": "not_contains"
+        }
+       ]
+      },
+      "order": 1,
+      "flow_node_id": 5345807,
+      "created_at": "2026-10-06T15:27:50-03:00",
+      "updated_at": "2026-10-13T23:32:50-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 5289.7564721317,
+    "y": 524.4607597201938
+   },
+   "width": 240,
+   "height": 205
+  },
+  {
+   "id": "5346047",
+   "type": "wait_response",
+   "data": {
+    "label": "Aguarda Resposta",
+    "nodeType": "wait_response",
+    "description": "",
+    "actions": [
+     {
+      "id": 10820620,
+      "action_type": "wait_for_response",
+      "config": {
+       "buffer_value": 30,
+       "timeout_unit": "days",
+       "timeout_value": 31,
+       "buffer_enabled": false,
+       "wait_indefinitely": true,
+       "reply_to_lead_enabled": false,
+       "react_to_lead_check_enabled": false,
+       "react_to_lead_reaction_emoji": "✅",
+       "reply_to_lead_next_messages_count": 1
+      },
+      "order": 1,
+      "flow_node_id": 5346047,
+      "created_at": "2026-10-06T15:33:02-03:00",
+      "updated_at": "2026-10-06T15:33:02-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 5603.321703664028,
+    "y": 298.3023833361218
+   },
+   "width": 240,
+   "height": 226
+  },
+  {
+   "id": "5346058",
+   "type": "pixel",
+   "data": {
+    "label": "Pixel",
+    "nodeType": "pixel",
+    "description": "Disparar eventos em ferramentas de anúncios (Facebook Ads, etc)",
+    "actions": [
+     {
+      "id": 11000453,
+      "action_type": "send_pixel_event",
+      "config": {
+       "page_id": "<page-id>",
+       "currency": "BRL",
+       "event_type": "Compra",
+       "item_value": "15",
+       "tracking_type": "Facebook",
+       "pixel_config_id": 3327,
+       "pixel_config_name": "PIXEL - MARITZA"
+      },
+      "order": 1,
+      "flow_node_id": 5346058,
+      "created_at": "2026-10-08T13:00:45-03:00",
+      "updated_at": "2026-10-08T13:00:45-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 5913.804409835374,
+    "y": 572.338995786044
+   },
+   "width": 240,
+   "height": 154
+  },
+  {
+   "id": "5346068",
+   "type": "integration",
+   "data": {
+    "label": "Integração",
+    "nodeType": "integration",
+    "description": "Fazer requisições HTTP (POST/PUT/GET) para APIs externas",
+    "actions": [
+     {
+      "id": 10820658,
+      "action_type": "make_http_request",
+      "config": {
+       "request_url": "https://api.kovil.com.br/integrations/leona/receipts/8039/resolve",
+       "request_body": "{\"customer_phone\":\"{phone_number}\",\"chip_number\":\"{instance_number}\",\"flow_id\":\"140360\"}",
+       "request_method": "POST",
+       "request_headers": {
+        "Content-Type": "application/json",
+        "Authorization": "<redacted>"
+       },
+       "response_fields": [
+        {
+         "name": "accepted",
+         "path": "body.accepted"
+        },
+        {
+         "name": "duplicate",
+         "path": "body.duplicate"
+        },
+        {
+         "name": "message",
+         "path": "body.message"
+        }
+       ],
+       "response_mapping": {
+        "message": "kovil.receipt.error",
+        "accepted": "kovil.receipt.accepted",
+        "duplicate": "kovil.receipt.duplicate"
+       }
+      },
+      "order": 1,
+      "flow_node_id": 5346068,
+      "created_at": "2026-10-06T15:36:11-03:00",
+      "updated_at": "2026-10-13T23:29:59-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 6334.550261402503,
+    "y": 612.292270783927
+   },
+   "width": 240,
+   "height": 156
+  },
+  {
+   "id": "5346069",
+   "type": "message",
+   "data": {
+    "label": "Mensagem",
+    "nodeType": "message",
+    "description": "",
+    "actions": [
+     {
+      "id": 10820659,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "✅ ¡Muchas gracias por tu contribución!\n\n{link_grupo}",
+       "typing_delay_seconds": 3
+      },
+      "order": 1,
+      "flow_node_id": 5346069,
+      "created_at": "2026-10-06T15:36:26-03:00",
+      "updated_at": "2026-10-06T15:36:26-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 6688.139738403805,
+    "y": 643.1537879322545
+   },
+   "width": 240,
+   "height": 130
+  },
+  {
+   "id": "5346072",
+   "type": "tags",
+   "data": {
+    "label": "Etiquetas",
+    "nodeType": "tags",
+    "description": "Adicionar etiquetas ao cliente",
+    "actions": [
+     {
+      "id": 10820784,
+      "action_type": "add_tags",
+      "config": {
+       "tags": [
+        "PAGOUUPSELL"
+       ],
+       "action": "add"
+      },
+      "order": 1,
+      "flow_node_id": 5346072,
+      "created_at": "2026-10-06T15:40:28-03:00",
+      "updated_at": "2026-10-06T15:40:28-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 6953.356749214083,
+    "y": 807.6294535510314
+   },
+   "width": 240,
+   "height": 121
+  },
+  {
+   "id": "5346207",
+   "type": "condition",
+   "data": {
+    "label": "Condicional",
+    "nodeType": "condition",
+    "description": "Avaliar condições e direcionar o fluxo",
+    "actions": [
+     {
+      "id": 10820908,
+      "action_type": "evaluate_condition",
+      "config": {
+       "ruleType": "all",
+       "conditions": [
+        {
+         "id": "condition_1791312163432",
+         "tagId": 121593,
+         "tagName": "venda-atendente",
+         "category": "system",
+         "systemSubtype": "tag",
+         "systemOperator": "equal"
+        }
+       ]
+      },
+      "order": 1,
+      "flow_node_id": 5346207,
+      "created_at": "2026-10-06T15:43:09-03:00",
+      "updated_at": "2026-10-06T15:43:09-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 7554.10411788666,
+    "y": 955.6575526079309
+   },
+   "width": 240,
+   "height": 147
+  },
+  {
+   "id": "5346541",
+   "type": "message",
+   "data": {
+    "label": "Mensagem",
+    "nodeType": "message",
+    "description": "",
+    "actions": [
+     {
+      "id": 10821868,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "✅ ¡Muchas gracias por tu contribución!\n\nhttps://chat.whatsapp.com/LI72klkF62r5LMvqHUS751?mode=gi_t",
+       "typing_delay_seconds": 3
+      },
+      "order": 1,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:30-03:00"
+     },
+     {
+      "id": 10821872,
+      "action_type": "delay_between_messages",
+      "config": {
+       "delay_seconds": 0,
+       "delay_max_seconds": 120,
+       "delay_min_seconds": 0
+      },
+      "order": 2,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:30-03:00"
+     },
+     {
+      "id": 10821873,
+      "action_type": "send_multi_media",
+      "config": {
+       "caption": "{first_name}, esto no le llega a todas… y quiero que sepas por qué te llegó a ti 👇",
+       "messages": [],
+       "media_type": "image",
+       "media_source": "file",
+       "media_file_info": {
+        "url": "https://leona-production.b-cdn.net/c13rcdznemsmrmp0x323g7a9eoe0",
+        "direct_url": "https://leona-production.b-cdn.net/c13rcdznemsmrmp0x323g7a9eoe0",
+        "filename": "m7kc166bylvy3jtmmoiq77z6l1jl.png",
+        "size": 407745,
+        "content_type": "image/png",
+        "storage_type": "aws"
+       }
+      },
+      "order": 3,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:31-03:00"
+     },
+     {
+      "id": 10821869,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Vimos que de verdad quieres cambiar tu cuerpo — y por eso te seleccionamos para una consulta GRATUITA con Ana, nuestra nutricionista.\n\nAna va a diseñar para ti un plan de 21 días, 100% personalizado, para ayudarte a bajar de 6 a 15 kilos sin pasar hambre y con comida real que consigues ahí en tu país.\n\nNo es un PDF genérico más: es TU plan, hecho para tu cuerpo y tu rutina.",
+       "typing_delay_seconds": 3
+      },
+      "order": 4,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:30-03:00"
+     },
+     {
+      "id": 10821871,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "👉 Toca aquí y empieza tu consulta ahora:",
+       "typing_delay_seconds": 3
+      },
+      "order": 5,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:30-03:00"
+     },
+     {
+      "id": 10821870,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "https://ana-nutri-ia.alume.workers.dev/?origem={instance_number}",
+       "typing_delay_seconds": 3
+      },
+      "order": 6,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:30-03:00"
+     },
+     {
+      "id": 10821867,
+      "action_type": "send_message",
+      "config": {
+       "message_text": "Guárdate el cupo antes de que se llene 💚",
+       "typing_delay_seconds": 3
+      },
+      "order": 7,
+      "flow_node_id": 5346541,
+      "created_at": "2026-10-06T15:55:30-03:00",
+      "updated_at": "2026-10-06T15:55:30-03:00"
+     }
+    ],
+    "passed_count": 0,
+    "advanced_count": 0,
+    "success_count": 0,
+    "_saved": true
+   },
+   "position": {
+    "x": 8378.610389715752,
+    "y": 766.1118916404694
+   },
+   "width": 240,
+   "height": 401
+  }
+ ],
+ "edges": [
+  {
+   "id": "7142630",
+   "source": "5343625",
+   "target": "5343660",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7142777",
+   "source": "5343987",
+   "target": "5343992",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7144260",
+   "source": "5343992",
+   "target": "5344287",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7144473",
+   "source": "5344287",
+   "target": "5345054",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "client-response"
+  },
+  {
+   "id": "7144484",
+   "source": "5345157",
+   "target": "5345054",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "client-response"
+  },
+  {
+   "id": "7144609",
+   "source": "5345054",
+   "target": "5345173",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7145169",
+   "source": "5345173",
+   "target": "5345336",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7145327",
+   "source": "5345718",
+   "target": "5345766",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "client-response"
+  },
+  {
+   "id": "7145328",
+   "source": "5345758",
+   "target": "5345766",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "client-response"
+  },
+  {
+   "id": "7145636",
+   "source": "5345766",
+   "target": "5345807",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "success"
+  },
+  {
+   "id": "7145713",
+   "source": "5345807",
+   "target": "5346047",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "failure"
+  },
+  {
+   "id": "7145718",
+   "source": "5346047",
+   "target": "5345766",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "client-response"
+  },
+  {
+   "id": "7145733",
+   "source": "5345807",
+   "target": "5346058",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "success"
+  },
+  {
+   "id": "7145751",
+   "source": "5346058",
+   "target": "5346068",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7145753",
+   "source": "5346068",
+   "target": "5346069",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "success"
+  },
+  {
+   "id": "7145754",
+   "source": "5346068",
+   "target": "5346069",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "failure"
+  },
+  {
+   "id": "7145946",
+   "source": "5346069",
+   "target": "5346072",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7436784",
+   "source": "5345766",
+   "target": "5346047",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "failure"
+  },
+  {
+   "id": "7436785",
+   "source": "5343660",
+   "target": "5343987",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "success"
+  },
+  {
+   "id": "7436786",
+   "source": "5343660",
+   "target": "5343987",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "failure"
+  },
+  {
+   "id": "7438459",
+   "source": "5344287",
+   "target": "5345157",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "timeout"
+  },
+  {
+   "id": "7438460",
+   "source": "5345336",
+   "target": "5345718",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  },
+  {
+   "id": "7438461",
+   "source": "5345718",
+   "target": "5345758",
+   "type": "default",
+   "data": {
+    "_saved": true
+   },
+   "sourceHandle": "timeout"
+  },
+  {
+   "id": "7438462",
+   "source": "5346072",
+   "target": "5346207",
+   "type": "default",
+   "data": {
+    "_saved": true
+   }
+  }
+ ]
+}
