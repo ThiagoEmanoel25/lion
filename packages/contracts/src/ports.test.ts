@@ -48,3 +48,7 @@ describe('Integração e chave de IA', () => {
     expect(SetAiKeyInput.safeParse({ apiKey: 'abc' }).success).toBe(false);
   });
 });
+
+describe('pixel', () => {
+  it('declara sucesso e erro', () => { expect(nodePorts('pixel')).toEqual(['success', 'failure']); });
+});

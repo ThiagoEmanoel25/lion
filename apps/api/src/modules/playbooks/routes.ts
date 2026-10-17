@@ -17,6 +17,7 @@ import { enqueue } from '../../core/outbox.js';
 import { simulateAutomation, validateAutomation, type AutomationDefinition } from './compiler.js';
 import { assertWorkspaceQuota } from '../billing/service.js';
 import { kanbanReferenceIssues } from '../kanban/validation.js';
+import { pixelReferenceIssues } from '../pixels/validation.js';
 import {IntegrationUrlBlockedError,integrationTestRateLimit,testIntegrationRequest} from './integration-test.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
@@ -47,7 +48,7 @@ const json = (value: unknown) => value as Prisma.InputJsonValue;
 async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unknown){
   const validation=validateAutomation(value);
   if(!validation.definition)return validation;
-  const issues=[...validation.issues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition)];
+  const issues=[...validation.issues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
   return {...validation,valid:!issues.some(issue=>issue.level==='error'),issues};
 }
 

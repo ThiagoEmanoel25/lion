@@ -365,3 +365,25 @@ describe('message items', () => {
     expect(errors(config)).toContain('MESSAGE_TEXT_REQUIRED');
   });
 });
+
+describe('pixel', () => {
+  const pid = 'clx000000000000000000001';
+  const make = (config: Record<string, unknown>, edges: any[] = [{ id: 'p1', source: 'px', target: 'done' }]) => ({
+    start: 'start',
+    nodes: [
+      { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+      { id: 'px', kind: 'pixel', name: 'Pixel', config, position: { x: 100, y: 0 } },
+      { id: 'done', kind: 'outcome', name: 'Fim', config: { type: 'RESOLVED' }, position: { x: 200, y: 0 } }
+    ],
+    edges: [{ id: 'e1', source: 'start', target: 'px' }, ...edges],
+    settings: { maxSteps: 10, timeoutSeconds: 60 }
+  });
+  it('aceita config válida com portas', () => {
+    expect(validateAutomation(make({ pixelId: pid, eventName: 'Purchase', value: '15' })).valid).toBe(true);
+    expect(validateAutomation(make({ pixelId: pid, eventName: 'Purchase', value: '15' }, [{ id: 'p1', source: 'px', target: 'done' }, { id: 'p2', source: 'px', target: 'done', port: 'failure' }])).valid).toBe(true);
+  });
+  it('rejeita porta inválida e config inválida', () => {
+    expect(validateAutomation(make({ pixelId: pid, eventName: 'Lead' }, [{ id: 'p1', source: 'px', target: 'done', port: 'reply' }])).issues.map(i => i.code)).toContain('EDGE_PORT_INVALID');
+    expect(validateAutomation(make({ pixelId: pid, eventName: 'Purchase' })).issues.map(i => i.code)).toContain('INVALID_PIXEL_CONFIG');
+  });
+});

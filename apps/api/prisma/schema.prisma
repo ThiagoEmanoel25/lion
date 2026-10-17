@@ -117,6 +117,7 @@ model Workspace {
   kanbanBoards KanbanBoard[]
   flowImportSessions FlowImportSession[]
   flowShareCodes FlowShareCode[]
+  metaPixels   MetaPixel[]
 }
 
 model User {
@@ -706,4 +707,19 @@ model AuditLog {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action])
+}
+
+model MetaPixel {
+  id                   String   @id @default(cuid())
+  workspaceId          String
+  name                 String
+  pixelId              String
+  accessTokenEncrypted String
+  accessTokenLast4     String
+  pageId               String?
+  testEventCode        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@unique([workspaceId, name])
 }

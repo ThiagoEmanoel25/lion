@@ -68,7 +68,7 @@ export const ImportReportSchema=z.object({
 });
 export const ImportNexoShareInput=z.object({code:z.string().trim().length(10).transform(value=>value.toUpperCase())});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
@@ -182,6 +182,25 @@ export const AutomationKanbanConfigSchema=z.object({
   mode:z.enum(['create_or_move','create_only','move_only']).default('create_or_move')
 }).strict();
 
+export const PIXEL_EVENTS=[
+  {eventName:'Purchase',label:'Compra',valueRequired:true},
+  {eventName:'LeadSubmitted',label:'Lead',valueRequired:false},
+  {eventName:'QualifiedLead',label:'Lead qualificado',valueRequired:false},
+  {eventName:'InitiateCheckout',label:'Iniciar checkout',valueRequired:false},
+  {eventName:'AddToCart',label:'Adicionar ao carrinho',valueRequired:false},
+  {eventName:'ViewContent',label:'Ver conteúdo',valueRequired:false}
+] as const;
+export const AutomationPixelConfigSchema=z.object({
+  pixelId:z.string().cuid(),
+  eventName:z.enum(['Purchase','LeadSubmitted','QualifiedLead','InitiateCheckout','AddToCart','ViewContent']),
+  pageId:z.string().trim().max(200).optional(),
+  value:z.string().trim().max(200).optional(),
+  currency:z.string().regex(/^[A-Z]{3}$/).default('BRL')
+}).superRefine((value,ctx)=>{if(value.eventName==='Purchase'&&!value.value)ctx.addIssue({code:z.ZodIssueCode.custom,path:['value'],message:'Informe o valor da compra.'})});
+const PixelFields={name:z.string().trim().min(1).max(80),pixelId:z.string().trim().regex(/^\d{5,30}$/,'O ID do pixel tem só números.'),pageId:z.string().trim().max(200).nullish(),testEventCode:z.string().trim().max(100).nullish()};
+const PixelToken=z.string().trim().min(10).max(1000);
+export const MetaPixelInput=z.object({...PixelFields,accessToken:PixelToken});
+export const UpdateMetaPixelInput=z.object({...PixelFields,accessToken:PixelToken.optional()}).partial();
 const KanbanNameSchema=z.string().trim().min(1).max(80);
 export const CreateKanbanBoardInput=z.object({name:KanbanNameSchema});
 export const UpdateKanbanBoardInput=z.object({name:KanbanNameSchema.optional(),position:z.number().int().min(0).optional()}).refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});

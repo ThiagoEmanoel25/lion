@@ -277,6 +277,9 @@ export class AutomationEngineService implements OnModuleDestroy {
         return 'continue';
       }
 
+      case 'pixel':
+        throw new NodeExecutionError('NOT_IMPLEMENTED','O bloco Pixel ainda não está disponível.'); // Task 4 replaces this
+
       case 'kanban': {
         const boardId=typeof node.config.boardId==='string'?node.config.boardId:'';
         const columnId=typeof node.config.columnId==='string'?node.config.columnId:'';

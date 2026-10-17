@@ -8,6 +8,7 @@ import {
   AutomationDefinitionSchema,
   AutomationImageConfigSchema,
   AutomationKanbanConfigSchema,
+  AutomationPixelConfigSchema,
   AutomationMessageConfigSchema,
   AutomationStickerConfigSchema,
   AutomationTagConfigSchema,
@@ -72,6 +73,8 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationWaitResponseConfigSchema, 'INVALID_WAIT_RESPONSE_CONFIG', 'Aguarda Resposta inválido');
     case 'kanban':
       return validateConfig(AutomationKanbanConfigSchema, 'INVALID_KANBAN_CONFIG', 'Kanban inválido');
+    case 'pixel':
+      return validateConfig(AutomationPixelConfigSchema, 'INVALID_PIXEL_CONFIG', 'Pixel inválido');
     default:
       return [];
   }
