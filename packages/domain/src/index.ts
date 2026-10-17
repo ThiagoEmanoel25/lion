@@ -30,3 +30,5 @@ export function kanbanAction(mode:KanbanMode,existingColumnId:string|null,target
   if(mode==='create_only'||existingColumnId===targetColumnId)return 'noop';
   return 'move';
 }
+
+export {assertPublicHttpsUrl,isPrivateAddress} from './outbound-http.js';

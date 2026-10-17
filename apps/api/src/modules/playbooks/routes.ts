@@ -8,7 +8,8 @@ import {
   PublishPlaybookInput,
   SavePlaybookVersionInput,
   SimulatePlaybookInput,
-  StartPlaybookExecutionInput
+  StartPlaybookExecutionInput,
+  TestIntegrationInput
 } from '@nexo/contracts';
 import { DomainError } from '@nexo/domain';
 import { audit } from '../../core/audit.js';
@@ -16,6 +17,7 @@ import { enqueue } from '../../core/outbox.js';
 import { simulateAutomation, validateAutomation, type AutomationDefinition } from './compiler.js';
 import { assertWorkspaceQuota } from '../billing/service.js';
 import { kanbanReferenceIssues } from '../kanban/validation.js';
+import {testIntegrationRequest} from './integration-test.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
@@ -110,6 +112,16 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     const validation = await validateForWorkspace(app.prisma,request.auth.workspaceId,definition);
     if (!validation.valid || !validation.definition) throw new DomainError('INVALID_AUTOMATION', 'A automação possui erros.', 422, validation.issues);
     return { validation, simulation: simulateAutomation(validation.definition, input.variables) };
+  });
+
+  app.post('/v1/playbooks/:id/integration/test', { preHandler: [app.requirePermission('playbook.write')] }, async request => {
+    const {id}=request.params as {id:string};
+    if(!await app.prisma.playbook.count({where:{id,workspaceId:request.auth.workspaceId}}))throw new DomainError('NOT_FOUND','Automação não encontrada.',404);
+    const input=TestIntegrationInput.parse(request.body);
+    try{return await testIntegrationRequest(input)}catch(error){
+      const message=error instanceof Error?error.message:'Não foi possível testar a integração.';
+      throw new DomainError('INTEGRATION_TEST_FAILED',message,502);
+    }
   });
 
   app.post('/v1/playbooks/:id/publish', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
