@@ -1,4 +1,5 @@
-import { getPathValue, setContextPath } from './routing.js';
+import { extractResponseField } from '@nexo/contracts';
+import { setContextPath } from './routing.js';
 
 export type ResponseField = { path: string; variable: string };
 type Context = Record<string, unknown>;
@@ -29,6 +30,6 @@ export function integrationOutcome(input: { context: Context; status: number | n
   if (input.responseFields.length && (parsed === null || typeof parsed !== 'object')) return failure(context, 'A resposta da integração não é JSON.');
   let next = input.responseVariable ? setContextPath(context, input.responseVariable, parsed) : context;
   const source = { status: input.status, body: parsed, headers: input.headers ?? {} };
-  for (const field of input.responseFields) next = setContextPath(next, field.variable, getPathValue(source, field.path));
+  for (const field of input.responseFields) next = setContextPath(next, field.variable, extractResponseField(source, field.path).value);
   return { port: 'success', context: next, output: { status: input.status, body: input.body } };
 }

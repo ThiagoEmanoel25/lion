@@ -3,6 +3,7 @@ import { CONDITION_OPERATORS } from './conditions.js';
 export * from './conditions.js';
 import { EDGE_PORTS } from './ports.js';
 export * from './ports.js';
+export * from './integration.js';
 
 export const RoleSchema = z.enum(['OWNER','ADMIN','SUPERVISOR','AGENT','VIEWER']);
 export type Role = z.infer<typeof RoleSchema>;

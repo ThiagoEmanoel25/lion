@@ -17,7 +17,7 @@ import { enqueue } from '../../core/outbox.js';
 import { simulateAutomation, validateAutomation, type AutomationDefinition } from './compiler.js';
 import { assertWorkspaceQuota } from '../billing/service.js';
 import { kanbanReferenceIssues } from '../kanban/validation.js';
-import {testIntegrationRequest} from './integration-test.js';
+import {IntegrationUrlBlockedError,integrationTestRateLimit,testIntegrationRequest} from './integration-test.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
@@ -118,7 +118,9 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     const {id}=request.params as {id:string};
     if(!await app.prisma.playbook.count({where:{id,workspaceId:request.auth.workspaceId}}))throw new DomainError('NOT_FOUND','Automação não encontrada.',404);
     const input=TestIntegrationInput.parse(request.body);
+    await integrationTestRateLimit(app.redis,request.auth.userId);
     try{return await testIntegrationRequest(input)}catch(error){
+      if(error instanceof IntegrationUrlBlockedError)throw new DomainError('INTEGRATION_URL_BLOCKED',error.message,422);
       const message=error instanceof Error?error.message:'Não foi possível testar a integração.';
       throw new DomainError('INTEGRATION_TEST_FAILED',message,502);
     }

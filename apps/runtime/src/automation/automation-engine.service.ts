@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
-import { AutomationDefinitionSchema } from '@nexo/contracts';
+import { AutomationDefinitionSchema, renderUrlTemplate } from '@nexo/contracts';
 import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
@@ -419,9 +419,9 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'webhook': {
-        const url = renderTemplate(stringConfig(node, 'url'), context);
+        const url = renderUrlTemplate(stringConfig(node, 'url'), context);
         try{await assertPublicHttpsUrl(url)}catch(error){throw new NodeExecutionError('WEBHOOK_URL_BLOCKED',error instanceof Error?error.message:'A URL da integração não é permitida.')}
-        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 15);
+        const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 30);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
         let status: number | null = null;
