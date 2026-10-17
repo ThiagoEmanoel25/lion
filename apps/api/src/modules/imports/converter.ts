@@ -134,13 +134,12 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items']){
           if(!text(c.request_url))pend('Integração sem URL (request_url); revise.');
           const mapping=object(c.response_mapping);const body=c.request_body;
           const fields=(Array.isArray(c.response_fields)?c.response_fields:[]).map(object).filter(field=>text(field.path)).map(field=>({path:text(field.path)!,variable:text(mapping[String(field.name)],field.name)!}));
-          return {...base,kind:'webhook' as const,config:{url:text(c.request_url)??'https://example.com/revise',method:String(text(c.request_method)??'POST').toUpperCase(),headers:safeHeaders(c.request_headers,items,originalId),...(typeof body==='string'&&body?{body:replaceVariables(body,items,originalId)}:{}),responseFields:fields}};
+          return {...base,kind:'webhook' as const,config:{url:text(c.request_url)??'https://example.com/revise',method:String(text(c.request_method)??'POST').toUpperCase(),headers:safeHeaders(c.request_headers,items,originalId),...(typeof body==='string'?(body?{body:replaceVariables(body,items,originalId)}:{}):body!==undefined&&body!==null?{body:JSON.stringify(strings(body,items,originalId))}:{}),responseFields:fields}};
         }
         if(type==='tags'){
           const names=(Array.isArray(c.tags)?c.tags:[]).filter((value):value is string=>typeof value==='string'&&Boolean(value.trim()));
           if(!names.length)pend('Bloco de etiquetas sem nomes (tags); revise.');
-          if(c.action==='remove')pend('Remover etiquetas não é suportado; as etiquetas serão adicionadas.');
-          return {...base,kind:'tag' as const,config:{mode:'add',tagIds:[],tags:names.length?names:['Etiqueta importada']}};
+          return {...base,kind:'tag' as const,config:{mode:c.action==='remove'?'remove':'add',tagIds:[],tags:names.length?names:['Etiqueta importada']}};
         }
       }
     }

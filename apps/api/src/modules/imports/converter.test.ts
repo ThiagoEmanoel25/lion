@@ -89,4 +89,11 @@ describe('conversor Leona',()=>{
     expect(items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(true);
     expect(items.some(item=>item.sourceType==='ai'&&item.message.includes('chave'))).toBe(true);
   });
+
+  it('mantém modo remove das etiquetas e corpo de requisição em objeto',()=>{
+    const node=(id:string,type:string,action_type:string,config:object)=>({id,type,data:{actions:[{action_type,config,order:1}]}});
+    const result=convertLeonaFlow({nodes:[node('s','start','x',{}),node('t','tags','add_tags',{tags:['A'],action:'remove'}),node('h','integration','make_http_request',{request_url:'https://api.example.com/x',request_method:'POST',request_body:{phone:'{phone_number}'}})],edges:[]});
+    expect(result.definition.nodes.find(n=>n.kind==='tag')?.config).toMatchObject({mode:'remove',tags:['A']});
+    expect(result.definition.nodes.find(n=>n.kind==='webhook')?.config.body).toBe('{"phone":"{{contact.phone}}"}');
+  });
 });
