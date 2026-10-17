@@ -2,12 +2,12 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent,type ReactN
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Trash2,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,PlaybookVersion} from '../../shared/types/api';
 import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
-import {useWorkspaceAiKey} from '../settings/api/queries';
+import {useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
 import {useKanbanBoards} from '../kanban/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
@@ -34,13 +34,16 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'webhook',icon:Webhook,label:'Integração',description:'Faz uma requisição HTTP',rule:'URL válida e obrigatoriamente HTTPS.'},
   {kind:'assign',icon:Building2,label:'Departamento',description:'Define fila ou responsável',rule:'Exige uma fila ou um responsável.'},
   {kind:'tag',icon:Tag,label:'Etiquetas',description:'Adiciona ou remove etiquetas',rule:'Exige ao menos uma etiqueta selecionada ou informada.'},
+  {kind:'pixel',icon:Target,label:'Pixel',description:'Envia eventos para o Facebook',rule:'Exige um pixel configurado e o tipo do evento; Compra exige valor. Saídas de sucesso (obrigatória) e erro (opcional).'},
   {kind:'kanban',icon:Columns3,label:'Kanban',description:'Cria ou move o card do contato',rule:'Exige um quadro e uma coluna existentes. Pode criar ou mover, somente criar ou somente mover.'},
   {kind:'handoff',icon:Headset,label:'Handoff',description:'Transfere para humano',rule:'Bloco final da jornada.'},
   {kind:'outcome',icon:CircleCheck,label:'Resultado',description:'Encerra com sucesso',rule:'Tipo obrigatório entre lead qualificado, agendamento, venda, resolvido, transferência e desqualificado. Bloco final da jornada.'}
 ];
 const kindMeta=Object.fromEntries(catalog.map(item=>[item.kind,item])) as Record<AutomationNodeKind,(typeof catalog)[number]>;
 // Mirrors packages/contracts/src/ports.ts (NODE_PORTS).
-const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'|'reply'|'timeout'>>>={webhook:['success','failure'],ai:['success','failure'],wait_response:['reply','timeout']};
+const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'|'reply'|'timeout'>>>={webhook:['success','failure'],ai:['success','failure'],pixel:['success','failure'],wait_response:['reply','timeout']};
+// Mirrors PIXEL_EVENTS in packages/contracts/src/index.ts.
+const PIXEL_EVENT_OPTIONS:Array<[string,string]>=[['Purchase','Compra'],['LeadSubmitted','Lead'],['QualifiedLead','Lead qualificado'],['InitiateCheckout','Iniciar checkout'],['AddToCart','Adicionar ao carrinho'],['ViewContent','Ver conteúdo']];
 const PORT_LABELS={success:'sucesso',failure:'erro',reply:'respondeu',timeout:'não respondeu'} as const;
 // Mirrors packages/contracts (WAIT_*); duplicated so the web bundle does not pull zod in.
 const WAIT_MAX_SECONDS=2_678_400;
@@ -97,6 +100,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='assign')return `Atribuir para ${String(config.queue||config.assigneeId||'destino não definido')}`;
   if(kind==='handoff')return `Transferir para ${String(config.queue||'atendimento humano')}`;
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
+  if(kind==='pixel'){const label=PIXEL_EVENT_OPTIONS.find(item=>item[0]===config.eventName)?.[1]??'Evento não definido';const value=String(config.value??'').trim();return value?`${label} · ${/^[\d.,]+$/.test(value)?`R$ ${value}`:value}`:label}
   if(kind==='kanban')return config.boardId&&config.columnId?'Criar ou mover card na coluna selecionada':'Selecione quadro e coluna';
   if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
   if(kind==='ai')return `${String(config.model||'gpt-5.4-mini')} · resposta em ${String(config.responseVariable||'resposta.gpt')}`;
@@ -106,7 +110,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:'};
   return labels[kind];
 }
 function flowAction(action:'edit'|'duplicate'|'remove',id:string){window.dispatchEvent(new CustomEvent('nexo-flow-action',{detail:{action,id}}))}
@@ -224,6 +228,8 @@ export function PlaybookEditorPage(){
             ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='ai'
             ? <AiEditor key={selectedNode.id} node={selectedNode} aiKeyConfigured={aiKey.data?.configured} onSave={saveAi} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='pixel'
+            ? <PixelEditor key={selectedNode.id} playbookId={id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='webhook'
             ? <WebhookEditor key={selectedNode.id} playbookId={id} node={selectedNode} variablesJson={simulationVariables} onEditTestData={(name,config)=>{updateSelected({name,config});setSelectedNodeId(null);setSelectedEdgeId(null)}} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
@@ -254,6 +260,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'webhook':return {url:'',method:'POST',headers:{},body:'',responseVariable:'integration.response'};
     case 'assign':return {queue:'Atendimento',assigneeId:''};
     case 'tag':return {mode:'add',tagIds:[],tags:[]};
+    case 'pixel':return {pixelId:'',eventName:'Purchase',pageId:'',value:'',currency:'BRL'};
     case 'kanban':return {boardId:'',columnId:'',mode:'create_or_move'};
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
@@ -391,6 +398,33 @@ function responsePaths(response:{status:number;body:unknown},limit=50):string[]{
 type IntegrationTab='headers'|'body'|'mapping';
 type IntegrationResponseField={path:string;variable:string};
 const INTEGRATION_METHODS=['GET','POST','PUT','PATCH','DELETE'] as const;
+function VariableInput({label,value,onChange,placeholder,invalid}:{label:string;value:string;onChange:(value:string)=>void;placeholder?:string;invalid?:boolean}){
+  return <div className="integration-url"><input aria-label={label} value={value} aria-invalid={invalid} onChange={event=>onChange(event.target.value)} placeholder={placeholder}/><select title="Inserir variável" aria-label={`Inserir variável em ${label}`} value="" onChange={event=>{if(event.target.value)onChange(value+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option></select></div>
+}
+function PixelEditor({playbookId:_playbookId,node,onSave,onCancel}:{playbookId:string;node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const initial={...defaultConfig('pixel'),...node.data.config};const pixels=useMetaPixels();const test=useTestMetaPixel();
+  const [name,setName]=useState(node.data.name);const [pixelId,setPixelId]=useState(String(initial.pixelId??''));const [eventName,setEventName]=useState(String(initial.eventName??'Purchase'));
+  const [pageId,setPageId]=useState(String(initial.pageId??''));const [value,setValue]=useState(String(initial.value??''));const [currency,setCurrency]=useState(String(initial.currency??'BRL'));const [submitted,setSubmitted]=useState(false);
+  const selected=pixels.data?.find(item=>item.id===pixelId);
+  const pixelError=pixelId?'':'Selecione um pixel.';const valueError=eventName==='Purchase'&&!value.trim()?'Informe o valor da compra.':'';const currencyError=/^[A-Z]{3}$/.test(currency)?'':'Use 3 letras maiúsculas, como BRL.';
+  function save(){setSubmitted(true);if(pixelError||valueError||currencyError)return;onSave(name.trim()||'Pixel',{...initial,pixelId,eventName,currency,...(pageId.trim()?{pageId:pageId.trim()}:{pageId:undefined}),...(value.trim()?{value:value.trim()}:{value:undefined})})}
+  return <><header><span className="palette-icon pixel"><Target size={17} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Pixel</b></div></header>
+    <div className="inspector-form">
+      <label>Nome do bloco<input value={name} maxLength={120} onChange={event=>setName(event.target.value)}/></label>
+      <label>Pixel configurado *<select value={pixelId} aria-invalid={Boolean(submitted&&pixelError)} onChange={event=>{setPixelId(event.target.value);test.reset()}}><option value="">Selecione um pixel</option>{pixels.data?.map(item=><option key={item.id} value={item.id}>{item.name} ({item.pixelId})</option>)}</select>{submitted&&pixelError?<small className="field-error">{pixelError}</small>:<small>Configure seus pixels em <a href="/settings?tab=pixels" target="_blank" rel="noreferrer">Configurações → Pixels do Facebook</a></small>}{pixels.isError&&<small className="field-error">Não foi possível carregar os pixels.</small>}</label>
+      <label>Tipo do evento<select value={eventName} onChange={event=>setEventName(event.target.value)}>{PIXEL_EVENT_OPTIONS.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+      <label>Page ID <span className="optional">(opcional)</span><VariableInput label="Page ID" value={pageId} onChange={setPageId} placeholder={selected?.pageId?`Padrão do pixel: ${selected.pageId}`:'ID da página'}/><small>Se vazio, usa o Page ID padrão do pixel.</small></label>
+      <label>Valor do item{eventName==='Purchase'?' *':' (opcional)'}<VariableInput label="Valor do item" value={value} onChange={setValue} placeholder="15,90" invalid={Boolean(submitted&&valueError)}/>{submitted&&valueError&&<small className="field-error">{valueError}</small>}</label>
+      <label>Moeda<input value={currency} maxLength={3} aria-invalid={Boolean(submitted&&currencyError)} onChange={event=>setCurrency(event.target.value.toUpperCase())} placeholder="BRL"/>{submitted&&currencyError&&<small className="field-error">{currencyError}</small>}</label>
+      <div className="ai-how"><Info size={18}/><div><b>Como funciona</b><p>Quando o contato chega ao bloco, o evento é enviado ao Facebook pela API de Conversões, ligado ao anúncio que originou a conversa. Sucesso segue pela saída de sucesso; falhas, pela saída de erro.</p></div></div>
+      <div className="ai-how pixel-warning"><Info size={18}/><div><b>Atenção</b><p>Só contatos que vieram de um anúncio de clique para o WhatsApp geram evento.</p></div></div>
+      <div className="pixel-test"><button type="button" disabled={!selected?.testEventCode||test.isPending} onClick={()=>{if(selected)test.mutate(selected.id)}}>{test.isPending?'Enviando…':'Enviar evento de teste'}</button>
+        {selected&&!selected.testEventCode&&<small>Cadastre um código de evento de teste no pixel para habilitar o teste.</small>}
+        {test.isError&&<small className="field-error" role="alert">{test.error instanceof Error?test.error.message:'Falha ao enviar o evento de teste.'}</small>}
+        {test.data&&<small role="status" className={test.data.ok?'pixel-ok':'field-error'}>{test.data.ok?`Enviado (HTTP ${test.data.status}, ${test.data.eventsReceived} evento recebido). Veja em Eventos de teste no Gerenciador de Eventos.`:`Falhou (HTTP ${test.data.status}): ${test.data.message}`}</small>}</div>
+      <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar bloco</button></footer>
+    </div></>
+}
 function WebhookEditor({playbookId,node,variablesJson,onEditTestData,onSave,onCancel}:{playbookId:string;node:FlowNode;variablesJson:string;onEditTestData:(name:string,config:Record<string,unknown>)=>void;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const initial={...defaultConfig('webhook'),...node.data.config};const testRequest=useTestIntegration();
   const [name,setName]=useState(node.data.name);const [method,setMethod]=useState(String(initial.method??'POST'));const [url,setUrl]=useState(String(initial.url??''));

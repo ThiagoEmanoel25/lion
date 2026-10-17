@@ -1,4 +1,4 @@
-import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {AuditEntry,BusinessHours,Channel,Department,Page,WhatsAppSession,Workspace,WorkspaceInvite} from '../../../shared/types/api';
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {MetaPixel,PixelTestResult,AuditEntry,BusinessHours,Channel,Department,Page,WhatsAppSession,Workspace,WorkspaceInvite} from '../../../shared/types/api';
 export function useChannels(){return useQuery({queryKey:['channels'],queryFn:()=>api<Channel[]>('/v1/channels')})}
 export function useWorkspace(){return useQuery({queryKey:['workspace'],queryFn:()=>api<Workspace>('/v1/workspace')})}
 export function useWhatsAppSession(id:string|null){return useQuery({queryKey:['channels',id,'session'],queryFn:()=>api<WhatsAppSession>(`/v1/channels/${id}/session`),enabled:Boolean(id),refetchInterval:query=>['CONNECTED','LOGGED_OUT','DISCONNECTED'].includes(query.state.data?.runtime?.status??'')?false:2000})}
@@ -19,3 +19,8 @@ export type WorkspaceAiKey={configured:boolean;last4:string|null};
 export function useWorkspaceAiKey(){return useQuery({queryKey:['workspace','ai-key'],queryFn:()=>api<WorkspaceAiKey>('/v1/workspace/ai-key')})}
 export function useSaveAiKey(){const client=useQueryClient();return useMutation({mutationFn:(apiKey:string)=>api<WorkspaceAiKey>('/v1/workspace/ai-key',{method:'PUT',body:JSON.stringify({apiKey})}),onSuccess:data=>client.setQueryData(['workspace','ai-key'],data)})}
 export function useDeleteAiKey(){const client=useQueryClient();return useMutation({mutationFn:()=>api<WorkspaceAiKey>('/v1/workspace/ai-key',{method:'DELETE'}),onSuccess:data=>client.setQueryData(['workspace','ai-key'],data)})}
+export type MetaPixelInput={id?:string;name:string;pixelId:string;accessToken?:string;pageId:string|null;testEventCode:string|null};
+export function useMetaPixels(){return useQuery({queryKey:['workspace','pixels'],queryFn:()=>api<MetaPixel[]>('/v1/workspace/pixels')})}
+export function useSaveMetaPixel(){const client=useQueryClient();return useMutation({mutationFn:({id,...input}:MetaPixelInput)=>api<MetaPixel>(id?`/v1/workspace/pixels/${id}`:'/v1/workspace/pixels',{method:id?'PATCH':'POST',body:JSON.stringify(input)}),onSuccess:()=>client.invalidateQueries({queryKey:['workspace','pixels']})})}
+export function useDeleteMetaPixel(){const client=useQueryClient();return useMutation({mutationFn:(id:string)=>api<void>(`/v1/workspace/pixels/${id}`,{method:'DELETE'}),onSuccess:()=>client.invalidateQueries({queryKey:['workspace','pixels']})})}
+export function useTestMetaPixel(){return useMutation({mutationFn:(id:string)=>api<PixelTestResult>(`/v1/workspace/pixels/${id}/test-event`,{method:'POST'})})}

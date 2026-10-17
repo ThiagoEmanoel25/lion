@@ -8,7 +8,7 @@ export type ConversationStatus='NEW'|'AUTOMATED'|'WAITING_CUSTOMER'|'QUEUED'|'AS
 export type Message={id:string;direction:'INBOUND'|'OUTBOUND';body:string|null;status:string;type?:string;authorType:string;createdAt:string;sentAt?:string|null;deliveredAt?:string|null;readAt?:string|null;errorCode?:string|null};
 export type Conversation={id:string;status:ConversationStatus;mode:'AI'|'HUMAN'|'PAUSED';queue?:string|null;summary?:string|null;unreadCount:number;updatedAt:string;resolvedAt?:string|null;contact:Contact;assignee?:{id:string;name:string}|null;messages:Message[];executions?:Execution[]};
 export type Execution={id:string;status:string;currentNode:string|null;startedAt:string;finishedAt?:string|null;playbookVersion?:{version:number;playbook:{id:string;name:string}};steps:Array<{id:string;nodeId:string;kind:string;status:string;reason:string|null;durationMs:number|null;costCents:number;startedAt:string;finishedAt?:string|null;input?:unknown;output?:unknown}>};
-export type AutomationNodeKind='trigger'|'message'|'image'|'audio'|'sticker'|'buttons'|'agent'|'condition'|'delay'|'webhook'|'assign'|'tag'|'handoff'|'outcome'|'ai'|'wait_response'|'kanban';
+export type AutomationNodeKind='trigger'|'message'|'image'|'audio'|'sticker'|'buttons'|'agent'|'condition'|'delay'|'webhook'|'assign'|'tag'|'handoff'|'outcome'|'ai'|'wait_response'|'kanban'|'pixel';
 export type AutomationNode={id:string;kind:AutomationNodeKind;name:string;config:Record<string,unknown>;position:{x:number;y:number}};
 export type AutomationEdgeCondition={field:string;operator:'equals'|'not_equals'|'contains'|'not_contains'|'exists'|'not_exists'|'greater_than'|'less_than'|'in'|'not_in'|'between'|'not_between';value?:unknown};
 export type AutomationEdge={id:string;source:string;target:string;label?:string;condition?:AutomationEdgeCondition;isDefault?:boolean;priority?:number;port?:'success'|'failure'|'reply'|'timeout'};
@@ -48,3 +48,6 @@ export type AuditEntry={id:string;action:string;targetType:string;targetId:strin
 export type KanbanCard={id:string;boardId:string;columnId:string;contactId:string;conversationId:string|null;position:number;movedAt:string;contact:{id:string;name:string|null;phone:string;tags:Array<{tag:{id:string;name:string;color:string}}>};conversation:{id:string;status:string;updatedAt:string}|null};
 export type KanbanColumn={id:string;boardId:string;name:string;color:string;position:number;cards:KanbanCard[]};
 export type KanbanBoard={id:string;name:string;position:number;columns:KanbanColumn[]};
+
+export type MetaPixel={id:string;name:string;pixelId:string;pageId:string|null;testEventCode:string|null;tokenLast4:string};
+export type PixelTestResult={ok:boolean;status:number;eventsReceived:number;message:string};
