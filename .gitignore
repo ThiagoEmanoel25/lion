@@ -15,3 +15,6 @@ apps/api/prisma/*.db-journal
 
 # Leona flow export with live API keys/tokens — never commit
 docs/json-leona.txt
+
+# Exports reais da Leona (contêm chaves)
+docs/[Ff]luxo*.json
