@@ -68,16 +68,17 @@ export const ImportReportSchema=z.object({
 });
 export const ImportNexoShareInput=z.object({code:z.string().trim().length(10).transform(value=>value.toUpperCase())});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel','flow_jump','distributor','notification']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional(),oncePerContact:z.boolean().default(false)}).strict();
 export const MESSAGE_MAX_ITEMS=30;
 export const MESSAGE_MAX_TYPING_SECONDS=30;
+export const MEDIA_MAX_TYPING_SECONDS=60;
 export const MESSAGE_MAX_PAUSE_SECONDS=300;
 const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0)}).strict();
 const MessageFileItemSchema=z.object({type:z.literal('file'),url:HttpsUrlSchema,fileName:z.string().trim().min(1).max(255),caption:z.string().trim().max(1024).optional()}).strict();
-const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional()}).strict().superRefine((item,ctx)=>{
+const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional(),typingSeconds:z.number().int().min(0).max(MEDIA_MAX_TYPING_SECONDS).default(0),forwarded:z.boolean().default(false)}).strict().superRefine((item,ctx)=>{
   if(item.mediaType==='audio'&&item.caption)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Áudio não tem legenda.',path:['caption']});
   if(item.mediaType!=='audio'&&item.ptt!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Somente áudio pode ser enviado como mensagem de voz.',path:['ptt']});
 });
@@ -170,12 +171,27 @@ export const AutomationWaitResponseConfigSchema=z.object({
   waitIndefinitely:z.boolean().default(false),
   timeoutValue:z.number().int().min(1).optional(),
   timeoutUnit:z.enum(['minutes','hours','days']).default('hours'),
-  bufferSeconds:z.number().int().min(0).max(WAIT_MAX_BUFFER_SECONDS).default(0)
+  bufferSeconds:z.number().int().min(0).max(WAIT_MAX_BUFFER_SECONDS).default(0),
+  saveReplyTo:z.string().trim().min(1).max(60).regex(/^[\w.-]+$/,'Use letras, números, _, - e pontos.').optional(),
+  saveEmpty:z.boolean().default(true),
+  reactEmoji:z.string().trim().min(1).max(16).optional(),
+  replyToLeadCount:z.number().int().min(0).max(10).default(0)
 }).superRefine((value,ctx)=>{
   if(value.waitIndefinitely)return;
   if(value.timeoutValue===undefined){ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'Informe o tempo de espera.'});return}
   if(value.timeoutValue*WAIT_UNIT_SECONDS[value.timeoutUnit]>WAIT_MAX_SECONDS)ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'A espera máxima é de 31 dias.'});
 });
+export const AutomationFlowJumpConfigSchema=z.object({
+  targetPlaybookId:z.string().cuid().optional(),
+  leonaFlowId:z.union([z.string().trim().min(1).max(100),z.number().int().nonnegative()]).optional(),
+  targetName:z.string().trim().min(1).max(120).optional()
+}).strict();
+export const DISTRIBUTOR_ROUTE_FIELD='distributor.output' as const;
+export const AutomationDistributorOutputSchema=z.object({id:z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/),name:z.string().trim().min(1).max(80),weight:z.number().int().min(1).max(100).default(1)}).strict();
+export const AutomationDistributorConfigSchema=z.object({outputs:z.array(AutomationDistributorOutputSchema).min(2).max(10),preventRepeat:z.boolean().default(true)}).strict().superRefine((value,ctx)=>{
+  const ids=new Set<string>();value.outputs.forEach((output,index)=>{if(ids.has(output.id))ctx.addIssue({code:z.ZodIssueCode.custom,path:['outputs',index,'id'],message:'O identificador da saída deve ser único.'});ids.add(output.id)});
+});
+export const AutomationNotificationConfigSchema=z.object({phone:z.string().trim().regex(/^\+[1-9]\d{7,14}$/,'Use E.164 com DDI, por exemplo +5571999999999.'),message:z.string().trim().min(1).max(1024),name:z.string().trim().max(80).optional()}).strict();
 export const AutomationKanbanConfigSchema=z.object({
   boardId:z.string().cuid(),
   columnId:z.string().cuid(),
