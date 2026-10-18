@@ -1,0 +1,1187 @@
+{
+  "source": "leona",
+  "version": 1,
+  "sourceFlowId": "140228",
+  "label": "GELATINA-FUNIL-04",
+  "nodes": [
+    {
+      "id": "5338821",
+      "type": "start",
+      "data": {
+        "label": "Início",
+        "nodeType": "start",
+        "description": null,
+        "actions": [],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": -202.05100938142698,
+        "y": -93.01356430362407
+      },
+      "width": 240,
+      "height": 83
+    },
+    {
+      "id": "5338932",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10807705,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "image",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-1",
+                "direct_url": "https://cdn.example.com/media-1",
+                "filename": "arquivo-1",
+                "size": 1665021,
+                "content_type": "image/png",
+                "storage_type": "aws"
+              }
+            },
+            "order": 1,
+            "flow_node_id": 5338932,
+            "created_at": "2026-10-06T13:26:27-03:00",
+            "updated_at": "2026-10-06T13:26:28-03:00"
+          },
+          {
+            "id": 10807706,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5338932-2]",
+              "typing_delay_seconds": 3
+            },
+            "order": 2,
+            "flow_node_id": 5338932,
+            "created_at": "2026-10-06T13:26:27-03:00",
+            "updated_at": "2026-10-06T13:26:27-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 205.44539320680502,
+        "y": -302.97981933335825
+      },
+      "width": 240,
+      "height": 180
+    },
+    {
+      "id": "5338982",
+      "type": "wait_response",
+      "data": {
+        "label": "Aguarda Resposta",
+        "nodeType": "wait_response",
+        "description": "",
+        "actions": [
+          {
+            "id": 10807755,
+            "action_type": "wait_for_response",
+            "config": {
+              "buffer_value": 30,
+              "timeout_unit": "hours",
+              "timeout_value": 1,
+              "buffer_enabled": false,
+              "wait_indefinitely": false,
+              "reply_to_lead_enabled": false,
+              "react_to_lead_check_enabled": false,
+              "react_to_lead_reaction_emoji": "✅",
+              "reply_to_lead_next_messages_count": 1
+            },
+            "order": 1,
+            "flow_node_id": 5338982,
+            "created_at": "2026-10-06T13:27:15-03:00",
+            "updated_at": "2026-10-06T13:27:15-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 801.7436549420763,
+        "y": -65.00379188670777
+      },
+      "width": 240,
+      "height": 226
+    },
+    {
+      "id": "5338985",
+      "type": "ai",
+      "data": {
+        "label": "Bloco de IA",
+        "nodeType": "ai",
+        "description": "Integração com GPT e Gemini para respostas inteligentes",
+        "actions": [
+          {
+            "id": 10808050,
+            "action_type": "ai_call",
+            "config": {
+              "model": "gpt-5-mini",
+              "api_key": "<redacted-api-key>",
+              "provider": "gpt",
+              "user_message": "{last_message}",
+              "system_prompt": "Analise a última mensagem sem expor dados sensíveis.",
+              "api_key_source": "manual",
+              "understand_pdf": true,
+              "expected_pix_key": "",
+              "maintain_context": false,
+              "understand_audio": false,
+              "understand_image": true,
+              "expected_pix_keys": [],
+              "response_variable": "resposta.gpt",
+              "auto_send_response": false,
+              "understand_receipt": false,
+              "context_interactions": 1,
+              "fail_reason_variable": "ai.fail.reason",
+              "expected_recipient_name": "",
+              "expected_recipient_names": [],
+              "validate_receipt_pix_key": false,
+              "validate_receipt_recipient": false
+            },
+            "order": 1,
+            "flow_node_id": 5338985,
+            "created_at": "2026-10-06T13:30:01-03:00",
+            "updated_at": "2026-10-13T15:21:54-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1135.3877434715603,
+        "y": -129.78778104017283
+      },
+      "width": 240,
+      "height": 222
+    },
+    {
+      "id": "5339154",
+      "type": "condition",
+      "data": {
+        "label": "Condicional",
+        "nodeType": "condition",
+        "description": "Avaliar condições e direcionar o fluxo",
+        "actions": [
+          {
+            "id": 11162596,
+            "action_type": "evaluate_condition",
+            "config": {
+              "ruleType": "all",
+              "conditions": [
+                {
+                  "id": "condition_1791304259891",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$",
+                  "fieldOperator": "contains"
+                },
+                {
+                  "id": "kovil-positive-receipt",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$0,00",
+                  "fieldOperator": "not_contains"
+                }
+              ]
+            },
+            "order": 1,
+            "flow_node_id": 5339154,
+            "created_at": "2026-10-09T23:36:13-03:00",
+            "updated_at": "2026-10-13T23:32:47-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1532.5656607842377,
+        "y": -127.36341641347992
+      },
+      "width": 240,
+      "height": 205
+    },
+    {
+      "id": "5339422",
+      "type": "pixel",
+      "data": {
+        "label": "Pixel",
+        "nodeType": "pixel",
+        "description": "Disparar eventos em ferramentas de anúncios (Facebook Ads, etc)",
+        "actions": [
+          {
+            "id": 11000452,
+            "action_type": "send_pixel_event",
+            "config": {
+              "page_id": "<redacted-page-id>",
+              "currency": "BRL",
+              "event_type": "Compra",
+              "item_value": "15",
+              "tracking_type": "Facebook",
+              "pixel_config_id": 3327,
+              "pixel_config_name": "PIXEL - MARITZA"
+            },
+            "order": 1,
+            "flow_node_id": 5339422,
+            "created_at": "2026-10-08T13:00:27-03:00",
+            "updated_at": "2026-10-08T13:00:27-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 4027.6363444056615,
+        "y": -564.2331395388912
+      },
+      "width": 240,
+      "height": 154
+    },
+    {
+      "id": "5339640",
+      "type": "tags",
+      "data": {
+        "label": "Etiquetas",
+        "nodeType": "tags",
+        "description": "Adicionar etiquetas ao cliente",
+        "actions": [
+          {
+            "id": 10813644,
+            "action_type": "add_tags",
+            "config": {
+              "tags": [
+                "atendimento"
+              ],
+              "action": "add"
+            },
+            "order": 1,
+            "flow_node_id": 5339640,
+            "created_at": "2026-10-06T14:25:35-03:00",
+            "updated_at": "2026-10-06T14:25:35-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1139.4777674824559,
+        "y": 266.87414406902235
+      },
+      "width": 240,
+      "height": 121
+    },
+    {
+      "id": "5339711",
+      "type": "wait_response",
+      "data": {
+        "label": "Aguarda Resposta",
+        "nodeType": "wait_response",
+        "description": "",
+        "actions": [
+          {
+            "id": 10809024,
+            "action_type": "wait_for_response",
+            "config": {
+              "buffer_value": 30,
+              "timeout_unit": "hours",
+              "timeout_value": 2,
+              "buffer_enabled": false,
+              "wait_indefinitely": false,
+              "reply_to_lead_enabled": false,
+              "react_to_lead_check_enabled": false,
+              "react_to_lead_reaction_emoji": "✅",
+              "reply_to_lead_next_messages_count": 1
+            },
+            "order": 1,
+            "flow_node_id": 5339711,
+            "created_at": "2026-10-06T13:39:22-03:00",
+            "updated_at": "2026-10-06T13:39:22-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1467.0708660461416,
+        "y": 413.0405756536601
+      },
+      "width": 240,
+      "height": 226
+    },
+    {
+      "id": "5339716",
+      "type": "ai",
+      "data": {
+        "label": "Bloco de IA",
+        "nodeType": "ai",
+        "description": "Integração com GPT e Gemini para respostas inteligentes",
+        "actions": [
+          {
+            "id": 10809064,
+            "action_type": "ai_call",
+            "config": {
+              "model": "gpt-5-mini",
+              "api_key": "<redacted-api-key>",
+              "provider": "gpt",
+              "user_message": "{last_message}",
+              "system_prompt": "Analise a última mensagem sem expor dados sensíveis.",
+              "api_key_source": "manual",
+              "understand_pdf": true,
+              "expected_pix_key": "",
+              "maintain_context": false,
+              "understand_audio": false,
+              "understand_image": true,
+              "expected_pix_keys": [],
+              "response_variable": "resposta.gpt",
+              "auto_send_response": false,
+              "understand_receipt": false,
+              "context_interactions": 1,
+              "fail_reason_variable": "ai.fail.reason",
+              "expected_recipient_name": "",
+              "expected_recipient_names": [],
+              "validate_receipt_pix_key": false,
+              "validate_receipt_recipient": false
+            },
+            "order": 1,
+            "flow_node_id": 5339716,
+            "created_at": "2026-10-06T13:40:54-03:00",
+            "updated_at": "2026-10-13T15:21:54-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1838.8625624517256,
+        "y": 272.9240855551112
+      },
+      "width": 240,
+      "height": 222
+    },
+    {
+      "id": "5339727",
+      "type": "condition",
+      "data": {
+        "label": "Condicional",
+        "nodeType": "condition",
+        "description": "Avaliar condições e direcionar o fluxo",
+        "actions": [
+          {
+            "id": 10809068,
+            "action_type": "evaluate_condition",
+            "config": {
+              "ruleType": "all",
+              "conditions": [
+                {
+                  "id": "condition_1791304871170",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$",
+                  "fieldOperator": "contains"
+                },
+                {
+                  "id": "kovil-positive-receipt",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$0,00",
+                  "fieldOperator": "not_contains"
+                }
+              ]
+            },
+            "order": 1,
+            "flow_node_id": 5339727,
+            "created_at": "2026-10-06T13:41:27-03:00",
+            "updated_at": "2026-10-13T23:32:47-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2238.563011270748,
+        "y": 323.31583041745506
+      },
+      "width": 240,
+      "height": 205
+    },
+    {
+      "id": "5339842",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10809308,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5339842-1]",
+              "typing_delay_seconds": 3
+            },
+            "order": 1,
+            "flow_node_id": 5339842,
+            "created_at": "2026-10-06T13:44:28-03:00",
+            "updated_at": "2026-10-06T13:44:28-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1939.7671885224704,
+        "y": 896.9857462360696
+      },
+      "width": 240,
+      "height": 130
+    },
+    {
+      "id": "5339947",
+      "type": "wait_response",
+      "data": {
+        "label": "Aguarda Resposta",
+        "nodeType": "wait_response",
+        "description": "",
+        "actions": [
+          {
+            "id": 10809434,
+            "action_type": "wait_for_response",
+            "config": {
+              "buffer_value": 30,
+              "timeout_unit": "hours",
+              "timeout_value": 4,
+              "buffer_enabled": false,
+              "wait_indefinitely": false,
+              "reply_to_lead_enabled": false,
+              "react_to_lead_check_enabled": false,
+              "react_to_lead_reaction_emoji": "✅",
+              "reply_to_lead_next_messages_count": 1
+            },
+            "order": 1,
+            "flow_node_id": 5339947,
+            "created_at": "2026-10-06T13:45:26-03:00",
+            "updated_at": "2026-10-06T13:45:26-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2054.049835576794,
+        "y": 1115.4975611231016
+      },
+      "width": 240,
+      "height": 226
+    },
+    {
+      "id": "5342349",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10813564,
+            "action_type": "send_multi_media",
+            "config": {
+              "caption": "[legenda-redigida]",
+              "messages": [],
+              "media_type": "image",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-2",
+                "direct_url": "https://cdn.example.com/media-2",
+                "filename": "arquivo-2",
+                "size": 247544,
+                "content_type": "image/jpeg",
+                "storage_type": "aws"
+              }
+            },
+            "order": 1,
+            "flow_node_id": 5342349,
+            "created_at": "2026-10-06T14:24:35-03:00",
+            "updated_at": "2026-10-06T14:24:37-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2644.411833315404,
+        "y": 1420.9697742703918
+      },
+      "width": 240,
+      "height": 133
+    },
+    {
+      "id": "5342368",
+      "type": "wait_response",
+      "data": {
+        "label": "Aguarda Resposta",
+        "nodeType": "wait_response",
+        "description": "",
+        "actions": [
+          {
+            "id": 10813598,
+            "action_type": "wait_for_response",
+            "config": {
+              "buffer_value": 30,
+              "timeout_unit": "days",
+              "timeout_value": 31,
+              "buffer_enabled": false,
+              "wait_indefinitely": true,
+              "reply_to_lead_enabled": false,
+              "react_to_lead_check_enabled": false,
+              "react_to_lead_reaction_emoji": "✅",
+              "reply_to_lead_next_messages_count": 1
+            },
+            "order": 1,
+            "flow_node_id": 5342368,
+            "created_at": "2026-10-06T14:25:06-03:00",
+            "updated_at": "2026-10-06T14:25:42-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2957.9419997848454,
+        "y": 1693.1497252455106
+      },
+      "width": 240,
+      "height": 226
+    },
+    {
+      "id": "5342643",
+      "type": "ai",
+      "data": {
+        "label": "Bloco de IA",
+        "nodeType": "ai",
+        "description": "Integração com GPT e Gemini para respostas inteligentes",
+        "actions": [
+          {
+            "id": 10814460,
+            "action_type": "ai_call",
+            "config": {
+              "model": "gpt-5-mini",
+              "api_key": "<redacted-api-key>",
+              "provider": "gpt",
+              "user_message": "{last_message}",
+              "system_prompt": "Analise a última mensagem sem expor dados sensíveis.",
+              "api_key_source": "manual",
+              "understand_pdf": true,
+              "expected_pix_key": "",
+              "maintain_context": false,
+              "understand_audio": true,
+              "understand_image": true,
+              "expected_pix_keys": [],
+              "response_variable": "resposta.gpt",
+              "auto_send_response": false,
+              "understand_receipt": false,
+              "context_interactions": 1,
+              "fail_reason_variable": "ai.fail.reason",
+              "expected_recipient_name": "",
+              "expected_recipient_names": [],
+              "validate_receipt_pix_key": false,
+              "validate_receipt_recipient": false
+            },
+            "order": 1,
+            "flow_node_id": 5342643,
+            "created_at": "2026-10-06T14:26:52-03:00",
+            "updated_at": "2026-10-13T15:21:55-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 3397.797265803944,
+        "y": 1275.2458229039457
+      },
+      "width": 240,
+      "height": 222
+    },
+    {
+      "id": "5343263",
+      "type": "condition",
+      "data": {
+        "label": "Condicional",
+        "nodeType": "condition",
+        "description": "Avaliar condições e direcionar o fluxo",
+        "actions": [
+          {
+            "id": 10815515,
+            "action_type": "evaluate_condition",
+            "config": {
+              "ruleType": "all",
+              "conditions": [
+                {
+                  "id": "condition_1791308564572",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$",
+                  "fieldOperator": "contains"
+                },
+                {
+                  "id": "kovil-positive-receipt",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$0,00",
+                  "fieldOperator": "not_contains"
+                }
+              ]
+            },
+            "order": 1,
+            "flow_node_id": 5343263,
+            "created_at": "2026-10-06T14:43:05-03:00",
+            "updated_at": "2026-10-13T23:32:47-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 3801.185767892816,
+        "y": 1615.4502050905828
+      },
+      "width": 240,
+      "height": 205
+    },
+    {
+      "id": "5343371",
+      "type": "ai",
+      "data": {
+        "label": "Bloco de IA",
+        "nodeType": "ai",
+        "description": "Integração com GPT e Gemini para respostas inteligentes",
+        "actions": [
+          {
+            "id": 10815788,
+            "action_type": "ai_call",
+            "config": {
+              "model": "gpt-5-mini",
+              "api_key": "<redacted-api-key>",
+              "provider": "gpt",
+              "user_message": "{last_message}",
+              "system_prompt": "Analise a última mensagem sem expor dados sensíveis.",
+              "api_key_source": "manual",
+              "understand_pdf": true,
+              "expected_pix_key": "",
+              "maintain_context": false,
+              "understand_audio": false,
+              "understand_image": true,
+              "expected_pix_keys": [],
+              "response_variable": "resposta.gpt",
+              "auto_send_response": false,
+              "understand_receipt": false,
+              "context_interactions": 1,
+              "fail_reason_variable": "ai.fail.reason",
+              "expected_recipient_name": "",
+              "expected_recipient_names": [],
+              "validate_receipt_pix_key": false,
+              "validate_receipt_recipient": false
+            },
+            "order": 1,
+            "flow_node_id": 5343371,
+            "created_at": "2026-10-06T14:51:35-03:00",
+            "updated_at": "2026-10-13T15:21:56-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2429.257034494553,
+        "y": 1023.5624398668945
+      },
+      "width": 240,
+      "height": 222
+    },
+    {
+      "id": "5343516",
+      "type": "condition",
+      "data": {
+        "label": "Condicional",
+        "nodeType": "condition",
+        "description": "Avaliar condições e direcionar o fluxo",
+        "actions": [
+          {
+            "id": 10816153,
+            "action_type": "evaluate_condition",
+            "config": {
+              "ruleType": "all",
+              "conditions": [
+                {
+                  "id": "condition_1791308564572",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$",
+                  "fieldOperator": "contains"
+                },
+                {
+                  "id": "kovil-positive-receipt",
+                  "category": "custom_field",
+                  "fieldName": "resposta.gpt",
+                  "fieldValue": "#R$0,00",
+                  "fieldOperator": "not_contains"
+                }
+              ]
+            },
+            "order": 1,
+            "flow_node_id": 5343516,
+            "created_at": "2026-10-06T14:52:18-03:00",
+            "updated_at": "2026-10-13T23:32:47-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2837.420243321199,
+        "y": 1011.1550643497719
+      },
+      "width": 240,
+      "height": 205
+    },
+    {
+      "id": "5346966",
+      "type": "connection_flow",
+      "data": {
+        "label": "Conexão de Fluxo",
+        "nodeType": "connection_flow",
+        "description": "Redirecionar para outro fluxo",
+        "actions": [
+          {
+            "id": 10822658,
+            "action_type": "execute_flow",
+            "config": {
+              "target_flow_id": 140360,
+              "target_flow_name": "GELATINA-FUNIL-05"
+            },
+            "order": 1,
+            "flow_node_id": 5346966,
+            "created_at": "2026-10-06T16:04:14-03:00",
+            "updated_at": "2026-10-06T16:04:14-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 4609.415956377759,
+        "y": -470.9886801790634
+      },
+      "width": 240,
+      "height": 137
+    },
+    {
+      "id": "5554644",
+      "type": "integration",
+      "data": {
+        "label": "Integração",
+        "nodeType": "integration",
+        "description": null,
+        "actions": [
+          {
+            "id": 11213746,
+            "action_type": "make_http_request",
+            "config": {
+              "request_url": "https://api.example.com/redacted",
+              "request_body": "{\"customer_phone\":\"{phone_number}\",\"chip_number\":\"{instance_number}\",\"flow_id\":\"140228\"}",
+              "request_method": "POST",
+              "request_headers": {
+                "Content-Type": "application/json",
+                "Authorization": "<redacted-authorization>"
+              },
+              "response_fields": [
+                {
+                  "name": "accepted",
+                  "path": "body.accepted"
+                },
+                {
+                  "name": "duplicate",
+                  "path": "body.duplicate"
+                },
+                {
+                  "name": "message",
+                  "path": "body.message"
+                }
+              ],
+              "response_mapping": {
+                "message": "kovil.receipt.error",
+                "accepted": "kovil.receipt.accepted",
+                "duplicate": "kovil.receipt.duplicate"
+              }
+            },
+            "order": 0,
+            "flow_node_id": 5554644,
+            "created_at": "2026-10-10T14:43:07-03:00",
+            "updated_at": "2026-10-13T23:29:56-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 4301,
+        "y": -564
+      },
+      "width": 240,
+      "height": 156
+    }
+  ],
+  "edges": [
+    {
+      "id": "7136302",
+      "source": "5338932",
+      "target": "5338982",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7136306",
+      "source": "5338982",
+      "target": "5338985",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "client-response"
+    },
+    {
+      "id": "7136474",
+      "source": "5339154",
+      "target": "5338982",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7136691",
+      "source": "5339154",
+      "target": "5339422",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7136960",
+      "source": "5338821",
+      "target": "5338932",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7136963",
+      "source": "5338982",
+      "target": "5339640",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "timeout"
+    },
+    {
+      "id": "7136968",
+      "source": "5338985",
+      "target": "5339154",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7137064",
+      "source": "5339640",
+      "target": "5339711",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7137103",
+      "source": "5339711",
+      "target": "5339716",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "client-response"
+    },
+    {
+      "id": "7137401",
+      "source": "5339842",
+      "target": "5339947",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7140524",
+      "source": "5342349",
+      "target": "5342368",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7141562",
+      "source": "5342368",
+      "target": "5342643",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "client-response"
+    },
+    {
+      "id": "7141769",
+      "source": "5342643",
+      "target": "5343263",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7141772",
+      "source": "5343263",
+      "target": "5342368",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7141780",
+      "source": "5343263",
+      "target": "5339422",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7141830",
+      "source": "5339716",
+      "target": "5339727",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7141871",
+      "source": "5339727",
+      "target": "5339711",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7141874",
+      "source": "5339727",
+      "target": "5339422",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7141909",
+      "source": "5339947",
+      "target": "5343371",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "client-response"
+    },
+    {
+      "id": "7142138",
+      "source": "5343371",
+      "target": "5343516",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7142167",
+      "source": "5343516",
+      "target": "5339947",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7142168",
+      "source": "5343516",
+      "target": "5339422",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7434878",
+      "source": "5554644",
+      "target": "5346966",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "success"
+    },
+    {
+      "id": "7434879",
+      "source": "5554644",
+      "target": "5346966",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7434880",
+      "source": "5339422",
+      "target": "5554644",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7436780",
+      "source": "5338985",
+      "target": "5338982",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7436781",
+      "source": "5339716",
+      "target": "5339711",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7436782",
+      "source": "5342643",
+      "target": "5342368",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7436783",
+      "source": "5343371",
+      "target": "5339947",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7438450",
+      "source": "5339711",
+      "target": "5339842",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "timeout"
+    },
+    {
+      "id": "7438453",
+      "source": "5339947",
+      "target": "5342349",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "timeout"
+    }
+  ]
+}

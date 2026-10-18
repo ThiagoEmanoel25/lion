@@ -1,0 +1,1265 @@
+{
+  "source": "leona",
+  "version": 1,
+  "sourceFlowId": "139195",
+  "label": "GELATINA-FUNIL-02",
+  "nodes": [
+    {
+      "id": "5294927",
+      "type": "start",
+      "data": {
+        "label": "Início",
+        "nodeType": "start",
+        "description": null,
+        "actions": [],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": -51.571656651039916,
+        "y": 66.65423553677121
+      },
+      "width": 240,
+      "height": 83
+    },
+    {
+      "id": "5294929",
+      "type": "distributor",
+      "data": {
+        "label": "Distribuidor",
+        "nodeType": "distributor",
+        "description": "Distribuir contatos igualmente entre múltiplas saídas",
+        "actions": [
+          {
+            "id": 10722610,
+            "action_type": "distribute_contacts",
+            "config": {
+              "outputs": [
+                {
+                  "id": "output_1791228422510",
+                  "name": "Saída 1",
+                  "quantity": 223
+                },
+                {
+                  "id": "output_1791228423071",
+                  "name": "Saída 2",
+                  "quantity": 223
+                },
+                {
+                  "id": "output_1791228423551",
+                  "name": "Saída 3",
+                  "quantity": 223
+                },
+                {
+                  "id": "output_1791228423981",
+                  "name": "Saída 4",
+                  "quantity": 222
+                },
+                {
+                  "id": "output_1791228424524",
+                  "name": "Saída 5",
+                  "quantity": 222
+                }
+              ],
+              "prevent_repeat": true
+            },
+            "order": 1,
+            "flow_node_id": 5294929,
+            "created_at": "2026-10-05T16:28:49-03:00",
+            "updated_at": "2026-10-18T13:11:38-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 554.0118996101542,
+        "y": -84.00249536253176
+      },
+      "width": 240,
+      "height": 279
+    },
+    {
+      "id": "5295077",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10723174,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 0,
+              "delay_max_seconds": 10,
+              "delay_min_seconds": 0
+            },
+            "order": 1,
+            "flow_node_id": 5295077,
+            "created_at": "2026-10-05T16:30:09-03:00",
+            "updated_at": "2026-10-05T16:30:09-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 870.6101718063696,
+        "y": -82.36247901736473
+      },
+      "width": 240,
+      "height": 116
+    },
+    {
+      "id": "5295191",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10723176,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 0,
+              "delay_max_seconds": 10,
+              "delay_min_seconds": 0
+            },
+            "order": 1,
+            "flow_node_id": 5295191,
+            "created_at": "2026-10-05T16:30:10-03:00",
+            "updated_at": "2026-10-05T16:30:10-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 886.1665207514584,
+        "y": 95.82842708092522
+      },
+      "width": 240,
+      "height": 116
+    },
+    {
+      "id": "5295195",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10723182,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 0,
+              "delay_max_seconds": 10,
+              "delay_min_seconds": 0
+            },
+            "order": 1,
+            "flow_node_id": 5295195,
+            "created_at": "2026-10-05T16:30:18-03:00",
+            "updated_at": "2026-10-05T16:30:18-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 870.6101718063694,
+        "y": -283.18080176305665
+      },
+      "width": 240,
+      "height": 116
+    },
+    {
+      "id": "5295196",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10723183,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 0,
+              "delay_max_seconds": 10,
+              "delay_min_seconds": 0
+            },
+            "order": 1,
+            "flow_node_id": 5295196,
+            "created_at": "2026-10-05T16:30:24-03:00",
+            "updated_at": "2026-10-05T16:30:24-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 881.1076457225611,
+        "y": 276.2375884537712
+      },
+      "width": 240,
+      "height": 116
+    },
+    {
+      "id": "5295395",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10723630,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 0,
+              "delay_max_seconds": 10,
+              "delay_min_seconds": 0
+            },
+            "order": 1,
+            "flow_node_id": 5295395,
+            "created_at": "2026-10-05T16:32:39-03:00",
+            "updated_at": "2026-10-05T16:32:39-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 885.0334515347784,
+        "y": 470.33737873225783
+      },
+      "width": 240,
+      "height": 116
+    },
+    {
+      "id": "5295451",
+      "type": "tags",
+      "data": {
+        "label": "Etiquetas",
+        "nodeType": "tags",
+        "description": "Adicionar etiquetas ao cliente",
+        "actions": [
+          {
+            "id": 10723763,
+            "action_type": "add_tags",
+            "config": {
+              "tags": [
+                "GELATINA-PARTE-02"
+              ],
+              "action": "add"
+            },
+            "order": 1,
+            "flow_node_id": 5295451,
+            "created_at": "2026-10-05T16:34:22-03:00",
+            "updated_at": "2026-10-05T16:34:22-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 1685.9129003035857,
+        "y": 151.8507240895745
+      },
+      "width": 240,
+      "height": 121
+    },
+    {
+      "id": "5295459",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10723774,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5295459-1]",
+              "typing_delay_seconds": 7
+            },
+            "order": 1,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T16:36:30-03:00",
+            "updated_at": "2026-10-05T16:36:30-03:00"
+          },
+          {
+            "id": 10736969,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "audio",
+              "media_source": "file",
+              "audio_forward": true,
+              "typing_delay_seconds": 6,
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-1",
+                "direct_url": "https://cdn.example.com/media-1",
+                "filename": "arquivo-1",
+                "size": 417024,
+                "content_type": "audio/mpeg",
+                "storage_type": "aws"
+              }
+            },
+            "order": 2,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:03-03:00"
+          },
+          {
+            "id": 10736971,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "image",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-2",
+                "direct_url": "https://cdn.example.com/media-2",
+                "filename": "arquivo-2",
+                "size": 193891,
+                "content_type": "image/jpeg",
+                "storage_type": "aws"
+              }
+            },
+            "order": 3,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:03-03:00"
+          },
+          {
+            "id": 10736976,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 0,
+              "delay_max_seconds": 10,
+              "delay_min_seconds": 0
+            },
+            "order": 4,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:01-03:00"
+          },
+          {
+            "id": 10736972,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "audio",
+              "media_source": "file",
+              "audio_forward": true,
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-3",
+                "direct_url": "https://cdn.example.com/media-3",
+                "filename": "arquivo-3",
+                "size": 248832,
+                "content_type": "audio/mpeg",
+                "storage_type": "aws"
+              },
+              "typing_delay_seconds": 12
+            },
+            "order": 5,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:03-03:00"
+          },
+          {
+            "id": 10736978,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "image",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-4",
+                "direct_url": "https://cdn.example.com/media-4",
+                "filename": "arquivo-4",
+                "size": 70239,
+                "content_type": "image/jpeg",
+                "storage_type": "aws"
+              }
+            },
+            "order": 6,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:02-03:00"
+          },
+          {
+            "id": 10736974,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5295459-7]",
+              "typing_delay_seconds": 8
+            },
+            "order": 7,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:01-03:00"
+          },
+          {
+            "id": 10736970,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "audio",
+              "media_source": "file",
+              "audio_forward": true,
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-5",
+                "direct_url": "https://cdn.example.com/media-5",
+                "filename": "arquivo-5",
+                "size": 437184,
+                "content_type": "audio/mpeg",
+                "storage_type": "aws"
+              },
+              "typing_delay_seconds": 15
+            },
+            "order": 8,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:03-03:00"
+          },
+          {
+            "id": 10736977,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5295459-9]",
+              "typing_delay_seconds": 10
+            },
+            "order": 9,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:01-03:00"
+          },
+          {
+            "id": 10736975,
+            "action_type": "send_multi_media",
+            "config": {
+              "messages": [],
+              "media_type": "audio",
+              "media_source": "file",
+              "audio_forward": true,
+              "typing_delay_seconds": 40,
+              "media_file_info": {
+                "url": "https://cdn.example.com/media-6",
+                "direct_url": "https://cdn.example.com/media-6",
+                "filename": "arquivo-6",
+                "size": 1116288,
+                "content_type": "audio/mpeg",
+                "storage_type": "aws"
+              }
+            },
+            "order": 10,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:03-03:00"
+          },
+          {
+            "id": 10736973,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5295459-11]",
+              "typing_delay_seconds": 12
+            },
+            "order": 11,
+            "flow_node_id": 5295459,
+            "created_at": "2026-10-05T18:47:01-03:00",
+            "updated_at": "2026-10-05T18:47:01-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2164.795150452365,
+        "y": -202.28635423097492
+      },
+      "width": 240,
+      "height": 537
+    },
+    {
+      "id": "5302358",
+      "type": "wait_response",
+      "data": {
+        "label": "Aguarda Resposta",
+        "nodeType": "wait_response",
+        "description": "",
+        "actions": [
+          {
+            "id": 10737001,
+            "action_type": "wait_for_response",
+            "config": {
+              "buffer_value": 30,
+              "timeout_unit": "minutes",
+              "timeout_value": 10,
+              "buffer_enabled": false,
+              "wait_indefinitely": false,
+              "reply_to_lead_enabled": false,
+              "react_to_lead_check_enabled": false,
+              "react_to_lead_reaction_emoji": "✅",
+              "reply_to_lead_next_messages_count": 1
+            },
+            "order": 1,
+            "flow_node_id": 5302358,
+            "created_at": "2026-10-05T18:48:31-03:00",
+            "updated_at": "2026-10-09T16:36:57-03:00"
+          },
+          {
+            "id": 10737000,
+            "action_type": "save_user_data",
+            "config": {
+              "field_name": "resposta-lead",
+              "save_empty": true
+            },
+            "order": 2,
+            "flow_node_id": 5302358,
+            "created_at": "2026-10-05T18:48:31-03:00",
+            "updated_at": "2026-10-05T18:48:31-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2669.7546691705725,
+        "y": -275.33445918891505
+      },
+      "width": 240,
+      "height": 226
+    },
+    {
+      "id": "5303524",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10740959,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-1]",
+              "typing_delay_seconds": 10
+            },
+            "order": 1,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-05T19:26:37-03:00"
+          },
+          {
+            "id": 10740965,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-2]",
+              "typing_delay_seconds": 10
+            },
+            "order": 2,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-05T19:26:37-03:00"
+          },
+          {
+            "id": 10740964,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-3]",
+              "typing_delay_seconds": 10
+            },
+            "order": 3,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-05T19:26:37-03:00"
+          },
+          {
+            "id": 10740966,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-4]",
+              "typing_delay_seconds": 10
+            },
+            "order": 4,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-05T19:26:37-03:00"
+          },
+          {
+            "id": 10740958,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-5]",
+              "typing_delay_seconds": 10
+            },
+            "order": 5,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-05T19:26:37-03:00"
+          },
+          {
+            "id": 10796834,
+            "action_type": "send_file",
+            "config": {
+              "file_url": "",
+              "file_name": "arquivo-7.pdf",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/file-7",
+                "direct_url": "https://cdn.example.com/file-7",
+                "filename": "arquivo-7.pdf",
+                "size": 943265,
+                "content_type": "application/pdf",
+                "storage_type": "aws"
+              }
+            },
+            "order": 6,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T10:49:19-03:00",
+            "updated_at": "2026-10-06T10:49:22-03:00"
+          },
+          {
+            "id": 10796835,
+            "action_type": "send_file",
+            "config": {
+              "file_url": "",
+              "file_name": "arquivo-8.pdf",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/file-8",
+                "direct_url": "https://cdn.example.com/file-8",
+                "filename": "arquivo-8.pdf",
+                "size": 2436230,
+                "content_type": "application/pdf",
+                "storage_type": "aws"
+              }
+            },
+            "order": 7,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T10:49:19-03:00",
+            "updated_at": "2026-10-06T15:45:47-03:00"
+          },
+          {
+            "id": 10796836,
+            "action_type": "send_file",
+            "config": {
+              "file_url": "",
+              "file_name": "arquivo-9.pdf",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/file-9",
+                "direct_url": "https://cdn.example.com/file-9",
+                "filename": "arquivo-9.pdf",
+                "size": 6148626,
+                "content_type": "application/pdf",
+                "storage_type": "aws"
+              }
+            },
+            "order": 8,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T10:49:19-03:00",
+            "updated_at": "2026-10-06T15:45:50-03:00"
+          },
+          {
+            "id": 10820944,
+            "action_type": "send_file",
+            "config": {
+              "file_url": "",
+              "file_name": "arquivo-10.pdf",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/file-10",
+                "direct_url": "https://cdn.example.com/file-10",
+                "filename": "arquivo-10.pdf",
+                "size": 4920754,
+                "content_type": "application/pdf",
+                "storage_type": "aws"
+              }
+            },
+            "order": 9,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T15:45:44-03:00",
+            "updated_at": "2026-10-06T15:45:49-03:00"
+          },
+          {
+            "id": 10820940,
+            "action_type": "send_file",
+            "config": {
+              "file_url": "",
+              "file_name": "arquivo-11.pdf",
+              "media_source": "file",
+              "media_file_info": {
+                "url": "https://cdn.example.com/file-11",
+                "direct_url": "https://cdn.example.com/file-11",
+                "filename": "arquivo-11.pdf",
+                "size": 7419208,
+                "content_type": "application/pdf",
+                "storage_type": "aws"
+              }
+            },
+            "order": 10,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T15:45:44-03:00",
+            "updated_at": "2026-10-06T15:45:50-03:00"
+          },
+          {
+            "id": 10740957,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-11]",
+              "typing_delay_seconds": 10
+            },
+            "order": 11,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-06T15:45:44-03:00"
+          },
+          {
+            "id": 10740962,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-12]",
+              "typing_delay_seconds": 10
+            },
+            "order": 12,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-06T15:45:44-03:00"
+          },
+          {
+            "id": 10820942,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-13]",
+              "typing_delay_seconds": 3
+            },
+            "order": 13,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T15:45:44-03:00",
+            "updated_at": "2026-10-06T17:43:16-03:00"
+          },
+          {
+            "id": 10820943,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-14]",
+              "typing_delay_seconds": 3
+            },
+            "order": 14,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T15:45:44-03:00",
+            "updated_at": "2026-10-06T17:43:16-03:00"
+          },
+          {
+            "id": 10820945,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-15]",
+              "typing_delay_seconds": 3
+            },
+            "order": 15,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T15:45:44-03:00",
+            "updated_at": "2026-10-06T15:45:44-03:00"
+          },
+          {
+            "id": 10820941,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-16]",
+              "typing_delay_seconds": 3
+            },
+            "order": 16,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T15:45:44-03:00",
+            "updated_at": "2026-10-06T15:45:44-03:00"
+          },
+          {
+            "id": 10830512,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-17]",
+              "typing_delay_seconds": 3
+            },
+            "order": 17,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-06T17:43:16-03:00",
+            "updated_at": "2026-10-06T17:43:16-03:00"
+          },
+          {
+            "id": 10740963,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-18]",
+              "typing_delay_seconds": 6
+            },
+            "order": 18,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-06T17:43:16-03:00"
+          },
+          {
+            "id": 10740961,
+            "action_type": "delay_between_messages",
+            "config": {
+              "delay_seconds": 5,
+              "delay_max_seconds": 11,
+              "delay_min_seconds": 5
+            },
+            "order": 19,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-06T17:43:16-03:00"
+          },
+          {
+            "id": 10740960,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5303524-20]",
+              "typing_delay_seconds": 3
+            },
+            "order": 20,
+            "flow_node_id": 5303524,
+            "created_at": "2026-10-05T19:26:37-03:00",
+            "updated_at": "2026-10-06T17:43:16-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 3749.308596394113,
+        "y": -219.37784470584268
+      },
+      "width": 240,
+      "height": 967
+    },
+    {
+      "id": "5346352",
+      "type": "message",
+      "data": {
+        "label": "Mensagem",
+        "nodeType": "message",
+        "description": "",
+        "actions": [
+          {
+            "id": 10821211,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5346352-1]",
+              "typing_delay_seconds": 5
+            },
+            "order": 1,
+            "flow_node_id": 5346352,
+            "created_at": "2026-10-06T15:47:22-03:00",
+            "updated_at": "2026-10-06T15:47:54-03:00"
+          },
+          {
+            "id": 10821217,
+            "action_type": "send_message",
+            "config": {
+              "message_text": "[conteudo-redigido-5346352-2]",
+              "typing_delay_seconds": 3
+            },
+            "order": 2,
+            "flow_node_id": 5346352,
+            "created_at": "2026-10-06T15:47:54-03:00",
+            "updated_at": "2026-10-06T15:47:54-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 2958.7952081743792,
+        "y": 69.56309118187309
+      },
+      "width": 240,
+      "height": 177
+    },
+    {
+      "id": "5346357",
+      "type": "wait_response",
+      "data": {
+        "label": "Aguarda Resposta",
+        "nodeType": "wait_response",
+        "description": "",
+        "actions": [
+          {
+            "id": 10821221,
+            "action_type": "wait_for_response",
+            "config": {
+              "buffer_value": 30,
+              "timeout_unit": "days",
+              "timeout_value": 31,
+              "buffer_enabled": true,
+              "wait_indefinitely": true,
+              "reply_to_lead_enabled": true,
+              "react_to_lead_check_enabled": true,
+              "react_to_lead_reaction_emoji": "🎉",
+              "reply_to_lead_next_messages_count": 1
+            },
+            "order": 1,
+            "flow_node_id": 5346357,
+            "created_at": "2026-10-06T15:48:03-03:00",
+            "updated_at": "2026-10-06T15:48:37-03:00"
+          },
+          {
+            "id": 10821230,
+            "action_type": "save_user_data",
+            "config": {
+              "field_name": "{resposta-lead}",
+              "save_empty": true
+            },
+            "order": 2,
+            "flow_node_id": 5346357,
+            "created_at": "2026-10-06T15:48:37-03:00",
+            "updated_at": "2026-10-06T15:48:37-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 3311.9702116704466,
+        "y": 548.7635767274415
+      },
+      "width": 240,
+      "height": 364
+    },
+    {
+      "id": "5346373",
+      "type": "tags",
+      "data": {
+        "label": "Etiquetas",
+        "nodeType": "tags",
+        "description": "Adicionar etiquetas ao cliente",
+        "actions": [
+          {
+            "id": 10821391,
+            "action_type": "add_tags",
+            "config": {
+              "tags": [
+                "FINALIZOU-FUNIL-GELATINA-02"
+              ],
+              "action": "add"
+            },
+            "order": 1,
+            "flow_node_id": 5346373,
+            "created_at": "2026-10-06T15:49:22-03:00",
+            "updated_at": "2026-10-06T15:49:22-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 4311.000000000002,
+        "y": 505.9999999999999
+      },
+      "width": 240,
+      "height": 121
+    },
+    {
+      "id": "5346540",
+      "type": "condition",
+      "data": {
+        "label": "Condicional",
+        "nodeType": "condition",
+        "description": "Avaliar condições e direcionar o fluxo",
+        "actions": [
+          {
+            "id": 10821629,
+            "action_type": "evaluate_condition",
+            "config": {
+              "ruleType": "all",
+              "conditions": [
+                {
+                  "id": "condition_1791312538132",
+                  "tagId": 120764,
+                  "tagName": "GELATINA-PARTE-02",
+                  "category": "system",
+                  "systemSubtype": "tag",
+                  "systemOperator": "equal"
+                }
+              ]
+            },
+            "order": 1,
+            "flow_node_id": 5346540,
+            "created_at": "2026-10-06T15:50:55-03:00",
+            "updated_at": "2026-10-06T15:50:55-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 245.86124752881165,
+        "y": 60.32506718510007
+      },
+      "width": 240,
+      "height": 161
+    },
+    {
+      "id": "5346566",
+      "type": "connection_flow",
+      "data": {
+        "label": "Conexão de Fluxo",
+        "nodeType": "connection_flow",
+        "description": "Redirecionar para outro fluxo",
+        "actions": [
+          {
+            "id": 10821705,
+            "action_type": "execute_flow",
+            "config": {
+              "target_flow_id": 140148,
+              "target_flow_name": "GELATINA-FUNIL-03"
+            },
+            "order": 1,
+            "flow_node_id": 5346566,
+            "created_at": "2026-10-06T15:52:27-03:00",
+            "updated_at": "2026-10-06T15:52:27-03:00"
+          }
+        ],
+        "passed_count": 0,
+        "advanced_count": 0,
+        "success_count": 0,
+        "_saved": true
+      },
+      "position": {
+        "x": 4905.439860758724,
+        "y": 591.5477579535576
+      },
+      "width": 240,
+      "height": 137
+    }
+  ],
+  "edges": [
+    {
+      "id": "7076602",
+      "source": "5294929",
+      "target": "5295195",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "output-output_1791228422510"
+    },
+    {
+      "id": "7076603",
+      "source": "5294929",
+      "target": "5295077",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "output-output_1791228423071"
+    },
+    {
+      "id": "7076609",
+      "source": "5294929",
+      "target": "5295191",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "output-output_1791228423551"
+    },
+    {
+      "id": "7076611",
+      "source": "5294929",
+      "target": "5295196",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "output-output_1791228423981"
+    },
+    {
+      "id": "7076615",
+      "source": "5294929",
+      "target": "5295395",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "output-output_1791228424524"
+    },
+    {
+      "id": "7076673",
+      "source": "5295195",
+      "target": "5295451",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7076675",
+      "source": "5295077",
+      "target": "5295451",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7076676",
+      "source": "5295191",
+      "target": "5295451",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7076678",
+      "source": "5295196",
+      "target": "5295451",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7076686",
+      "source": "5295395",
+      "target": "5295451",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7076701",
+      "source": "5295451",
+      "target": "5295459",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7085889",
+      "source": "5295459",
+      "target": "5302358",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7146141",
+      "source": "5302358",
+      "target": "5303524",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "client-response"
+    },
+    {
+      "id": "7146142",
+      "source": "5302358",
+      "target": "5346352",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "timeout"
+    },
+    {
+      "id": "7146146",
+      "source": "5346352",
+      "target": "5346357",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7146149",
+      "source": "5346357",
+      "target": "5303524",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "client-response"
+    },
+    {
+      "id": "7146248",
+      "source": "5303524",
+      "target": "5346373",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7146382",
+      "source": "5294927",
+      "target": "5346540",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    },
+    {
+      "id": "7146385",
+      "source": "5346540",
+      "target": "5294929",
+      "type": "default",
+      "data": {
+        "_saved": true
+      },
+      "sourceHandle": "failure"
+    },
+    {
+      "id": "7146403",
+      "source": "5346373",
+      "target": "5346566",
+      "type": "default",
+      "data": {
+        "_saved": true
+      }
+    }
+  ]
+}

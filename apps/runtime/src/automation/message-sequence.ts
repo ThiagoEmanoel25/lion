@@ -61,8 +61,9 @@ export function itemMessage(item: SendItem, context: Record<string, unknown>): {
     if (fileName.length > 255) throw new Error('FILE_NAME_TOO_LONG');
     return { type: 'DOCUMENT', body: caption, mediaUrl, providerPayload: { kind: 'file', fileName } };
   }
-  if (item.mediaType === 'audio') return { type: 'AUDIO', body: null, mediaUrl, providerPayload: { kind: 'audio', ptt: item.ptt === true } };
-  return { type: item.mediaType === 'video' ? 'VIDEO' : 'IMAGE', body: caption, mediaUrl, providerPayload: {} };
+  const delivery={...(item.typingSeconds>0?{typingSeconds:item.typingSeconds}:{}),...(item.forwarded?{forwarded:true}:{})};
+  if (item.mediaType === 'audio') return { type: 'AUDIO', body: null, mediaUrl, providerPayload: { kind: 'audio', ptt: item.ptt === true,...delivery } };
+  return { type: item.mediaType === 'video' ? 'VIDEO' : 'IMAGE', body: caption, mediaUrl, providerPayload: delivery };
 }
 
 export type SequenceRef = { executionId: string; stepId: string; index: number };

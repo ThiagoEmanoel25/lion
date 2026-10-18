@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Inject,Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Boom } from '@hapi/boom';
 import makeWASocket, {
   Browsers,
@@ -28,9 +28,9 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
   private readonly connectionQueue: Queue<ConnectionJob>;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
-    private readonly authStore: AuthStateStore
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RedisService) private readonly redis: RedisService,
+    @Inject(AuthStateStore) private readonly authStore: AuthStateStore
   ) {
     this.connectionQueue = new Queue(QUEUES.whatsappConnection, { connection: this.redis });
   }

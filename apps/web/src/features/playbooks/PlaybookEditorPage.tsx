@@ -2,10 +2,10 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent,type ReactN
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,ShieldCheck,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {BellRing,Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,MessageSquare,Mic,Play,Plus,Search,Share2,ShieldCheck,Shuffle,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
-import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,PlaybookVersion} from '../../shared/types/api';
-import {usePlaybook,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
+import type {AutomationDefinition,AutomationEdge,AutomationNodeKind,AutomationValidation,KanbanBoard,Playbook,PlaybookVersion} from '../../shared/types/api';
+import {useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
 import {useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
@@ -14,7 +14,7 @@ import type {AiAgent,ContactMeta} from '../../shared/types/api';
 import {CONDITION_GROUPS,coerceRuleValue,CUSTOM_FIELD_PREFIX,WEEKDAY_LABELS,itemForRule,ruleError,searchConditionItems,valueKind,type ConditionOperator,type ConditionRule} from './condition-catalog';
 import './flow-builder.css';
 
-type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unknown>};
+type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unknown>;distributorCounts?:Record<string,number>};
 type FlowNode=Node<FlowNodeData,'automation'>;
 type FlowEdgeData={condition?:AutomationEdge['condition'];isDefault?:boolean;priority?:number;port?:AutomationEdge['port']};
 type FlowEdge=Edge<FlowEdgeData>;
@@ -36,6 +36,9 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'tag',icon:Tag,label:'Etiquetas',description:'Adiciona ou remove etiquetas',rule:'Exige ao menos uma etiqueta selecionada ou informada.'},
   {kind:'pixel',icon:Target,label:'Pixel',description:'Envia eventos para o Facebook',rule:'Exige um pixel configurado e o tipo do evento; Compra exige valor. Saídas de sucesso (obrigatória) e erro (opcional).'},
   {kind:'kanban',icon:Columns3,label:'Kanban',description:'Cria ou move o card do contato',rule:'Exige um quadro e uma coluna existentes. Pode criar ou mover, somente criar ou somente mover.'},
+  {kind:'flow_jump',icon:Share2,label:'Conexão de Fluxo',description:'Continua em outro fluxo',rule:'Exige um fluxo publicado do mesmo workspace. É um bloco final e não possui saída.'},
+  {kind:'distributor',icon:Shuffle,label:'Distribuidor',description:'Divide contatos entre saídas',rule:'Exige de 2 a 10 saídas, cada uma com nome, peso e uma conexão própria.'},
+  {kind:'notification',icon:BellRing,label:'Notificação interna',description:'Avisa a equipe pelo WhatsApp',rule:'Envia para um número E.164 sem criar conversa no inbox. A falha não interrompe o fluxo.'},
   {kind:'handoff',icon:Headset,label:'Handoff',description:'Transfere para humano',rule:'Bloco final da jornada.'},
   {kind:'outcome',icon:CircleCheck,label:'Resultado',description:'Encerra com sucesso',rule:'Tipo obrigatório entre lead qualificado, agendamento, venda, resolvido, transferência e desqualificado. Bloco final da jornada.'}
 ];
@@ -53,13 +56,14 @@ const WAIT_UNIT_LABELS={minutes:'minutos',hours:'horas',days:'dias'} as const;
 type WaitUnit=keyof typeof WAIT_UNIT_SECONDS;
 const waitUnitOf=(config:Record<string,unknown>):WaitUnit=>config.timeoutUnit==='minutes'||config.timeoutUnit==='days'?config.timeoutUnit:'hours';
 const waitIndefinite=(config:Record<string,unknown>)=>config.waitIndefinitely===true;
-const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff']);
-function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
+const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff','flow_jump']);
+function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':kind==='distributor'?'Cada saída precisa de uma conexão.':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
 // Mirrors packages/contracts (MESSAGE_*); duplicated so the web bundle does not pull zod in.
 const MESSAGE_MAX_ITEMS=30;
 const MESSAGE_MAX_TYPING_SECONDS=30;
+const MEDIA_MAX_TYPING_SECONDS=60;
 const MESSAGE_MAX_PAUSE_SECONDS=300;
-type MessageItem={type:'text';text:string;typingSeconds:number}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean}|{type:'pause';minSeconds:number;maxSeconds:number};
+type MessageItem={type:'text';text:string;typingSeconds:number}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean;typingSeconds:number;forwarded:boolean}|{type:'pause';minSeconds:number;maxSeconds:number};
 const MEDIA_LABELS={image:'Imagem',video:'Vídeo',audio:'Áudio'} as const;
 function messageItemsOf(config:Record<string,unknown>):MessageItem[]{
   if(Array.isArray(config.items))return config.items as MessageItem[];
@@ -71,6 +75,9 @@ function messageItemLabel(item:MessageItem){
 // Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
 const MENU_CHOICE_FIELD='menu.choice';
 const AI_ROUTE_FIELD='ai.route';
+const DISTRIBUTOR_ROUTE_FIELD='distributor.output';
+type DistributorOutput={id:string;name:string;weight:number};
+function distributorOutputsOf(config:Record<string,unknown>):DistributorOutput[]{return (Array.isArray(config.outputs)?config.outputs:[]).flatMap(item=>{const value=item&&typeof item==='object'&&!Array.isArray(item)?item as Record<string,unknown>:{};return typeof value.id==='string'?[{id:value.id,name:typeof value.name==='string'?value.name:'',weight:Number(value.weight??1)}]:[]})}
 type AiConditional={id:string;label:string;instruction:string};
 function aiConditionalsOf(config:Record<string,unknown>):AiConditional[]{return (Array.isArray(config.smartConditionals)?config.smartConditionals:[]).flatMap(item=>{const value=item&&typeof item==='object'&&!Array.isArray(item)?item as Record<string,unknown>:{};return typeof value.id==='string'&&typeof value.label==='string'&&typeof value.instruction==='string'?[{id:value.id,label:value.label,instruction:value.instruction}]:[]})}
 const MENU_LIMIT={buttons:3,list:10} as const;
@@ -81,6 +88,7 @@ function menuOptionsOf(config:Record<string,unknown>):MenuOption[]{return (Array
 // Which handle of the source node an edge leaves from; persisted edges only carry their condition.
 function sourceHandleFor(kind:AutomationNodeKind|undefined,edge:AutomationEdge){
   if(kind==='ai'&&edge.condition?.field===AI_ROUTE_FIELD&&typeof edge.condition.value==='string')return `ai:${edge.condition.value}`;
+  if(kind==='distributor'&&edge.condition?.field===DISTRIBUTOR_ROUTE_FIELD&&typeof edge.condition.value==='string')return `dist:${edge.condition.value}`;
   if(kind&&NODE_PORTS[kind])return edge.port??NODE_PORTS[kind]![0];
   if(kind==='condition'&&edge.isDefault)return 'fallback';
   if(kind==='buttons'){if(edge.isDefault)return 'timeout';if(edge.condition?.field===MENU_CHOICE_FIELD)return `opt:${String(edge.condition.value)}`}
@@ -103,6 +111,9 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='pixel'){const label=PIXEL_EVENT_OPTIONS.find(item=>item[0]===config.eventName)?.[1]??'Evento não definido';const value=String(config.value??'').trim();const currency=String(config.currency??'BRL');return value?`${label} · ${/^[\d.,]+$/.test(value)?(currency==='BRL'?`R$ ${value}`:`${value} ${currency}`):value}`:label}
   if(kind==='kanban')return config.boardId&&config.columnId?'Criar ou mover card na coluna selecionada':'Selecione quadro e coluna';
   if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
+  if(kind==='flow_jump')return String(config.targetName||config.targetPlaybookId||'Escolha o fluxo de destino');
+  if(kind==='distributor'){const outputs=distributorOutputsOf(config);return `${outputs.length} saídas · ${config.preventRepeat===false?'redistribui contatos':'mantém a distribuição'}`}
+  if(kind==='notification')return `${String(config.name||'Aviso interno')} · ${String(config.phone||'número não definido')}`;
   if(kind==='ai')return `${String(config.model||'gpt-5.4-mini')} · resposta em ${String(config.responseVariable||'resposta.gpt')}`;
   if(kind==='agent')return config.agentId?'Agente configurado':'Selecione um agente';
   if(kind==='condition'&&Array.isArray(config.rules))return `${config.rules.length} condição(ões) · ${config.logic==='any'?'QUALQUER':'TODAS'}`;
@@ -110,18 +121,19 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:',flow_jump:'Ir para:',distributor:'Distribuição:',notification:'Destino:'};
   return labels[kind];
 }
 function flowAction(action:'edit'|'duplicate'|'remove',id:string){window.dispatchEvent(new CustomEvent('nexo-flow-action',{detail:{action,id}}))}
-function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=kindMeta[data.kind];const Icon=meta.icon;const terminal=data.kind==='outcome'||data.kind==='handoff';const buttonItems=data.kind==='buttons'&&Array.isArray(data.config.buttons)?data.config.buttons as Array<{id?:string;label?:string}>:[];const aiRoutes=data.kind==='ai'?[...(data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(data.config)]:[];return <div className={`automation-node automation-node-${data.kind} ${selected?'selected':''}`}>
+function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const meta=kindMeta[data.kind];const Icon=meta.icon;const terminal=terminalKinds.has(data.kind);const buttonItems=data.kind==='buttons'&&Array.isArray(data.config.buttons)?data.config.buttons as Array<{id?:string;label?:string}>:[];const aiRoutes=data.kind==='ai'?[...(data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(data.config)]:[];const distributorOutputs=data.kind==='distributor'?distributorOutputsOf(data.config):[];return <div className={`automation-node automation-node-${data.kind} ${selected?'selected':''}`}>
   {data.kind!=='trigger'&&<Handle type="target" position={Position.Left} />}
   <div className="automation-node-head"><span className="automation-node-icon"><Icon size={16} aria-hidden="true"/></span><span><small>{meta.label}</small><b>{data.name}</b></span><span className="node-quick-actions nodrag"><button title="Editar bloco" aria-label={`Editar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('edit',id)}}>✎</button><button title="Duplicar bloco" aria-label={`Duplicar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('duplicate',id)}}>⧉</button><button className="node-delete-action" title="Excluir bloco" aria-label={`Excluir ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('remove',id)}}>×</button></span></div>
   <div className="node-config-preview"><span>{nodePreviewLabel(data.kind)}</span><strong>{nodeSummary(data.kind,data.config)||'Não configurado'}</strong></div>
   {data.kind==='condition'&&<div className="condition-node-routes"><span>Condição atendida</span><span>Caso contrário</span></div>}
   {data.kind==='buttons'&&<div className="node-button-list node-menu-routes">{buttonItems.map((button,index)=><div key={button.id||index}><span>{button.label||`Opção ${index+1}`}</span>{button.id&&<Handle id={`opt:${button.id}`} type="source" position={Position.Right}/>}</div>)}{Number(data.config.timeoutSeconds??0)>0&&<div className="menu-timeout-route"><span>Inatividade</span><Handle id="timeout" type="source" position={Position.Right}/></div>}</div>}
   {data.kind==='ai'&&aiRoutes.length>0&&<div className="node-button-list ai-node-routes">{aiRoutes.map(route=><div key={route.id}><span>{route.label}</span><Handle id={`ai:${route.id}`} type="source" position={Position.Right}/></div>)}</div>}
-  {!terminal&&data.kind!=='buttons'&&!NODE_PORTS[data.kind]&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
+  {data.kind==='distributor'&&<div className="node-button-list distributor-node-routes">{distributorOutputs.map(output=><div key={output.id}><span><b>{output.name||'Saída'}</b><small>{data.distributorCounts?.[output.id]??0} contatos · peso {output.weight}</small></span><Handle id={`dist:${output.id}`} type="source" position={Position.Right}/></div>)}</div>}
+  {!terminal&&data.kind!=='buttons'&&data.kind!=='distributor'&&!NODE_PORTS[data.kind]&&<Handle type="source" position={Position.Right} style={data.kind==='condition'?{top:'45%'}:undefined} />}
   {data.kind==='condition'&&<Handle id="fallback" type="source" position={Position.Right} style={{top:'78%'}} />}
   {NODE_PORTS[data.kind]&&<div className="node-ports">{NODE_PORTS[data.kind]!.filter(port=>!(data.kind==='wait_response'&&port==='timeout'&&waitIndefinite(data.config))).map(port=><div key={port} className={`node-port ${port}`}><span>{data.kind==='wait_response'?(port==='reply'?'Aguardar pela resposta do cliente.':`Ou caso não responda — Após ${Number(data.config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(data.config)]}`):PORT_LABELS[port]}</span><Handle id={port} type="source" position={Position.Right}/></div>)}</div>}
 </div>}
@@ -140,13 +152,15 @@ function toFlow(definition:AutomationDefinition){
 function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),...(edge.data?.port?{port:edge.data.port}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
 
 export function PlaybookEditorPage(){
-  const {id=''}=useParams();const playbook=usePlaybook(id);const agents=useAgents();const aiKey=useWorkspaceAiKey();const contactMeta=useContactMeta();const kanbanBoards=useKanbanBoards();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
+  const {id=''}=useParams();const playbook=usePlaybook(id);const playbooks=usePlaybooks();const distributorCounts=useDistributorCounts(id);const agents=useAgents();const aiKey=useWorkspaceAiKey();const contactMeta=useContactMeta();const kanbanBoards=useKanbanBoards();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
   const [nodes,setNodes]=useState<FlowNode[]>([]);const [edges,setEdges]=useState<FlowEdge[]>([]);const [start,setStart]=useState('');const [settings,setSettings]=useState(emptyDefinition.settings);
   const [selectedNodeId,setSelectedNodeId]=useState<string|null>(null);const [selectedEdgeId,setSelectedEdgeId]=useState<string|null>(null);const [version,setVersion]=useState(0);const [loadedKey,setLoadedKey]=useState('');
   const [dirty,setDirty]=useState(false);const [result,setResult]=useState<AutomationValidation|null>(null);const [notice,setNotice]=useState<{tone:'success'|'error'|'info';text:string}|null>(null);const [simulationVariables,setSimulationVariables]=useState('{}');const [restoredVersion,setRestoredVersion]=useState<number|null>(null);const [toolsOpen,setToolsOpen]=useState(true);const [toolsQuery,setToolsQuery]=useState('');const [inspectorOpen,setInspectorOpen]=useState(false);const flowRef=useRef<ReactFlowInstance<FlowNode,FlowEdge>|null>(null);
   const latest=playbook.data?.versions?.[0];
   useEffect(()=>{if(!playbook.data||loadedKey.startsWith(`${playbook.data.id}:`))return;const definition=normalizeDefinition(latest?.definition);const flow=toFlow(definition);setNodes(flow.nodes);setEdges(flow.edges);setStart(definition.start);setSettings(definition.settings);setVersion(latest?.version??0);setLoadedKey(`${playbook.data.id}:${latest?.id??'empty'}`)},[playbook.data,latest,loadedKey]);
   const definition=useMemo(()=>toDefinition(nodes,edges,start,settings),[nodes,edges,start,settings]);
+  const countsByNode=useMemo(()=>new Map((distributorCounts.data?.items??[]).map(item=>[item.nodeId,Object.fromEntries(item.outputs.map(output=>[output.outputId,output.count]))])),[distributorCounts.data]);
+  useEffect(()=>{setNodes(current=>current.map(node=>node.data.kind==='distributor'?{...node,data:{...node.data,distributorCounts:countsByNode.get(node.id)??{}}}:node))},[countsByNode]);
   const selectedNode=nodes.find(node=>node.id===selectedNodeId)??null;const selectedEdge=edges.find(edge=>edge.id===selectedEdgeId)??null;
   const busy=save.isPending||validate.isPending||simulate.isPending||publish.isPending;
   const mutateNodes=useCallback((changes:NodeChange<FlowNode>[])=>{setNodes(current=>applyNodeChanges(changes,current));setDirty(true);setResult(null)},[]);
@@ -156,18 +170,19 @@ export function PlaybookEditorPage(){
     let data:FlowEdgeData={isDefault:false,priority:0};let label:string|undefined;
     if(handle.startsWith('opt:')){const optionId=handle.slice(4);const options=source?menuOptionsOf(source.data.config):[];const index=options.findIndex(option=>option.id===optionId);data={condition:{field:MENU_CHOICE_FIELD,operator:'equals',value:optionId},isDefault:false,priority:Math.max(index,0)};label=options[index]?.label}
     else if(handle.startsWith('ai:')&&source?.data.kind==='ai'){const routeId=handle.slice(3);const routes=[...(source.data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(source.data.config)];const index=routes.findIndex(route=>route.id===routeId);data={condition:{field:AI_ROUTE_FIELD,operator:'equals',value:routeId},isDefault:false,priority:Math.max(index,0)};label=routes[index]?.label}
+    else if(handle.startsWith('dist:')&&source?.data.kind==='distributor'){const outputId=handle.slice(5);const outputs=distributorOutputsOf(source.data.config);const index=outputs.findIndex(output=>output.id===outputId);data={condition:{field:DISTRIBUTOR_ROUTE_FIELD,operator:'equals',value:outputId},isDefault:false,priority:Math.max(index,0)};label=outputs[index]?.name}
     else if(handle==='timeout'&&source?.data.kind==='buttons'){data={isDefault:true,priority:1000};label='Inatividade'}
     else if(source&&NODE_PORTS[source.data.kind]&&(handle==='success'||handle==='failure'||handle==='reply'||handle==='timeout')){data={port:handle,isDefault:false,priority:NODE_PORTS[source.data.kind]!.indexOf(handle)};label=PORT_LABELS[handle]}
     else if(source?.data.kind==='condition'){const fallback=handle==='fallback';data={isDefault:fallback,priority:fallback?1000:0};label=fallback?'Caso contrário':'Condição atendida'}
     // A menu exit leads to a single place: reconnecting it replaces the previous edge.
-    const replaces=(edge:FlowEdge)=>(source?.data.kind==='buttons'||Boolean(source&&NODE_PORTS[source.data.kind])||source?.data.kind==='ai')&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
+    const replaces=(edge:FlowEdge)=>(source?.data.kind==='buttons'||source?.data.kind==='distributor'||Boolean(source&&NODE_PORTS[source.data.kind])||source?.data.kind==='ai')&&edge.source===connection.source&&edge.sourceHandle===connection.sourceHandle;
     setEdges(current=>addEdge({...connection,id:crypto.randomUUID(),label,data,type:'smoothstep',markerEnd:{type:MarkerType.ArrowClosed}},current.filter(edge=>!replaces(edge))));setDirty(true);setResult(null)
   },[nodes]);
   function dragStart(event:DragEvent,kind:AutomationNodeKind){event.dataTransfer.setData('application/nexo-node',kind);event.dataTransfer.effectAllowed='move'}
   function drop(event:DragEvent){event.preventDefault();const kind=event.dataTransfer.getData('application/nexo-node') as AutomationNodeKind;if(!kindMeta[kind]||!flowRef.current)return;const position=flowRef.current.screenToFlowPosition({x:event.clientX,y:event.clientY});const id=crypto.randomUUID();const meta=kindMeta[kind];setNodes(current=>[...current,{id,type:'automation',position,data:{kind,name:meta.label,config:defaultConfig(kind)}}]);if(kind==='trigger'&&!start)setStart(id);setDirty(true);setSelectedNodeId(id);setSelectedEdgeId(null);setResult(null)}
   function updateSelected(patch:Partial<FlowNodeData>){if(!selectedNodeId)return;setNodes(current=>current.map(node=>node.id===selectedNodeId?{...node,data:{...node.data,...patch}}:node));setDirty(true);setResult(null)}
   function updateConfig(key:string,value:unknown){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,[key]:value}})}
-  function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;if(selectedNode.data.kind==='wait_response'&&patch.waitIndefinitely===true){const nodeId=selectedNode.id;setEdges(current=>current.filter(edge=>!(edge.source===nodeId&&edge.sourceHandle==='timeout')))}updateSelected({config:{...selectedNode.data.config,...patch}})}
+  function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;if(selectedNode.data.kind==='wait_response'&&patch.waitIndefinitely===true){const nodeId=selectedNode.id;setEdges(current=>current.filter(edge=>!(edge.source===nodeId&&edge.sourceHandle==='timeout')))}if(selectedNode.data.kind==='distributor'&&Array.isArray(patch.outputs)){const nodeId=selectedNode.id;const outputs=distributorOutputsOf({...selectedNode.data.config,...patch});const labels=new Map(outputs.map(output=>[output.id,output.name]));setEdges(current=>current.flatMap(edge=>edge.source!==nodeId||!edge.sourceHandle?.startsWith('dist:')?[edge]:labels.has(edge.sourceHandle.slice(5))?[{...edge,label:labels.get(edge.sourceHandle.slice(5))||edge.label}]:[]))}updateSelected({config:{...selectedNode.data.config,...patch}})}
   function saveCondition(name:string,config:Record<string,unknown>){updateSelected({name,config});setInspectorOpen(false)}
   function saveMenu(name:string,config:Record<string,unknown>){
     if(!selectedNode)return;const nodeId=selectedNode.id;const options=menuOptionsOf(config);const labels=new Map(options.map(option=>[option.id,option.label]));const hasTimeout=Number(config.timeoutSeconds??0)>0;
@@ -236,7 +251,7 @@ export function PlaybookEditorPage(){
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
               ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} boards={kanbanBoards.data??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
-            : <NodeInspector node={selectedNode} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} boards={kanbanBoards.data??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
+            : <NodeInspector node={selectedNode} playbooks={(playbooks.data??[]).filter(item=>item.id!==id)} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} boards={kanbanBoards.data??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
           : selectedEdge
             ? <EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>
             : <FlowInspector definition={definition} result={result} version={version} restoredVersion={restoredVersion} versions={playbook.data.versions??[]} simulationVariables={simulationVariables} onSimulationVariables={setSimulationVariables} onRestore={restoreLocal} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);setInspectorOpen(false);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>
@@ -262,6 +277,9 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'tag':return {mode:'add',tagIds:[],tags:[]};
     case 'pixel':return {pixelId:'',eventName:'Purchase',pageId:'',value:'',currency:'BRL'};
     case 'kanban':return {boardId:'',columnId:'',mode:'create_or_move'};
+    case 'flow_jump':return {};
+    case 'distributor':return {outputs:[{id:'output_1',name:'Saída 1',weight:1},{id:'output_2',name:'Saída 2',weight:1}],preventRepeat:true};
+    case 'notification':return {phone:'',message:'',name:''};
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
     case 'wait_response':return {timeoutValue:1,timeoutUnit:'hours',waitIndefinitely:false,bufferSeconds:0};
@@ -272,6 +290,8 @@ function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown
   const config={...(value??{})};
   if(kind==='agent'&&typeof config.prompt!=='string'&&typeof config.instructions==='string'){config.prompt=config.instructions;delete config.instructions}
   if(kind==='message'&&!Array.isArray(config.items)){config.items=[{type:'text',text:typeof config.text==='string'?config.text:'',typingSeconds:0}];delete config.text}
+  if(kind==='message'&&Array.isArray(config.items))config.items=config.items.map(item=>item&&typeof item==='object'&&!Array.isArray(item)&&(item as {type?:unknown}).type==='media'?{typingSeconds:0,forwarded:false,...item}:item);
+  if(kind==='distributor'&&!Array.isArray(config.outputs))config.outputs=defaultConfig('distributor').outputs;
   if(kind==='buttons'&&!Array.isArray(config.buttons))config.buttons=[];
   if(kind==='condition'&&Array.isArray(config.rules)&&typeof config.logic!=='string')config.logic='all';
   if(kind==='webhook'&&typeof config.method!=='string')config.method='POST';
@@ -292,13 +312,28 @@ function JsonHeadersField({value,onChange}:{value:unknown;onChange:(value:Record
 }
 function WaitFields({config,onConfigs}:{config:Record<string,unknown>;onConfigs:(patch:Record<string,unknown>)=>void}){
   const unit=waitUnitOf(config);const indefinite=waitIndefinite(config);const value=Number(config.timeoutValue??1);const buffer=Number(config.bufferSeconds??0);
+  const saveReplyTo=String(config.saveReplyTo??'');const replyCount=Number(config.replyToLeadCount??0);
   const timeError=!indefinite&&(!Number.isInteger(value)||value<1?'Informe um número inteiro a partir de 1.':value*WAIT_UNIT_SECONDS[unit]>WAIT_MAX_SECONDS?'O limite é 31 dias no total.':'');
   const bufferError=!Number.isInteger(buffer)||buffer<0||buffer>WAIT_MAX_BUFFER_SECONDS?`Use de 0 a ${WAIT_MAX_BUFFER_SECONDS} segundos.`:'';
   return <><div className="duration-fields"><label>Tempo<input type="number" min="1" step="1" value={value} disabled={indefinite} onChange={event=>onConfigs({timeoutValue:Number(event.target.value)})}/></label><label>Unidade<select value={unit} disabled={indefinite} onChange={event=>onConfigs({timeoutUnit:event.target.value})}>{(Object.keys(WAIT_UNIT_LABELS) as WaitUnit[]).map(item=><option key={item} value={item}>{WAIT_UNIT_LABELS[item].replace(/^./,letter=>letter.toUpperCase())}</option>)}</select></label></div>{timeError&&<small className="field-error">{timeError}</small>}
     <label className="check-field"><input type="checkbox" checked={indefinite} onChange={event=>onConfigs({waitIndefinitely:event.target.checked})}/> Esperar indefinidamente</label>
-    <label>Juntar mensagens por (segundos)<input type="number" min="0" max={WAIT_MAX_BUFFER_SECONDS} step="1" value={buffer} onChange={event=>onConfigs({bufferSeconds:Number(event.target.value)})}/><small className={bufferError?'field-error':undefined}>{bufferError||'0 desliga: a primeira mensagem já é a resposta.'}</small></label></>
+    <label>Juntar mensagens por (segundos)<input type="number" min="0" max={WAIT_MAX_BUFFER_SECONDS} step="1" value={buffer} onChange={event=>onConfigs({bufferSeconds:Number(event.target.value)})}/><small className={bufferError?'field-error':undefined}>{bufferError||'0 desliga: a primeira mensagem já é a resposta.'}</small></label>
+    <div className="config-separator"><span>Ao receber a resposta</span></div>
+    <label>Salvar no campo personalizado<input value={saveReplyTo} maxLength={60} onChange={event=>onConfigs({saveReplyTo:event.target.value||undefined})} placeholder="Ex.: resposta-lead"/><small>O valor fica no contato e pode ser usado por outros fluxos.</small></label>
+    <label className="check-field"><input type="checkbox" checked={config.saveEmpty!==false} disabled={!saveReplyTo} onChange={event=>onConfigs({saveEmpty:event.target.checked})}/> Salvar mesmo quando a resposta contiver somente mídia</label>
+    <label>Reagir à mensagem <span className="optional">(opcional)</span><select value={String(config.reactEmoji??'')} onChange={event=>onConfigs({reactEmoji:event.target.value||undefined})}><option value="">Não reagir</option>{['👍','❤️','😂','😮','😢','🙏','✅','🔥'].map(emoji=><option value={emoji} key={emoji}>{emoji}</option>)}</select></label>
+    <label>Responder citando a mensagem<input type="number" min="0" max="10" step="1" value={replyCount} onChange={event=>onConfigs({replyToLeadCount:Math.min(10,Math.max(0,Number(event.target.value)||0))})}/><small>Quantidade das próximas mensagens a enviar como resposta: 0 a 10.</small></label></>
 }
-function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,boards,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];boards:KanbanBoard[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
+function DistributorFields({config,counts,onConfigs}:{config:Record<string,unknown>;counts:Record<string,number>;onConfigs:(patch:Record<string,unknown>)=>void}){
+  const outputs=distributorOutputsOf(config);
+  const update=(index:number,patch:Partial<DistributorOutput>)=>onConfigs({outputs:outputs.map((output,itemIndex)=>itemIndex===index?{...output,...patch}:output)});
+  const add=()=>{if(outputs.length>=10)return;const used=new Set(outputs.map(output=>output.id));let n=outputs.length+1;while(used.has(`output_${n}`))n+=1;onConfigs({outputs:[...outputs,{id:`output_${n}`,name:`Saída ${n}`,weight:1}]})};
+  return <><div className="menu-options-head"><b>Saídas ({outputs.length}/10)</b><button type="button" className="menu-add" onClick={add} disabled={outputs.length>=10}><Plus size={16}/> Saída</button></div>
+    <ol className="distributor-fields">{outputs.map((output,index)=><li key={output.id}><div className="distributor-output-title"><span>{index+1}</span><b>{counts[output.id]??0} contatos</b>{outputs.length>2&&<button type="button" aria-label={`Remover saída ${index+1}`} onClick={()=>onConfigs({outputs:outputs.filter((_,itemIndex)=>itemIndex!==index)})}><X size={15}/></button>}</div><label>Nome<input value={output.name} maxLength={80} onChange={event=>update(index,{name:event.target.value})}/></label><label>Peso<input type="number" min="1" max="100" step="1" value={output.weight} onChange={event=>update(index,{weight:Math.min(100,Math.max(1,Number(event.target.value)||1))})}/></label><small>Identificador: {output.id}</small></li>)}</ol>
+    <label className="check-field"><input type="checkbox" checked={config.preventRepeat!==false} onChange={event=>onConfigs({preventRepeat:event.target.checked})}/> Manter o contato sempre na mesma saída</label>
+    <p className="field-help">O menor total proporcional ao peso recebe o próximo contato. Os contadores são atualizados após cada execução.</p></>
+}
+function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags,boards,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;playbooks:Playbook[];agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];boards:KanbanBoard[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
   const customTags=Array.isArray(config.tags)?config.tags.filter((value):value is string=>typeof value==='string'):[];
@@ -319,6 +354,9 @@ function NodeInspector({node,agents,agentsLoading,aiKeyConfigured,tags,boards,is
     {kind==='assign'&&<><label>Fila<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Comercial" /></label><div className="config-separator"><span>ou</span></div><label>ID do responsável<input value={String(config.assigneeId??'')} onChange={event=>onConfig('assigneeId',event.target.value)} placeholder="ID do usuário no workspace" /></label><p className="field-help">Preencha ao menos uma fila ou um responsável.</p></>}
     {kind==='tag'&&<><label>Ação<select value={String(config.mode??'add')} onChange={event=>onConfig('mode',event.target.value)}><option value="add">Adicionar etiquetas</option><option value="remove">Remover etiquetas</option></select></label><div className="tag-picker"><b>Etiquetas do workspace</b>{tags.length?tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={selectedTagIds.includes(tag.id)} onChange={event=>onConfig('tagIds',event.target.checked?[...selectedTagIds,tag.id]:selectedTagIds.filter(id=>id!==tag.id))}/><i style={{background:tag.color}}/>{tag.name}</label>):<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>}</div><label>Outras etiquetas, separadas por vírgula<input value={customTags.join(', ')} onChange={event=>onConfig('tags',event.target.value.split(',').map(value=>value.trim()).filter(Boolean))} placeholder="vip, retorno" /></label><p className="field-help">Ao adicionar, nomes novos são criados. Ao remover, nomes inexistentes são ignorados.</p></>}
     {kind==='kanban'&&<KanbanFields config={config} boards={boards} onConfigs={onConfigs}/>}
+    {kind==='flow_jump'&&<><label>Fluxo de destino<select value={String(config.targetPlaybookId??'')} onChange={event=>{const target=playbooks.find(item=>item.id===event.target.value);onConfigs({targetPlaybookId:event.target.value||undefined,...(target?{targetName:target.name}:{})})}}><option value="">Selecione o fluxo</option>{playbooks.map(item=><option value={item.id} key={item.id}>{item.name}{item.status!=='PUBLISHED'?' · não publicado':''}</option>)}</select></label>{!config.targetPlaybookId&&config.targetName&&<div className="config-callout warning"><b>Destino importado não resolvido</b><p>Na Leona: {String(config.targetName)} — escolha o fluxo correspondente.</p></div>}<p className="field-help">O fluxo atual termina e a conversa continua na versão publicada do destino.</p></>}
+    {kind==='distributor'&&<DistributorFields config={config} counts={node.data.distributorCounts??{}} onConfigs={onConfigs}/>}
+    {kind==='notification'&&<><label>Rótulo <span className="optional">(opcional)</span><input value={String(config.name??'')} maxLength={80} onChange={event=>onConfig('name',event.target.value)} placeholder="Ex.: Erro da IA"/></label><label>Número da equipe<input type="tel" value={String(config.phone??'')} onChange={event=>onConfig('phone',event.target.value)} placeholder="+5571999999999"/><small>Use E.164: +, DDI, DDD e número, sem espaços.</small></label><label>Mensagem<WhatsAppField value={String(config.message??'')} onChange={value=>onConfig('message',value)} rows={5} maxLength={1024} placeholder="Falha no atendimento de {{contact.name}}."/><small>Variáveis do fluxo são substituídas antes do envio.</small></label><div className="ai-how"><Info size={18}/><div><b>Sem impacto no cliente</b><p>O aviso usa o canal da conversa, não cria contato no inbox e uma falha de envio não interrompe o fluxo.</p></div></div></>}
     {kind==='handoff'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Atendimento" /></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>onConfig('reason',event.target.value)} placeholder="Explique por que a conversa será transferida." /></label></>}
     {kind==='outcome'&&<><label>Tipo de resultado<select value={String(config.type??'RESOLVED')} onChange={event=>onConfig('type',event.target.value)}><option value="QUALIFIED">Lead qualificado</option><option value="APPOINTMENT">Agendamento</option><option value="SALE">Venda</option><option value="RESOLVED">Atendimento resolvido</option><option value="HANDOFF">Transferência humana</option><option value="DISQUALIFIED">Lead desqualificado</option></select></label><label>Valor em centavos (opcional)<input type="number" min="0" step="1" value={typeof config.valueCents==='number'?config.valueCents:''} onChange={event=>onConfig('valueCents',event.target.value===''?undefined:Number(event.target.value))} placeholder="Ex.: 15000" /></label></>}
     <button className={isStart?'start active':'start'} onClick={onStart} disabled={isStart||kind!=='trigger'}>{isStart?'✓ Nó inicial do fluxo':kind==='trigger'?'Definir como nó inicial':'Somente um gatilho pode iniciar'}</button><button className="danger-link" onClick={onRemove}>Excluir bloco</button>
@@ -484,6 +522,7 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
     if(item.type==='pause')return ![item.minSeconds,item.maxSeconds].every(n=>Number.isInteger(n)&&n>=0&&n<=MESSAGE_MAX_PAUSE_SECONDS)?`Use de 0 a ${MESSAGE_MAX_PAUSE_SECONDS} segundos.`:item.minSeconds>item.maxSeconds?'O mínimo não pode passar do máximo.':'';
     if(!HTTPS_URL.test(item.url.trim()))return 'Informe uma URL HTTPS válida.';
     if(item.type==='file'&&!item.fileName.trim())return 'Informe o nome do arquivo.';
+    if(item.type==='media'&&(!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MEDIA_MAX_TYPING_SECONDS))return `Use de 0 a ${MEDIA_MAX_TYPING_SECONDS} segundos para a presença.`;
     return (item.caption??'').length>1024?'A legenda aceita até 1024 caracteres.':'';
   };
   const hasErrors=!rows.length||rows.length>MESSAGE_MAX_ITEMS||rows.some(row=>itemError(row.item));
@@ -496,7 +535,7 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
       const caption=item.caption?.trim();const url=item.url.trim();
       if(item.type==='file')return {type:'file',url,fileName:item.fileName.trim(),...(caption?{caption}:{})};
       const audio=item.mediaType==='audio';
-      return {type:'media',mediaType:item.mediaType,url,...(!audio&&caption?{caption}:{}),...(audio&&item.ptt?{ptt:true}:{})};
+      return {type:'media',mediaType:item.mediaType,url,...(!audio&&caption?{caption}:{}),...(audio&&item.ptt?{ptt:true}:{}),typingSeconds:item.typingSeconds,forwarded:item.forwarded};
     });
     const {text:_text,...rest}=node.data.config;
     onSave(name.trim()||kindMeta.message.label,{...rest,items});
@@ -506,7 +545,7 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
   <div className="inspector-form menu-editor message-editor">
     <label>Nome do bloco<input value={name} onChange={event=>setName(event.target.value)} maxLength={120}/></label>
     <div className="menu-options-head"><b>Conteúdos ({rows.length}/{MESSAGE_MAX_ITEMS})</b></div>
-    <div className="message-add">{addLabel('Texto',{type:'text',text:'',typingSeconds:0})}{addLabel('Arquivo',{type:'file',url:'',fileName:''})}{addLabel('Mídia',{type:'media',mediaType:'image',url:''})}{addLabel('Pausa',{type:'pause',minSeconds:1,maxSeconds:3})}</div>
+    <div className="message-add">{addLabel('Texto',{type:'text',text:'',typingSeconds:0})}{addLabel('Arquivo',{type:'file',url:'',fileName:''})}{addLabel('Mídia',{type:'media',mediaType:'image',url:'',typingSeconds:0,forwarded:false})}{addLabel('Pausa',{type:'pause',minSeconds:1,maxSeconds:3})}</div>
     {rows.length===0&&<div className={`menu-options-empty ${submitted?'invalid':''}`}><MessageSquare size={26} aria-hidden="true"/><p>Adicione ao menos um conteúdo.</p></div>}
     <ol className="message-items">{rows.map(({key,item},index)=><li key={key}>
       <div className="message-item-head"><b>{index+1}. {item.type==='text'?'Texto':item.type==='file'?'Arquivo':item.type==='media'?'Mídia':'Pausa'}</b>
@@ -516,7 +555,9 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
       {item.type==='file'&&<><label>URL HTTPS do arquivo<input type="url" inputMode="url" value={item.url} onChange={event=>patch(index,{url:event.target.value})} placeholder="https://cdn.exemplo.com/arquivo.pdf"/></label><label>Nome do arquivo<input value={item.fileName} maxLength={255} onChange={event=>patch(index,{fileName:event.target.value})} placeholder="contrato.pdf"/></label><label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label></>}
       {item.type==='media'&&<><label>Tipo<select value={item.mediaType} onChange={event=>patch(index,{mediaType:event.target.value as 'image'|'video'|'audio'})}>{(Object.keys(MEDIA_LABELS) as Array<keyof typeof MEDIA_LABELS>).map(type=><option key={type} value={type}>{MEDIA_LABELS[type]}</option>)}</select></label><label>URL HTTPS<input type="url" inputMode="url" value={item.url} onChange={event=>patch(index,{url:event.target.value})} placeholder="https://cdn.exemplo.com/midia"/></label>
         {item.mediaType!=='audio'&&<label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label>}
-        {item.mediaType==='audio'&&<label className="check-field"><input type="checkbox" checked={item.ptt===true} onChange={event=>patch(index,{ptt:event.target.checked})}/> Enviar como mensagem de voz</label>}</>}
+        {item.mediaType==='audio'&&<label className="check-field"><input type="checkbox" checked={item.ptt===true} onChange={event=>patch(index,{ptt:event.target.checked})}/> Enviar como mensagem de voz</label>}
+        <label>{item.mediaType==='audio'?'Gravando áudio por':'Digitando por'} (segundos)<input type="number" min="0" max={MEDIA_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>patch(index,{typingSeconds:Number(event.target.value)})}/></label>
+        <label className="check-field"><input type="checkbox" checked={item.forwarded} onChange={event=>patch(index,{forwarded:event.target.checked})}/> Mostrar como encaminhada no WhatsApp</label></>}
       {item.type==='pause'&&<div className="duration-fields"><label>Entre (s)<input type="number" min="0" max={MESSAGE_MAX_PAUSE_SECONDS} step="1" value={item.minSeconds} onChange={event=>patch(index,{minSeconds:Number(event.target.value)})}/></label><label>e (s)<input type="number" min="0" max={MESSAGE_MAX_PAUSE_SECONDS} step="1" value={item.maxSeconds} onChange={event=>patch(index,{maxSeconds:Number(event.target.value)})}/></label></div>}
       {show(itemError(item))}
     </li>)}</ol>

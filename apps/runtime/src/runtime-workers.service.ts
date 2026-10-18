@@ -1,6 +1,7 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject,Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DelayedError, Job, Queue, Worker } from 'bullmq';
+import {proto} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { PrismaService } from './infra/prisma.service.js';
 import { RedisService } from './infra/redis.service.js';
@@ -9,7 +10,7 @@ import { WhatsAppSessionManager } from './whatsapp/session-manager.service.js';
 import { outboundMessageId } from './whatsapp/message-id.js';
 import { AutomationEngineService } from './automation/automation-engine.service.js';
 import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.js';
-import { interactivePayload, regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
+import { interactivePayload, outboundPresence,regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
 import { firstName } from './automation/live-context.js';
 import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
@@ -27,11 +28,11 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   private automationQueue!: Queue<AutomationJob>;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
-    private readonly sessions: WhatsAppSessionManager,
-    private readonly automation: AutomationEngineService,
-    private readonly knowledge: KnowledgeIndexerService
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RedisService) private readonly redis: RedisService,
+    @Inject(WhatsAppSessionManager) private readonly sessions: WhatsAppSessionManager,
+    @Inject(AutomationEngineService) private readonly automation: AutomationEngineService,
+    @Inject(KnowledgeIndexerService) private readonly knowledge: KnowledgeIndexerService
   ) {}
 
   async onModuleInit() {
@@ -104,6 +105,12 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendOutbound(job: Job<OutboundJob>, token?: string) {
+    if(job.data.reaction){
+      const {channelId,phone,messageExternalId,emoji}=job.data.reaction;const channel=await this.prisma.channel.findUnique({where:{id:channelId}});if(!channel||channel.provider!=='baileys')throw new Error('Reaction channel is unavailable');
+      let socket=this.sessions.getSocket(channelId);if(!socket){await this.sessions.connect(channelId);socket=this.sessions.getSocket(channelId)}if(!socket)throw new Error(`WhatsApp session ${channelId} is unavailable`);
+      const jid=phone.includes('@')?phone:`${phone.replace(/\D/g,'')}@s.whatsapp.net`;
+      await socket.sendMessage(jid,{react:{text:emoji,key:{remoteJid:jid,fromMe:false,id:messageExternalId}}});return;
+    }
     if(job.data.notification){
       const {channelId,phone,text}=job.data.notification;const channel=await this.prisma.channel.findUnique({where:{id:channelId}});if(!channel||channel.provider!=='baileys')throw new Error('Notification channel is unavailable');
       let socket=this.sessions.getSocket(channelId);if(!socket){await this.sessions.connect(channelId);socket=this.sessions.getSocket(channelId)}if(!socket)throw new Error(`WhatsApp session ${channelId} is unavailable`);
@@ -130,10 +137,10 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     const jid = contact.externalRef?.includes('@')
       ? contact.externalRef
       : `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`;
-    const payload = message.providerPayload && typeof message.providerPayload === 'object' && !Array.isArray(message.providerPayload) ? message.providerPayload as { typingSeconds?: unknown } : {};
+    const payload = message.providerPayload && typeof message.providerPayload === 'object' && !Array.isArray(message.providerPayload) ? message.providerPayload as { typingSeconds?: unknown;quotedMessageId?:unknown } : {};
     const typingSeconds = typeof payload.typingSeconds === 'number' ? payload.typingSeconds : 0;
     if (typingSeconds > 0 && !job.data.typed) {
-      await socket.sendPresenceUpdate('composing', jid);
+      await socket.sendPresenceUpdate(outboundPresence(message.type,typingSeconds)!, jid);
       await job.updateData({ ...job.data, typed: true });
       await job.moveToDelayed(Date.now() + typingSeconds * 1000, token);
       throw new DelayedError();
@@ -141,8 +148,10 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     try {
       const messageId = outboundMessageId(message.clientRequestId ?? message.id);
       const content = regularOutboundContent(message);
+      const quotedSource=typeof payload.quotedMessageId==='string'?await this.prisma.message.findFirst({where:{id:payload.quotedMessageId,conversationId:message.conversationId,direction:'INBOUND'},select:{externalId:true,body:true}}):null;
+      const quoted=quotedSource?.externalId?proto.WebMessageInfo.create({key:{remoteJid:jid,fromMe:false,id:quotedSource.externalId},message:{conversation:quotedSource.body??'Mídia'}}):undefined;
       const externalId = content
-        ? (await socket.sendMessage(jid, content, { messageId }))?.key.id
+        ? (await socket.sendMessage(jid, content, { messageId,...(quoted?{quoted}:{}) }))?.key.id
         : await sendInteractiveButtons({
             socket,
             jid,
@@ -171,14 +180,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested','notification.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string };
+      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
         : event.type==='notification.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.text)
+        : event.type==='reaction.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.messageExternalId&&payload.emoji)
         : event.type === 'automation.sequence.continue.requested' ? Boolean(payload.executionId && payload.resumeStepId && Number.isInteger(payload.sequenceIndex) && payload.sequenceIndex! >= 1)
         : event.type === 'automation.inbound.received' ? Boolean(payload.conversationId)
         : event.type === 'automation.trigger.requested' ? Boolean(payload.event && (payload.conversationId || payload.contactId))
@@ -199,6 +209,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           await this.knowledge.index(payload.sourceId!,payload.content??null);
         } else if(event.type==='notification.send.requested'){
           await outboundQueue.add('notification',{notification:{channelId:payload.channelId!,phone:payload.phone!,text:payload.text!}},{...commonOptions,attempts:3});
+        } else if(event.type==='reaction.send.requested'){
+          await outboundQueue.add('reaction',{reaction:{channelId:payload.channelId!,phone:payload.phone!,messageExternalId:payload.messageExternalId!,emoji:payload.emoji!}},{...commonOptions,attempts:3});
         } else if(event.type==='automation.sequence.continue.requested'){
           await automationQueue.add('sequence_next', { executionId: payload.executionId!, action: 'sequence_next', resumeStepId: payload.resumeStepId!, sequenceIndex: payload.sequenceIndex! }, sequenceJobOptions(payload.resumeStepId!,payload.sequenceIndex!));
         } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingExecution(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {

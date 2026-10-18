@@ -48,7 +48,15 @@ const json = (value: unknown) => value as Prisma.InputJsonValue;
 async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unknown){
   const validation=validateAutomation(value);
   if(!validation.definition)return validation;
-  const issues=[...validation.issues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
+  const flowJumpTargets=[...new Set(validation.definition.nodes.flatMap(node=>node.kind==='flow_jump'&&typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId.trim()?[node.config.targetPlaybookId]:[]))];
+  const existingTargets=flowJumpTargets.length
+    ? await (prisma as {playbook:{findMany(args:unknown):Promise<Array<{id:string}>>}}).playbook.findMany({where:{workspaceId,id:{in:flowJumpTargets}},select:{id:true}})
+    : [];
+  const existingTargetIds=new Set(existingTargets.map(target=>target.id));
+  const flowJumpIssues=validation.definition.nodes.flatMap(node=>node.kind==='flow_jump'&&typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId.trim()&&!existingTargetIds.has(node.config.targetPlaybookId)
+    ? [{level:'error' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino não existe neste workspace.',nodeId:node.id}]
+    : []);
+  const issues=[...validation.issues,...flowJumpIssues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
   return {...validation,valid:!issues.some(issue=>issue.level==='error'),issues};
 }
 
@@ -60,6 +68,15 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     const playbook = await app.prisma.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { versions: { orderBy: { version: 'desc' } }, activeVersion: true } });
     if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
     return playbook;
+  });
+
+  app.get('/v1/playbooks/:id/distributors', { preHandler: [app.requirePermission('playbook.read')] }, async request => {
+    const {id}=request.params as {id:string};
+    if(!await app.prisma.playbook.count({where:{id,workspaceId:request.auth.workspaceId}}))throw new DomainError('NOT_FOUND','Automação não encontrada.',404);
+    const counts=await app.prisma.flowDistributorCount.findMany({where:{playbookId:id},select:{nodeId:true,outputId:true,count:true},orderBy:[{nodeId:'asc'},{outputId:'asc'}]});
+    const grouped=new Map<string,Array<{outputId:string;count:number}>>();
+    for(const count of counts)grouped.set(count.nodeId,[...(grouped.get(count.nodeId)??[]),{outputId:count.outputId,count:count.count}]);
+    return {items:[...grouped].map(([nodeId,outputs])=>({nodeId,outputs}))};
   });
 
   app.post('/v1/playbooks', { preHandler: [app.requirePermission('playbook.write')] }, async (request, reply) => {

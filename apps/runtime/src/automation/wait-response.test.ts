@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiLastMessage, joinReplies, pendingWaitOf, waitBufferSeconds, waitTimeoutSeconds } from './wait-response.js';
+import { aiLastMessage, joinReplies, pendingWaitOf,waitReplyActions, waitBufferSeconds, waitTimeoutSeconds } from './wait-response.js';
 
 describe('wait-response', () => {
   it('converte tempo + unidade e respeita 31 dias', () => {
@@ -17,6 +17,10 @@ describe('wait-response', () => {
   it('junta as mensagens do buffer e usa o tipo da última', () => {
     expect(joinReplies([{ body: 'oi', type: 'TEXT' }, { body: 'segue o comprovante', type: 'TEXT' }, { body: null, type: 'IMAGE' }]))
       .toEqual({ last_message: 'oi\nsegue o comprovante', last_message_type: 'IMAGE' });
+  });
+  it('monta gravação persistente, reação e próximas mensagens citadas',()=>{
+    expect(waitReplyActions({saveReplyTo:'resposta-lead',saveEmpty:false,reactEmoji:'✅',replyToLeadCount:2},{last_message:'aceito'},{id:'message-id',externalId:'wa-id'})).toEqual({saveReply:{field:'resposta-lead',value:'aceito'},quoteNext:{messageId:'message-id',remaining:2},reaction:{emoji:'✅',messageExternalId:'wa-id'}});
+    expect(waitReplyActions({saveReplyTo:'resposta-lead',saveEmpty:false,replyToLeadCount:0},{last_message:''},{id:'media-id',externalId:null})).toEqual({});
   });
   it('lê a espera nova e a do Menu antigo', () => {
     expect(pendingWaitOf({ pendingWait: { stepId: 's', nodeId: 'n', kind: 'reply', since: '2026-10-15T00:00:00.000Z' } })?.kind).toBe('reply');

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject,Injectable } from '@nestjs/common';
 import { BufferJSON, initAuthCreds, proto, type AuthenticationState } from '@whiskeysockets/baileys';
 import { loadConfig } from '../config.js';
 import { FieldCipher } from '../crypto/field-cipher.js';
@@ -7,7 +7,7 @@ import { PrismaService } from '../infra/prisma.service.js';
 @Injectable()
 export class AuthStateStore {
   private readonly cipher = new FieldCipher(loadConfig().encryptionKey);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   private serialize(value: unknown) { return JSON.stringify(value, BufferJSON.replacer); }
   private deserialize<T>(value: string): T { return JSON.parse(value, BufferJSON.reviver) as T; }

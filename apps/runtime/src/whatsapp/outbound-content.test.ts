@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { interactivePayload, nativeFlowButtons, parseButtons, regularOutboundContent } from './outbound-content.js';
+import { interactivePayload, nativeFlowButtons,outboundPresence, parseButtons, regularOutboundContent } from './outbound-content.js';
 
 describe('outbound WhatsApp content', () => {
+  it('usa presença de gravação em áudio e digitação nas demais mensagens',()=>{
+    expect(outboundPresence('AUDIO',4)).toBe('recording');
+    expect(outboundPresence('IMAGE',4)).toBe('composing');
+    expect(outboundPresence('TEXT',0)).toBeUndefined();
+  });
   it('maps image, audio and sticker messages to Baileys media content', () => {
     expect(regularOutboundContent({ type: 'IMAGE', body: 'Legenda', mediaUrl: 'https://cdn.test/a.jpg', providerPayload: {} }))
       .toEqual({ image: { url: 'https://cdn.test/a.jpg' }, caption: 'Legenda' });
     expect(regularOutboundContent({ type: 'AUDIO', body: null, mediaUrl: 'https://cdn.test/a.ogg', providerPayload: { ptt: true } }))
       .toEqual({ audio: { url: 'https://cdn.test/a.ogg' }, ptt: true });
+    expect(regularOutboundContent({ type: 'AUDIO', body: null, mediaUrl: 'https://cdn.test/a.ogg', providerPayload: { ptt: true,forwarded:true } }))
+      .toEqual({ audio: { url: 'https://cdn.test/a.ogg' }, ptt: true,contextInfo:{isForwarded:true,forwardingScore:1} });
     expect(regularOutboundContent({ type: 'IMAGE', body: null, mediaUrl: 'https://cdn.test/a.webp', providerPayload: { kind: 'sticker' } }))
       .toEqual({ sticker: { url: 'https://cdn.test/a.webp' } });
   });

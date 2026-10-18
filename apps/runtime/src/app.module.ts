@@ -9,6 +9,15 @@ import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.j
 import { AgentRuntimeService } from './agent/agent-runtime.service.js';
 
 @Module({
-  providers: [PrismaService, RedisService, AuthStateStore, WhatsAppSessionManager, AgentRuntimeService, AutomationEngineService, KnowledgeIndexerService, RuntimeWorkers]
+  providers: [
+    PrismaService,
+    RedisService,
+    AuthStateStore,
+    WhatsAppSessionManager,
+    {provide:AgentRuntimeService,useFactory:(prisma:PrismaService)=>new AgentRuntimeService(prisma),inject:[PrismaService]},
+    AutomationEngineService,
+    {provide:KnowledgeIndexerService,useFactory:(prisma:PrismaService)=>new KnowledgeIndexerService(prisma),inject:[PrismaService]},
+    RuntimeWorkers
+  ]
 })
 export class AppModule {}

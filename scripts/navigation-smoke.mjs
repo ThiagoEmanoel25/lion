@@ -144,6 +144,33 @@ for (const [path, expectedText] of routes) {
   }
 }
 
+await command('Page.navigate', { url: `${appUrl}/playbooks` });
+await waitFor(`location.pathname === '/playbooks' && document.body.innerText.includes('Fluxos')`, 'lista de fluxos');
+const editorOpened = await evaluate(`(() => {
+  const link = [...document.querySelectorAll('a')].find(item => /\\/playbooks\\/[^/]+\\/editor$/.test(new URL(item.href).pathname));
+  if (!link) return false;
+  link.click();
+  return true;
+})()`);
+if (editorOpened) {
+  await waitFor(`location.pathname.endsWith('/editor') && document.querySelector('.flow-editor-shell') !== null`, 'editor visual');
+  const editor = await evaluate(`(() => {
+    const tools = [...document.querySelectorAll('button')].find(button => button.innerText.includes('Ferramentas'));
+    if (tools && tools.getAttribute('aria-expanded') !== 'true') tools.click();
+    const text = document.body.innerText;
+    return {
+      path: location.pathname,
+      title: document.querySelector('h1')?.innerText ?? '',
+      error: document.querySelector('.flow-editor-state.error,.form-error')?.innerText ?? '',
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      newBlocks: ['Conexão de Fluxo', 'Distribuidor', 'Notificação interna'].filter(label => text.includes(label))
+    };
+  })()`);
+  if (editor.error) throw new Error(`${editor.path}: ${editor.error}`);
+  if (editor.newBlocks.length !== 3) throw new Error(`Editor não exibiu os três blocos G: ${JSON.stringify(editor)}`);
+  checks.push(editor);
+}
+
 console.log(JSON.stringify({ viewport: { width: viewportWidth, height: viewportHeight }, checks, browserErrors, httpErrors }, null, 2));
 await command('Page.close');
 socket.close();

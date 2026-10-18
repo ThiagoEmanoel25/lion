@@ -12,6 +12,9 @@ const json=(value:unknown)=>value as Prisma.InputJsonValue;
 const checksum=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const code=(length:number)=>Array.from(randomBytes(length),byte=>alphabet[byte%alphabet.length]).join('');
 const totals=(items:ImportReport['items'])=>({converted:items.filter(item=>item.status==='converted').length,adjusted:items.filter(item=>item.status==='adjusted').length,pending:items.filter(item=>item.status==='pending').length});
+const importGuidance='Para resolver os saltos automaticamente, importe os funis do último para o primeiro (por exemplo: 05 → 01).';
+export const parseLeonaImportRequest=(value:unknown)=>LeonaImportPayloadSchema.parse(value);
+export const leonaImportSource=(sourceFlowId:string|number|undefined):Prisma.InputJsonValue|undefined=>sourceFlowId===undefined?undefined:json({system:'leona',flowId:sourceFlowId});
 
 async function uniqueCode(prisma:PrismaClient,kind:'session'|'share',length:number){
   for(let attempt=0;attempt<8;attempt++){const candidate=code(length);const found=kind==='session'?await prisma.flowImportSession.count({where:{code:candidate}}):await prisma.flowShareCode.count({where:{code:candidate}});if(!found)return candidate}
@@ -66,24 +69,41 @@ export async function resolvePixels(tx:Prisma.TransactionClient,workspaceId:stri
   report.totals=totals(report.items);
 }
 
+const importSourceOf=(value:unknown)=>value&&typeof value==='object'&&!Array.isArray(value)?value as {system?:unknown;flowId?:unknown}:{};
+export async function resolveFlowJumps(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
+  const nodes=definition.nodes.filter(item=>item.kind==='flow_jump');if(!nodes.length)return;
+  const playbooks=await tx.playbook.findMany({where:{workspaceId},select:{id:true,name:true,importSource:true}});
+  for(const node of nodes){
+    if(typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId)continue;
+    const leonaFlowId=node.config.leonaFlowId;const targetName=typeof node.config.targetName==='string'?node.config.targetName.trim():'';
+    const bySource=leonaFlowId===undefined?undefined:playbooks.find(playbook=>{const source=importSourceOf(playbook.importSource);return source.system==='leona'&&String(source.flowId)===String(leonaFlowId)});
+    const byName=targetName?playbooks.find(playbook=>playbook.name.localeCompare(targetName,undefined,{sensitivity:'accent'})===0):undefined;
+    const target=bySource??byName;
+    report.items=report.items.filter(item=>!(item.status==='pending'&&['connection_flow','execute_flow'].includes(item.sourceType??'')&&item.message.startsWith('Destino da Leona')&&(!targetName||item.message.toLocaleLowerCase().includes(targetName.toLocaleLowerCase()))));
+    if(target){node.config={targetPlaybookId:target.id};report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'adjusted',message:`Salto ligado ao fluxo “${target.name}”.`})}
+    else report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'pending',message:targetName?`Importe “${targetName}” primeiro ou selecione o fluxo correspondente.`:'Selecione o fluxo de destino deste salto.'});
+  }
+  report.totals=totals(report.items);
+}
+
 // Lists everything that still blocks publishing, so the report never hides a compiler error.
 export function reportCompilerIssues(definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
   for(const issue of validateAutomation(definition).issues as AutomationIssue[]){
     if(issue.level!=='error')continue;const sourceId=issue.nodeId??issue.edgeId;
     // resolvePixels already asked to configure this pixel; the missing pixelId is the same pending item.
-    if(issue.code==='INVALID_PIXEL_CONFIG'&&report.items.some(item=>item.status==='pending'&&item.sourceId===sourceId))continue;
+    if((issue.code==='INVALID_PIXEL_CONFIG'||issue.code==='FLOW_JUMP_TARGET_REQUIRED')&&report.items.some(item=>item.status==='pending'&&item.sourceId===sourceId))continue;
     report.items.push({...(sourceId?{sourceId}:{}),sourceType:'compiler',status:'pending',message:issue.message.slice(0,500)});
   }
   report.totals=totals(report.items);
 }
 
-async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>}){
-  return tx.playbook.create({data:{workspaceId:input.workspaceId,name:input.name,description:'Importado como rascunho. Revise as pendências antes de publicar.',status:'DRAFT',versions:{create:{version:1,definition:json(input.definition),checksum:checksum(input.definition),createdById:input.userId}}},include:{versions:true}});
+async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>;importSource?:Prisma.InputJsonValue}){
+  return tx.playbook.create({data:{workspaceId:input.workspaceId,name:input.name,description:'Importado como rascunho. Revise as pendências antes de publicar.',status:'DRAFT',...(input.importSource?{importSource:input.importSource}:{}),versions:{create:{version:1,definition:json(input.definition),checksum:checksum(input.definition),createdById:input.userId}}},include:{versions:true}});
 }
 
-function bookmarklet(apiOrigin:string){
+export function bookmarklet(apiOrigin:string){
   const endpoint=`${apiOrigin.replace(/\/$/,'')}/v1/imports/leona/`;
-  const script=`(()=>{const c=prompt('Código de importação do Nexo');if(!c)return;let f=window.__NEXO_LEONA_EXPORT__||window.__LEONA_FLOW__;if(!f){const el=document.querySelector('.react-flow');const k=el&&Object.keys(el).find(x=>x.startsWith('__reactFiber$'));const seen=new Set(),q=k?[el[k]]:[];while(q.length&&!f){const x=q.shift();if(!x||seen.has(x))continue;seen.add(x);const p=x.memoizedProps||x.pendingProps;if(p&&Array.isArray(p.nodes)&&Array.isArray(p.edges))f={nodes:p.nodes,edges:p.edges,label:document.title};q.push(x.child,x.sibling)}}if(!f)for(let i=0;i<localStorage.length;i++){try{const v=JSON.parse(localStorage.getItem(localStorage.key(i)));const q=[v];while(q.length){const x=q.shift();if(x&&Array.isArray(x.nodes)&&Array.isArray(x.edges)){f=x;break}if(x&&typeof x==='object')q.push(...Object.values(x))}if(f)break}catch{}}if(!f||!Array.isArray(f.nodes)||!Array.isArray(f.edges))return alert('Abra um fluxo no editor da Leona.');fetch('${endpoint}'+encodeURIComponent(c.trim()),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({source:'leona',version:1,nodes:f.nodes,edges:f.edges,label:f.label||document.title})}).then(async r=>{const x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.message||'Falha ao exportar');alert('Fluxo enviado ao Nexo.')}).catch(e=>alert(e.message))})()`;
+  const script=`(()=>{const c=prompt('Código de importação do Nexo');if(!c)return;let f=window.__NEXO_LEONA_EXPORT__||window.__LEONA_FLOW__;if(!f){const el=document.querySelector('.react-flow');const k=el&&Object.keys(el).find(x=>x.startsWith('__reactFiber$'));const seen=new Set(),q=k?[el[k]]:[];while(q.length&&!f){const x=q.shift();if(!x||seen.has(x))continue;seen.add(x);const p=x.memoizedProps||x.pendingProps;if(p&&Array.isArray(p.nodes)&&Array.isArray(p.edges))f={nodes:p.nodes,edges:p.edges,label:document.title};q.push(x.child,x.sibling)}}if(!f)for(let i=0;i<localStorage.length;i++){try{const v=JSON.parse(localStorage.getItem(localStorage.key(i)));const q=[v];while(q.length){const x=q.shift();if(x&&Array.isArray(x.nodes)&&Array.isArray(x.edges)){f=x;break}if(x&&typeof x==='object')q.push(...Object.values(x))}if(f)break}catch{}}if(!f||!Array.isArray(f.nodes)||!Array.isArray(f.edges))return alert('Abra um fluxo no editor da Leona.');const sourceFlowId=f.sourceFlowId||((location.pathname.match(/\\/flows\\/(\\d+)/)||[])[1]);fetch('${endpoint}'+encodeURIComponent(c.trim()),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({source:'leona',version:1,nodes:f.nodes,edges:f.edges,label:f.label||document.title,...(sourceFlowId?{sourceFlowId}:{})})}).then(async r=>{const x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.message||'Falha ao exportar');alert('Fluxo enviado ao Nexo.')}).catch(e=>alert(e.message))})()`;
   return `javascript:${encodeURIComponent(script)}`;
 }
 
@@ -92,7 +112,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const importCode=await uniqueCode(app.prisma,'session',8);const expiresAt=new Date(Date.now()+LEONA_IMPORT_CODE_TTL_SECONDS*1000);
     await app.prisma.flowImportSession.create({data:{code:importCode,workspaceId:request.auth.workspaceId,createdById:request.auth.userId,expiresAt}});
     const apiOrigin=process.env.PUBLIC_API_URL??`${request.protocol}://${request.host}`;
-    return reply.status(201).send({code:importCode,expiresAt,bookmarklet:bookmarklet(apiOrigin)});
+    return reply.status(201).send({code:importCode,expiresAt,bookmarklet:bookmarklet(apiOrigin),guidance:importGuidance});
   });
 
   app.get('/v1/imports/leona/sessions/:code',{preHandler:[app.requirePermission('playbook.write')]},async request=>{
@@ -104,7 +124,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
 
   app.options('/v1/imports/leona/:code',{config:{cors:{origin:'https://app.leonasolutions.io',credentials:false}}},async(_,reply)=>reply.status(204).send());
   app.post('/v1/imports/leona/:code',{bodyLimit:LEONA_IMPORT_MAX_BYTES,config:{cors:{origin:'https://app.leonasolutions.io',credentials:false}}},async(request,reply)=>{
-    const {code:raw}=request.params as {code:string};const importCode=raw.trim().toUpperCase();await rateLimit(app,request.ip,importCode);const input=LeonaImportPayloadSchema.parse(request.body);
+    const {code:raw}=request.params as {code:string};const importCode=raw.trim().toUpperCase();await rateLimit(app,request.ip,importCode);const input=parseLeonaImportRequest(request.body);
     const existing=await app.prisma.flowImportSession.findUnique({where:{code:importCode}});
     if(!existing||existing.status!=='WAITING'||existing.usedAt||existing.expiresAt<=new Date())throw new DomainError('IMPORT_CODE_INVALID','Código inválido, expirado ou já utilizado.',410);
     const converted=convertLeonaFlow(input);
@@ -114,8 +134,9 @@ export const importRoutes:FastifyPluginAsync=async app=>{
       await resolveTags(tx,existing.workspaceId,converted.definition,converted.report);
       await resolveKanban(tx,existing.workspaceId,converted.definition,converted.report);
       await resolvePixels(tx,existing.workspaceId,converted.definition,converted.report);
+      await resolveFlowJumps(tx,existing.workspaceId,converted.definition,converted.report);
       reportCompilerIssues(converted.definition,converted.report);
-      const playbook=await createImportedPlaybook(tx,{workspaceId:existing.workspaceId,userId:existing.createdById,name:converted.suggestedName,definition:converted.definition});
+      const importSource=leonaImportSource(input.sourceFlowId);const playbook=await createImportedPlaybook(tx,{workspaceId:existing.workspaceId,userId:existing.createdById,name:converted.suggestedName,definition:converted.definition,...(importSource?{importSource}:{})});
       await tx.flowImportSession.update({where:{id:existing.id},data:{status:'COMPLETED',playbookId:playbook.id,report:json(converted.report)}});
       await audit(tx,{workspaceId:existing.workspaceId,actorId:existing.createdById,action:'playbook.imported_from_leona',targetType:'Playbook',targetId:playbook.id,changes:{report:converted.report.totals}});
       return playbook;
@@ -137,6 +158,9 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const pixelNodes=parsed.nodes.filter(node=>node.kind==='pixel');const pixelIds=pixelNodes.map(node=>node.config.pixelId).filter((item):item is string=>typeof item==='string');
     const pixels=pixelIds.length?await app.prisma.metaPixel.findMany({where:{workspaceId:request.auth.workspaceId,id:{in:pixelIds}},select:{id:true,name:true}}):[];const pixelNames=new Map(pixels.map(pixel=>[pixel.id,pixel.name]));
     for(const node of pixelNodes){const {pixelId,...rest}=node.config;const name=typeof pixelId==='string'?pixelNames.get(pixelId):undefined;node.config=name?{...rest,pixelName:name}:rest}
+    const jumpNodes=parsed.nodes.filter(node=>node.kind==='flow_jump');const targetIds=jumpNodes.map(node=>node.config.targetPlaybookId).filter((item):item is string=>typeof item==='string');
+    const targets=targetIds.length?await app.prisma.playbook.findMany({where:{workspaceId:request.auth.workspaceId,id:{in:targetIds}},select:{id:true,name:true,importSource:true}}):[];const targetsById=new Map(targets.map(target=>[target.id,target]));
+    for(const node of jumpNodes){const target=typeof node.config.targetPlaybookId==='string'?targetsById.get(node.config.targetPlaybookId):undefined;const source=importSourceOf(target?.importSource);node.config={...(target?{targetName:target.name}:{}),...(source.system==='leona'&&source.flowId!==undefined?{leonaFlowId:source.flowId}: {})}}
     const redacted=redactDefinitionSecrets(parsed);const shareCode=await uniqueCode(app.prisma,'share',10);const expiresAt=new Date(Date.now()+NEXO_SHARE_CODE_TTL_DAYS*86_400_000);
     const created=await app.prisma.flowShareCode.create({data:{code:shareCode,workspaceId:request.auth.workspaceId,playbookId:id,createdById:request.auth.userId,definition:json(redacted.definition),sourceName:playbook.name,report:json(redacted.report),expiresAt}});
     await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.share_code_created',targetType:'Playbook',targetId:id,changes:{shareCodeId:created.id,expiresAt}});
@@ -157,7 +181,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const input=ImportNexoShareInput.parse(request.body);const share=await app.prisma.flowShareCode.findUnique({where:{code:input.code}});
     if(!share||share.revokedAt||share.expiresAt<=new Date())throw new DomainError('SHARE_CODE_INVALID','Código inexistente, expirado ou revogado.',410);
     const definition=AutomationDefinitionSchema.parse(share.definition);const sourceReport=structuredClone(share.report) as ImportReport;
-    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
+    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);await resolveFlowJumps(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
     return reply.status(201).send({playbookId:playbook.id,report:sourceReport});
   });
 };

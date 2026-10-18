@@ -42,6 +42,14 @@ export function joinReplies(messages: Array<{ body: string | null; type: string 
   return { last_message: bodies.join('\n'), last_message_type: last?.type ?? 'TEXT' };
 }
 
+export function waitReplyActions(config:{saveReplyTo?:string;saveEmpty:boolean;reactEmoji?:string;replyToLeadCount:number},reply:{last_message:string},latest:{id:string;externalId:string|null}){
+  return {
+    ...(config.saveReplyTo&&(config.saveEmpty||reply.last_message.length>0)?{saveReply:{field:config.saveReplyTo,value:reply.last_message}}:{}),
+    ...(config.replyToLeadCount>0?{quoteNext:{messageId:latest.id,remaining:config.replyToLeadCount}}:{}),
+    ...(config.reactEmoji&&latest.externalId?{reaction:{emoji:config.reactEmoji,messageExternalId:latest.externalId}}:{})
+  };
+}
+
 // A wait_response buffer already joined the reply into last_message; keep it while the latest message is one of those joined.
 export function aiLastMessage(context: Record<string, unknown>, latest: { id: string; body: string | null } | null): string {
   const ids = record(context.wait)?.messageIds;

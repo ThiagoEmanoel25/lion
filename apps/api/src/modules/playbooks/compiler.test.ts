@@ -366,6 +366,24 @@ describe('message items', () => {
   });
 });
 
+describe('blocos de paridade Leona G',()=>{
+  const end={id:'done',kind:'outcome',name:'Fim',config:{type:'RESOLVED'},position:{x:300,y:0}};
+  it('aceita salto terminal e exige um destino',()=>{
+    const make=(config:Record<string,unknown>)=>({start:'start',nodes:[validDefinition.nodes[0],{id:'jump',kind:'flow_jump',name:'Outro fluxo',config,position:{x:100,y:0}}],edges:[{id:'e1',source:'start',target:'jump'}],settings:{maxSteps:10,timeoutSeconds:60}});
+    expect(validateAutomation(make({targetPlaybookId:'clx000000000000000000001'})).valid).toBe(true);
+    expect(validateAutomation(make({targetName:'Leona 02'})).issues.map(issue=>issue.code)).toContain('FLOW_JUMP_TARGET_REQUIRED');
+  });
+  it('valida todas as rotas do distribuidor e simula pela primeira',()=>{
+    const definition={start:'start',nodes:[validDefinition.nodes[0],{id:'dist',kind:'distributor',name:'Teste A/B',config:{outputs:[{id:'a',name:'A',weight:2},{id:'b',name:'B',weight:1}],preventRepeat:true},position:{x:100,y:0}},end,{...validDefinition.nodes[4],id:'human'}],edges:[{id:'e1',source:'start',target:'dist'},{id:'a',source:'dist',target:'done',condition:{field:'distributor.output',operator:'equals',value:'a'}},{id:'b',source:'dist',target:'human',condition:{field:'distributor.output',operator:'equals',value:'b'}}],settings:{maxSteps:10,timeoutSeconds:60}};
+    const valid=validateAutomation(definition);expect(valid.valid).toBe(true);expect(simulateAutomation(valid.definition!).path).toEqual(['start','dist','done']);
+    const missing=structuredClone(definition);missing.edges.pop();expect(validateAutomation(missing).issues.map(issue=>issue.code)).toContain('DISTRIBUTOR_OUTPUT_UNROUTED');
+  });
+  it('aceita notificação E.164 com saída normal',()=>{
+    const definition={start:'start',nodes:[validDefinition.nodes[0],{id:'notify',kind:'notification',name:'Avisar equipe',config:{phone:'+5571999999999',message:'Falha para {{contact.name}}'},position:{x:100,y:0}},end],edges:[{id:'e1',source:'start',target:'notify'},{id:'e2',source:'notify',target:'done'}],settings:{maxSteps:10,timeoutSeconds:60}};
+    expect(validateAutomation(definition).valid).toBe(true);
+  });
+});
+
 describe('pixel', () => {
   const pid = 'clx000000000000000000001';
   const make = (config: Record<string, unknown>, edges: any[] = [{ id: 'p1', source: 'px', target: 'done' }]) => ({

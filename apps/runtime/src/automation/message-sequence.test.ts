@@ -38,22 +38,22 @@ describe('itemMessage', () => {
   it('maps file, media and audio', () => {
     expect(itemMessage({ type: 'file', url: 'https://x/a.pdf', fileName: '{{f}}', caption: 'Veja {{contact.name}}' }, ctx))
       .toEqual({ type: 'DOCUMENT', body: 'Veja Ana', mediaUrl: 'https://x/a.pdf', providerPayload: { kind: 'file', fileName: 'doc.pdf' } });
-    expect(itemMessage({ type: 'media', mediaType: 'video', url: 'https://x/a.mp4', caption: 'v' }, ctx))
+    expect(itemMessage({ type: 'media', mediaType: 'video', url: 'https://x/a.mp4', caption: 'v',typingSeconds:0,forwarded:false }, ctx))
       .toEqual({ type: 'VIDEO', body: 'v', mediaUrl: 'https://x/a.mp4', providerPayload: {} });
-    expect(itemMessage({ type: 'media', mediaType: 'image', url: 'https://x/a.png' }, ctx).type).toBe('IMAGE');
-    expect(itemMessage({ type: 'media', mediaType: 'audio', url: 'https://x/a.ogg', ptt: true }, ctx))
-      .toEqual({ type: 'AUDIO', body: null, mediaUrl: 'https://x/a.ogg', providerPayload: { kind: 'audio', ptt: true } });
+    expect(itemMessage({ type: 'media', mediaType: 'image', url: 'https://x/a.png',typingSeconds:0,forwarded:false }, ctx).type).toBe('IMAGE');
+    expect(itemMessage({ type: 'media', mediaType: 'audio', url: 'https://x/a.ogg', ptt: true,typingSeconds:4,forwarded:true }, ctx))
+      .toEqual({ type: 'AUDIO', body: null, mediaUrl: 'https://x/a.ogg', providerPayload: { kind: 'audio', ptt: true,typingSeconds:4,forwarded:true } });
   });
   it('rejects empty text and non-https urls', () => {
     expect(() => itemMessage({ type: 'text', text: '{{nope}}', typingSeconds: 0 }, ctx)).toThrow('EMPTY_MESSAGE');
-    expect(() => itemMessage({ type: 'media', mediaType: 'image', url: '{{nope}}' }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
+    expect(() => itemMessage({ type: 'media', mediaType: 'image', url: '{{nope}}',typingSeconds:0,forwarded:false }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
     expect(() => itemMessage({ type: 'file', url: 'http://x/a.pdf', fileName: 'a' }, ctx)).toThrow('MEDIA_HTTPS_REQUIRED');
   });
   it('validates values after interpolation', () => {
     expect(() => itemMessage({ type: 'text', text: '{{long}}', typingSeconds: 0 }, { long: 'a'.repeat(4097) })).toThrow('MESSAGE_TOO_LONG');
     expect(() => itemMessage({ type: 'file', url: 'https://x.test/a.pdf', fileName: '{{empty}}' }, ctx)).toThrow('EMPTY_FILE_NAME');
     expect(() => itemMessage({ type: 'file', url: 'https://x.test/a.pdf', fileName: '{{long}}' }, { long: 'a'.repeat(256) })).toThrow('FILE_NAME_TOO_LONG');
-    expect(() => itemMessage({ type: 'media', mediaType: 'image', url: 'https://x.test/a.png', caption: '{{long}}' }, { long: 'a'.repeat(1025) })).toThrow('CAPTION_TOO_LONG');
+    expect(() => itemMessage({ type: 'media', mediaType: 'image', url: 'https://x.test/a.png', caption: '{{long}}',typingSeconds:0,forwarded:false }, { long: 'a'.repeat(1025) })).toThrow('CAPTION_TOO_LONG');
   });
 });
 

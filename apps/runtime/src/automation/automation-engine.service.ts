@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Inject,Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
-import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
+import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,AutomationWaitResponseConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
 import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
@@ -10,7 +10,7 @@ import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, rou
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
-import { aiLastMessage, joinReplies, pendingWaitOf, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
+import { aiLastMessage, joinReplies, pendingWaitOf,waitReplyActions, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
 import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
 import { NO_CTWA_MESSAGE, PIXEL_TIMEOUT_SECONDS, buildPixelEvent, parsePixelValue, pixelOutcome, pixelRequest } from '@nexo/domain';
 import { FieldCipher } from '../crypto/field-cipher.js';
@@ -27,7 +27,8 @@ const outcomeTypes = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'H
 // `menu_reply` / `menu_timeout` resume any pending wait (menu or wait_response); the names stay so already-queued jobs remain valid.
 export type AutomationJob = { executionId: string; action?: 'start' | 'resume' | 'menu_reply' | 'menu_timeout' | 'sequence_next'; resumeStepId?: string; messageId?: string; sequenceIndex?: number; failedIndex?: number };
 type PendingSequence = { stepId: string; index: number };
-type RuntimeState = { pendingDelayStepId?: string; pendingWait?: PendingWait; pendingSequence?: PendingSequence; error?: { code: string; message: string } };
+type QuoteNext = {messageId:string;remaining:number};
+type RuntimeState = { pendingDelayStepId?: string; pendingWait?: PendingWait; pendingSequence?: PendingSequence; quoteNext?:QuoteNext;jumpDepth?:number; error?: { code: string; message: string } };
 type EngineContext = Record<string, unknown> & { _runtime?: RuntimeState };
 
 class NodeExecutionError extends Error {
@@ -36,6 +37,21 @@ class NodeExecutionError extends Error {
 
 const asJson = (value: unknown) => value as Prisma.InputJsonValue;
 const objectContext = (value: Prisma.JsonValue): EngineContext => value && typeof value === 'object' && !Array.isArray(value) ? value as EngineContext : {};
+const stableRuntime=(context:EngineContext):RuntimeState=>{
+  const runtime=context._runtime??{};
+  return {
+    ...(typeof runtime.jumpDepth==='number'?{jumpDepth:runtime.jumpDepth}:{}),
+    ...(runtime.quoteNext&&typeof runtime.quoteNext.messageId==='string'&&Number.isInteger(runtime.quoteNext.remaining)&&runtime.quoteNext.remaining>0?{quoteNext:runtime.quoteNext}:{})
+  };
+};
+const stableContext=(context:EngineContext):EngineContext=>({...context,_runtime:stableRuntime(context)});
+const consumeQuote=(context:EngineContext):{context:EngineContext;quotedMessageId?:string}=>{
+  const base=stableContext(context);const quote=base._runtime?.quoteNext;
+  if(!quote)return {context:base};
+  const runtime={...base._runtime};
+  if(quote.remaining>1)runtime.quoteNext={...quote,remaining:quote.remaining-1};else delete runtime.quoteNext;
+  return {context:{...base,_runtime:runtime},quotedMessageId:quote.messageId};
+};
 const stringConfig = (node: AutomationNode, key: string) => {
   const value = node.config[key];
   if (typeof value !== 'string' || !value.trim()) throw new NodeExecutionError('INVALID_NODE_CONFIG', `O nó ${node.id} requer config.${key}.`);
@@ -46,7 +62,7 @@ export class AutomationEngineService implements OnModuleDestroy {
   private readonly queue: Queue<AutomationJob>;
   private readonly cipher = new FieldCipher(loadConfig().encryptionKey);
 
-  constructor(private readonly prisma: PrismaService, private readonly redis: RedisService, private readonly agents: AgentRuntimeService) {
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService,@Inject(RedisService) private readonly redis: RedisService,@Inject(AgentRuntimeService) private readonly agents: AgentRuntimeService) {
     this.queue = new Queue<AutomationJob>(AUTOMATION_QUEUE, { connection: this.redis });
   }
 
@@ -86,7 +102,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       const pendingWait = pendingWaitOf(context._runtime);
       const pendingSequence = context._runtime?.pendingSequence;
       if (pendingSequence) {
-        const resumed = await this.resumeSequence(execution, job, pendingSequence, { ...context, _runtime: {} }, definition);
+        const resumed = await this.resumeSequence(execution, job, pendingSequence, context, definition);
         if (!resumed) return;
         context = resumed.context;
         currentNodeId = resumed.nextNodeId;
@@ -96,7 +112,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         context = resumed.context;
         currentNodeId = resumed.nextNodeId;
       } else {
-        context = { ...context, _runtime: {} };
+        context = stableContext(context);
       }
       await this.prisma.execution.update({ where: { id: execution.id }, data: { status: 'RUNNING', currentNode: currentNodeId, context: asJson(context) } });
     }
@@ -192,6 +208,7 @@ export class AutomationEngineService implements OnModuleDestroy {
             })
           : undefined;
         const messageType = node.kind === 'audio' ? 'AUDIO' : node.kind === 'buttons' ? 'TEMPLATE' : 'IMAGE';
+        const quote=consumeQuote(context);
         const providerPayload = node.kind === 'buttons'
           ? {
               kind: 'buttons', mode: node.config.mode === 'list' ? 'list' : 'buttons', buttons,
@@ -201,17 +218,18 @@ export class AutomationEngineService implements OnModuleDestroy {
           : node.kind === 'sticker' ? { kind: 'sticker' }
           : node.kind === 'audio' ? { kind: 'audio', ptt: node.config.ptt === true }
           : { kind: 'image' };
+        const outboundPayload={...providerPayload,...(quote.quotedMessageId?{quotedMessageId:quote.quotedMessageId}:{})};
         await this.prisma.$transaction(async tx => {
-          const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: messageType, status: 'PENDING', body, mediaUrl: rawUrl || null, providerPayload: asJson(providerPayload), authorType: 'automation', authorId: executionId } });
+          const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: messageType, status: 'PENDING', body, mediaUrl: rawUrl || null, providerPayload: asJson(outboundPayload), authorType: 'automation', authorId: executionId } });
           await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
           if (!waitsForChoice) {
-            await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { messageId: message.id, kind: node.kind });
+            await this.finishInTransaction(tx, executionId, step.id, nextNodeId, quote.context, { messageId: message.id, kind: node.kind });
             return;
           }
           // The step stays RUNNING until the contact answers or the menu expires.
           const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'menu' };
           await tx.executionStep.update({ where: { id: step.id }, data: { output: asJson({ messageId: message.id, kind: node.kind, waitingForReply: true }) } });
-          await tx.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingWait } }) } });
+          await tx.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...quote.context, _runtime: { ...stableRuntime(quote.context), pendingWait } }) } });
         });
         if (!waitsForChoice) return 'continue';
         try {
@@ -226,7 +244,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'delay': {
         const seconds = node.config.seconds;
         if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1 || seconds > 2_678_400) throw new NodeExecutionError('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 31 dias.');
-        const waitingContext: EngineContext = { ...context, _runtime: { pendingDelayStepId: step.id } };
+        const waitingContext: EngineContext = { ...context, _runtime: { ...stableRuntime(context),pendingDelayStepId: step.id } };
         await this.prisma.$transaction([
           this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { delaySeconds: seconds, resumeAt: new Date(Date.now() + seconds * 1000).toISOString() }, finishedAt: new Date() } }),
           this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: nextNodeId, context: asJson(waitingContext) } })
@@ -378,6 +396,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         const phone=normalizeE164(parsed.data.phone);if(!phone)throw new NodeExecutionError('INVALID_NOTIFICATION_PHONE','Use um telefone E.164 com DDI.');
         const text=renderTemplate(parsed.data.message,context);const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId,workspaceId},select:{channelId:true}});if(!conversation)throw new NodeExecutionError('CONVERSATION_NOT_FOUND','A conversa da execução não existe.');
         await this.prisma.$transaction(async tx=>{
+          await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${'notification:'+workspaceId}))`);
           const used=await tx.outboxEvent.count({where:{workspaceId,type:'notification.send.requested',createdAt:{gte:notificationWindowStart(new Date())}}});const limit=decideNotificationLimit(used);
           if(limit.allowed)await tx.outboxEvent.create({data:{workspaceId,aggregate:'Execution',aggregateId:executionId,type:'notification.send.requested',payload:{channelId:conversation.channelId,phone,text}}});
           else await tx.outboxEvent.create({data:{workspaceId,aggregate:'Execution',aggregateId:executionId,type:'notification.send.discarded',payload:{phone,reason:'HOURLY_LIMIT'},processedAt:new Date()}});
@@ -431,7 +450,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'reply', since: step.startedAt.toISOString() };
         await this.prisma.$transaction([
           this.prisma.executionStep.update({ where: { id: step.id }, data: { output: { waitingForReply: true } } }),
-          this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { pendingWait } }) } })
+          this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { ...stableRuntime(context),pendingWait } }) } })
         ]);
         try {
           await this.queue.add('menu_timeout', { executionId, action: 'menu_timeout', resumeStepId: step.id }, { jobId: `automation-wait-timeout-${executionId}-${step.id}`, delay: waitTimeoutSeconds(node.config).seconds * 1000, attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });
@@ -502,13 +521,14 @@ export class AutomationEngineService implements OnModuleDestroy {
         aiContext = setContextPath(aiContext, 'ai.receiptValid', result.receiptValid);
         const successEdge = selectAiRouteEdge(input.definition.edges, node.id, routeId);
         if (!successEdge) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+        const quote=config.autoSendResponse===true?consumeQuote(aiContext):{context:aiContext};
         await this.prisma.$transaction(async tx => {
           await tx.usageRecord.create({ data: { workspaceId, kind: 'ai_tokens', quantity: result.tokens, unit: 'token', costCents: 0, provider: 'openai', referenceId: executionId } });
           if (config.autoSendResponse === true) {
-            const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body: result.text.slice(0, 4096), authorType: 'automation', authorId: executionId } });
+            const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body: result.text.slice(0, 4096),...(quote.quotedMessageId?{providerPayload:asJson({quotedMessageId:quote.quotedMessageId})}:{}),authorType: 'automation', authorId: executionId } });
             await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
           }
-          await this.finishInTransaction(tx, executionId, step.id, successEdge.target, aiContext, asJson({ tokens: result.tokens, chars: result.text.length, routeId, receiptValid: result.receiptValid }));
+          await this.finishInTransaction(tx, executionId, step.id, successEdge.target, quote.context, asJson({ tokens: result.tokens, chars: result.text.length, routeId, receiptValid: result.receiptValid }));
         });
         return { next: successEdge.target };
       }
@@ -562,7 +582,8 @@ export class AutomationEngineService implements OnModuleDestroy {
         }
         const conversation=await this.prisma.conversation.findUnique({where:{id:conversationId},include:{channel:true}});
         if(!conversation||conversation.channel.provider!=='baileys'||conversation.channel.status!=='CONNECTED')throw new NodeExecutionError('CHANNEL_UNAVAILABLE','O canal precisa estar conectado para enviar a resposta do agente.');
-        await this.prisma.$transaction(async tx=>{const message=await tx.message.create({data:{workspaceId,conversationId,direction:'OUTBOUND',type:'TEXT',status:'PENDING',body:decision.text!,authorType:'ai_agent',authorId:decision.agentId}});await tx.outboxEvent.create({data:{workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});await this.finishInTransaction(tx,executionId,step.id,nextNodeId,{...context,agent:{confidence:decision.confidence,agentId:decision.agentId}},{messageId:message.id,confidence:decision.confidence,agentId:decision.agentId,knowledgeChunks:decision.knowledgeChunks})});return 'continue';
+        const nextAgentContext:EngineContext={...context,agent:{confidence:decision.confidence,agentId:decision.agentId}};const quote=consumeQuote(nextAgentContext);
+        await this.prisma.$transaction(async tx=>{const message=await tx.message.create({data:{workspaceId,conversationId,direction:'OUTBOUND',type:'TEXT',status:'PENDING',body:decision.text!,...(quote.quotedMessageId?{providerPayload:asJson({quotedMessageId:quote.quotedMessageId})}:{}),authorType:'ai_agent',authorId:decision.agentId}});await tx.outboxEvent.create({data:{workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});await this.finishInTransaction(tx,executionId,step.id,nextNodeId,quote.context,{messageId:message.id,confidence:decision.confidence,agentId:decision.agentId,knowledgeChunks:decision.knowledgeChunks})});return 'continue';
       }
     }
   }
@@ -590,14 +611,14 @@ export class AutomationEngineService implements OnModuleDestroy {
 
   // Sends (or waits on) one item; the next item is scheduled by the outbound worker after SENT, or by the pause delay.
   private async runSequenceItem(executionId: string, workspaceId: string, conversationId: string, step: ExecutionStep, node: AutomationNode, context: EngineContext, index: number, items: SequenceItem[], nextNodeId: string | undefined): Promise<'continue' | 'waiting'> {
-    const base: EngineContext = { ...context, _runtime: {} };
+    const base=stableContext(context);
     if (index >= items.length) {
       await this.completeStep(executionId, step.id, nextNodeId, base, { items: items.length });
       return 'continue';
     }
     const item = items[index]!;
-    const waiting = { status: 'WAITING' as const, currentNode: node.id, context: asJson({ ...base, _runtime: { pendingSequence: { stepId: step.id, index } } }) };
     if (item.type === 'pause') {
+      const waiting = { status: 'WAITING' as const, currentNode: node.id, context: asJson({ ...base, _runtime: { ...stableRuntime(base),pendingSequence: { stepId: step.id, index } } }) };
       await this.prisma.execution.update({ where: { id: executionId }, data: waiting });
       try {
         await this.queue.add('sequence_next', { executionId, action: 'sequence_next', resumeStepId: step.id, sequenceIndex: index + 1 }, sequenceJobOptions(step.id, index + 1, pauseSeconds(item) * 1000));
@@ -612,7 +633,9 @@ export class AutomationEngineService implements OnModuleDestroy {
       const code = error instanceof Error ? error.message : 'INVALID_NODE_CONFIG';
       throw new NodeExecutionError(code, code === 'EMPTY_MESSAGE' ? 'A mensagem ficou vazia após a interpolação.' : code === 'MEDIA_HTTPS_REQUIRED' ? 'A mídia precisa usar uma URL HTTPS.' : `O item ${index + 1} da mensagem é inválido.`);
     }
-    const providerPayload = { ...content.providerPayload, sequence: { executionId, stepId: step.id, index } };
+    const quote=consumeQuote(base);
+    const providerPayload = { ...content.providerPayload, ...(quote.quotedMessageId?{quotedMessageId:quote.quotedMessageId}:{}),sequence: { executionId, stepId: step.id, index } };
+    const waiting = { status: 'WAITING' as const, currentNode: node.id, context: asJson({ ...quote.context, _runtime: { ...stableRuntime(quote.context),pendingSequence: { stepId: step.id, index } } }) };
     await this.prisma.$transaction(async tx => {
       const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: content.type, status: 'PENDING', body: content.body, mediaUrl: content.mediaUrl, providerPayload: asJson(providerPayload), authorType: 'automation', authorId: executionId } });
       await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
@@ -643,7 +666,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       await this.failStep(execution.id, step.id, node.id, error);
       throw error;
     }
-    if (nextNodeId) return { context, nextNodeId };
+    if (nextNodeId) return { context:stableContext(context), nextNodeId };
     await this.failExecution(execution.id, 'DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
     return null;
   }
@@ -671,9 +694,9 @@ export class AutomationEngineService implements OnModuleDestroy {
       await this.failExecution(executionId, 'NODE_NOT_FOUND', `Aguarda Resposta ${pending.nodeId} não encontrado.`);
       return null;
     }
-    let next: EngineContext = { ...context, _runtime: {} };
+    let next=stableContext(context);
     const since = pending.since ? new Date(pending.since) : (await this.prisma.executionStep.findUnique({ where: { id: pending.stepId }, select: { startedAt: true } }))?.startedAt ?? new Date(0);
-    const messages = await this.prisma.message.findMany({ where: { conversationId, direction: 'INBOUND', createdAt: { gte: since } }, orderBy: { createdAt: 'asc' }, select: { id: true, body: true, type: true } });
+    const messages = await this.prisma.message.findMany({ where: { conversationId, direction: 'INBOUND', createdAt: { gte: since } }, orderBy: { createdAt: 'asc' }, select: { id: true, body: true, type: true,externalId:true } });
     // A reply that arrived before the timeout wins even when its buffered job has not fired yet.
     if (job.action === 'menu_timeout' && !messages.length) {
       await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { timedOut: true }, finishedAt: new Date() } });
@@ -686,7 +709,19 @@ export class AutomationEngineService implements OnModuleDestroy {
     const reply = joinReplies(messages);
     const messageIds = messages.map(message => message.id);
     next = setContextPath(setContextPath(setContextPath(next, 'last_message', reply.last_message), 'last_message_type', reply.last_message_type), 'wait.messageIds', messageIds);
-    await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { messageIds, last_message_type: reply.last_message_type }, finishedAt: new Date() } });
+    const config=AutomationWaitResponseConfigSchema.parse(node.config);
+    const latest=messages[messages.length-1]!;
+    const actions=waitReplyActions(config,reply,latest);
+    if(actions.quoteNext)next={...next,_runtime:{...stableRuntime(next),quoteNext:actions.quoteNext}};
+    const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId},select:{workspaceId:true,channelId:true,contact:{select:{id:true,phone:true,externalRef:true,customFields:true}}}});
+    await this.prisma.$transaction(async tx=>{
+      if(actions.saveReply&&conversation){
+        const fields=conversation.contact.customFields&&typeof conversation.contact.customFields==='object'&&!Array.isArray(conversation.contact.customFields)?conversation.contact.customFields as Record<string,Prisma.JsonValue>:{};
+        await tx.contact.update({where:{id:conversation.contact.id},data:{customFields:asJson({...fields,[actions.saveReply.field]:actions.saveReply.value})}});
+      }
+      if(actions.reaction&&conversation)await tx.outboxEvent.create({data:{workspaceId:conversation.workspaceId,aggregate:'Message',aggregateId:latest.id,type:'reaction.send.requested',payload:{channelId:conversation.channelId,phone:conversation.contact.externalRef??conversation.contact.phone,messageExternalId:actions.reaction.messageExternalId,emoji:actions.reaction.emoji}}});
+      await tx.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { messageIds, last_message_type: reply.last_message_type,savedTo:actions.saveReply?.field??null,reactionQueued:Boolean(actions.reaction) }, finishedAt: new Date() } });
+    });
     const edge = selectPortEdge(definition.edges, node.id, 'reply');
     if (edge) return { context: next, nextNodeId: edge.target };
     await this.failExecution(executionId, 'DEAD_END', `O nó ${node.id} não possui saída de resposta.`);
@@ -701,7 +736,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       await this.failExecution(executionId, 'NODE_NOT_FOUND', `Menu ${pending.nodeId} não encontrado.`);
       return null;
     }
-    let next: EngineContext = { ...context, _runtime: {} };
+    let next=stableContext(context);
     let output: Record<string, unknown>;
     if (job.action === 'menu_timeout') {
       next = setContextPath(next, 'menu', { timedOut: true });

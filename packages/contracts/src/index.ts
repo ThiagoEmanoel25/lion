@@ -56,7 +56,8 @@ export const LeonaImportPayloadSchema=z.object({
   source:z.literal('leona'),version:z.literal(1),
   nodes:z.array(z.record(z.string(),z.unknown())).min(1).max(500),
   edges:z.array(z.record(z.string(),z.unknown())).max(1_000),
-  label:z.string().trim().max(120).optional()
+  label:z.string().trim().max(120).optional(),
+  sourceFlowId:z.union([z.string().trim().min(1).max(100),z.number().int().nonnegative()]).optional()
 }).strict();
 export const ImportReportItemSchema=z.object({
   sourceId:z.string().max(120).optional(),sourceType:z.string().max(80).optional(),

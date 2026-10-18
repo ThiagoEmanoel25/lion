@@ -176,4 +176,28 @@ describe('conversor Leona',()=>{
       {field:'contact.customFields.resposta-lead',operator:'not_equals',value:''}
     ]);
   });
+
+  it.each([
+    ['leona-funil-01.redacted.json',21,30,{converted:13,adjusted:4,pending:2}],
+    ['leona-funil-02.redacted.json',16,20,{converted:13,adjusted:1,pending:2}],
+    ['leona-funil-03.redacted.json',15,18,{converted:7,adjusted:0,pending:7}],
+    ['leona-funil-04.redacted.json',20,32,{converted:12,adjusted:0,pending:7}],
+    ['leona-funil-05.redacted.json',18,22,{converted:14,adjusted:2,pending:3}]
+  ] as const)('converte a fixture redigida %s com topologia e relatório estáveis',(file,nodeCount,edgeCount,totals)=>{
+    const raw=load(file);const serialized=JSON.stringify(raw);const result=convertLeonaFlow(raw);
+    expect(result.definition.nodes).toHaveLength(nodeCount);expect(result.definition.edges).toHaveLength(edgeCount);expect(result.report.totals).toEqual(totals);
+    expect(result.definition.nodes.filter(node=>node.kind==='message').flatMap(node=>Array.isArray(node.config.items)?node.config.items:[]).some(item=>typeof item==='object'&&item!==null&&(item as {text?:unknown}).text==='Mensagem importada — revise o conteúdo.')).toBe(false);
+    expect(serialized).not.toMatch(/Bearer\s+[A-Za-z0-9._-]{10,}|sk-[A-Za-z0-9_-]{10,}/);
+    expect(serialized).not.toMatch(/71988260588|71991399242/);
+  });
+
+  it('fixtures completas preservam rotas de distribuidores, saltos e o campo persistente entre fluxos',()=>{
+    const first=convertLeonaFlow(load('leona-funil-01.redacted.json')).definition;const second=convertLeonaFlow(load('leona-funil-02.redacted.json')).definition;const third=convertLeonaFlow(load('leona-funil-03.redacted.json')).definition;
+    const distributorEdges=first.edges.filter(edge=>edge.condition?.field==='distributor.output');
+    expect(distributorEdges).toHaveLength(10);expect(new Set(distributorEdges.map(edge=>edge.condition?.value)).size).toBe(5);
+    expect(second.nodes.filter(node=>node.kind==='wait_response').map(node=>node.config)).toEqual(expect.arrayContaining([expect.objectContaining({saveReplyTo:'resposta-lead',saveEmpty:true}),expect.objectContaining({saveReplyTo:'resposta-lead',reactEmoji:'🎉',replyToLeadCount:1})]));
+    const persistedRules=third.nodes.filter(node=>node.kind==='condition').flatMap(node=>Array.isArray(node.config.rules)?node.config.rules:[]);
+    expect(persistedRules).toEqual(expect.arrayContaining([expect.objectContaining({field:'contact.customFields.resposta-lead'})]));
+    expect([...first.nodes,...second.nodes,...third.nodes].filter(node=>node.kind==='flow_jump').every(node=>node.config.leonaFlowId!==undefined&&typeof node.config.targetName==='string')).toBe(true);
+  });
 });
