@@ -74,7 +74,9 @@ export async function resolveFlowJumps(tx:Prisma.TransactionClient,workspaceId:s
   const nodes=definition.nodes.filter(item=>item.kind==='flow_jump');if(!nodes.length)return;
   const playbooks=await tx.playbook.findMany({where:{workspaceId},select:{id:true,name:true,importSource:true}});
   for(const node of nodes){
-    if(typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId)continue;
+    // A share copy may carry the sharer's playbook id; only an id from the importing workspace survives.
+    const incoming=node.config.targetPlaybookId;if(typeof incoming==='string'&&playbooks.some(playbook=>playbook.id===incoming))continue;
+    if(incoming!==undefined){const {targetPlaybookId:_foreign,...rest}=node.config;node.config=rest}
     const leonaFlowId=node.config.leonaFlowId;const targetName=typeof node.config.targetName==='string'?node.config.targetName.trim():'';
     const bySource=leonaFlowId===undefined?undefined:playbooks.find(playbook=>{const source=importSourceOf(playbook.importSource);return source.system==='leona'&&String(source.flowId)===String(leonaFlowId)});
     const byName=targetName?playbooks.find(playbook=>playbook.name.localeCompare(targetName,undefined,{sensitivity:'accent'})===0):undefined;
@@ -82,7 +84,7 @@ export async function resolveFlowJumps(tx:Prisma.TransactionClient,workspaceId:s
     // Keyed by the jump's own node (converter items carry the raw Leona id); the target name only matches items without a source.
     const ownsItem=(item:ImportReport['items'][number])=>item.sourceId?item.sourceId===node.id||importedNodeId(item.sourceId)===node.id:Boolean(targetName)&&item.message.toLocaleLowerCase().includes(targetName.toLocaleLowerCase());
     report.items=report.items.filter(item=>!(item.status==='pending'&&['connection_flow','execute_flow'].includes(item.sourceType??'')&&/^(Destino da Leona|Importe “|Selecione o fluxo de destino)/.test(item.message)&&ownsItem(item)));
-    if(target){node.config={targetPlaybookId:target.id};report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'adjusted',message:`Salto ligado ao fluxo “${target.name}”.`})}
+    if(target){node.config={targetPlaybookId:target.id,...(leonaFlowId!==undefined?{leonaFlowId}:{}),...(targetName||target.name.trim()?{targetName:(targetName||target.name.trim()).slice(0,120)}:{})};report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'adjusted',message:`Salto ligado ao fluxo “${target.name}”.`})}
     else report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'pending',message:targetName?`Importe “${targetName}” primeiro ou selecione o fluxo correspondente.`:'Selecione o fluxo de destino deste salto.'});
   }
   report.totals=totals(report.items);

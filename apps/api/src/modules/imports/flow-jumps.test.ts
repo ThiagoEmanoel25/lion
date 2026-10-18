@@ -18,7 +18,7 @@ describe('resolução de saltos na importação Leona',()=>{
       {id:'flow-by-name',name:'GELATINA-FUNIL-04',importSource:null}
     ])}} as unknown as Prisma.TransactionClient;
     await resolveFlowJumps(tx,'workspace',converted.definition,converted.report);
-    expect(converted.definition.nodes.filter(node=>node.kind==='flow_jump').map(node=>node.config)).toEqual([{targetPlaybookId:'flow-by-source'},{targetPlaybookId:'flow-by-name'}]);
+    expect(converted.definition.nodes.filter(node=>node.kind==='flow_jump').map(node=>node.config)).toEqual([{targetPlaybookId:'flow-by-source',leonaFlowId:140148,targetName:'Nome antigo'},{targetPlaybookId:'flow-by-name',leonaFlowId:999,targetName:'gelatina-funil-04'}]);
     expect(converted.report.items.filter(item=>item.sourceType==='connection_flow'&&item.status==='pending')).toHaveLength(0);
     expect(converted.report.items.filter(item=>item.sourceType==='connection_flow'&&item.status==='adjusted')).toHaveLength(2);
     expect(tx.playbook.findMany).toHaveBeenCalledWith({where:{workspaceId:'workspace'},select:{id:true,name:true,importSource:true}});
@@ -42,6 +42,21 @@ describe('resolução de saltos na importação Leona',()=>{
     await resolveFlowJumps(tx,'workspace',converted.definition,converted.report);
     expect(pending()).toEqual(['leona_jump-1','leona_jump-2']);
     expect(converted.report.items.filter(item=>item.status==='adjusted'&&item.sourceType==='connection_flow').map(item=>item.sourceId)).toEqual(['leona_jump-0']);
+  });
+
+  it('descarta um targetPlaybookId de outro workspace na cópia compartilhada e resolve pelo nome',async()=>{
+    const shared=()=>({definition:{start:'start',nodes:[{id:'start',kind:'trigger',name:'Início',config:{},position:{x:0,y:0}},{id:'jump',kind:'flow_jump',name:'Salto',config:{targetPlaybookId:'foreign-flow',targetName:'FUNIL'},position:{x:200,y:0}}],edges:[{id:'e1',source:'start',target:'jump'}],settings:{maxSteps:10,timeoutSeconds:60}},report:{items:[],totals:{}}} as unknown as ReturnType<typeof convertLeonaFlow>);
+    const same=shared();await resolveFlowJumps({playbook:{findMany:vi.fn().mockResolvedValue([{id:'local-flow',name:'funil',importSource:null}])}} as unknown as Prisma.TransactionClient,'workspace',same.definition,same.report);
+    expect(same.definition.nodes[1]!.config).toMatchObject({targetPlaybookId:'local-flow'});
+    const none=shared();await resolveFlowJumps({playbook:{findMany:vi.fn().mockResolvedValue([{id:'other',name:'Outro',importSource:null}])}} as unknown as Prisma.TransactionClient,'workspace',none.definition,none.report);
+    expect(none.definition.nodes[1]!.config.targetPlaybookId).toBeUndefined();
+    expect(none.report.items).toEqual([expect.objectContaining({sourceId:'jump',status:'pending',message:expect.stringContaining('Importe “FUNIL” primeiro')})]);
+  });
+
+  it('mantém um targetPlaybookId que existe no workspace importador',async()=>{
+    const converted=jumpFlow([{id:1,name:'FUNIL'}]);const node=converted.definition.nodes.find(item=>item.kind==='flow_jump')!;node.config={targetPlaybookId:'local-flow'};
+    await resolveFlowJumps({playbook:{findMany:vi.fn().mockResolvedValue([{id:'local-flow',name:'X',importSource:null}])}} as unknown as Prisma.TransactionClient,'workspace',converted.definition,converted.report);
+    expect(node.config).toEqual({targetPlaybookId:'local-flow'});
   });
 
   it('captura sourceFlowId no payload e forma metadado de origem sem segredos',()=>{
