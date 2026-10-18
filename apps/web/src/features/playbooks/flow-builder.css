@@ -82,3 +82,16 @@
 .distributor-node-routes>div{position:relative;display:flex;align-items:center;justify-content:space-between;border-color:#7f5d28;background:#3e3021}.distributor-node-routes>div>span{min-width:0}.distributor-node-routes b{font-size:9px;color:#fff}.distributor-node-routes small{margin-top:2px;color:#e7c995;text-transform:none;letter-spacing:0}.distributor-node-routes .react-flow__handle{right:-14px;background:#f1a332}
 .distributor-fields{display:grid;gap:10px;margin:0 0 14px;padding:0;list-style:none}.distributor-fields li{display:grid;grid-template-columns:minmax(0,1fr) 90px;gap:8px;padding:12px;border:1px solid var(--line);border-radius:11px;background:#fff}.distributor-fields li>label{margin:0}.distributor-fields li>small{grid-column:1/-1;color:#8a958f;font-size:9px}.distributor-output-title{grid-column:1/-1;display:grid;grid-template-columns:26px 1fr 30px;align-items:center;gap:8px}.distributor-output-title>span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#fff0d9;color:#a86912;font-size:10px;font-weight:850}.distributor-output-title>b{font-size:10px;color:#6a766f}.distributor-output-title>button{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:#9aa7a0}.distributor-output-title>button:hover{background:#fde9e6;color:#b04c43}.config-callout.warning{border-color:#eccb91;background:#fff7e7}.config-callout.warning b{color:#95651a}
 .import-order-tip{display:grid;gap:4px;margin:-8px 0 14px;padding:12px 14px;border:1px solid #dfcc9d;border-radius:10px;background:#fff8e6;color:#76571b}.import-order-tip b{font-size:11px}.import-order-tip span{font-size:10px;line-height:1.5;color:#806e49}
+
+/* Bloco Etiquetas no estilo do editor da Leona: cabeçalho em degradê, etiquetas como chips. */
+.automation-node-tag{border:2px solid #5b5cf0;background:#151330}
+.automation-node-tag .automation-node-head{grid-template-columns:44px minmax(0,1fr) auto;padding:14px 12px;background:linear-gradient(135deg,#6b6ff7,#4f46e5)}
+.automation-node-tag .automation-node-head .automation-node-icon{width:40px;height:40px;border-color:#ffffffb3;background:#ffffff26}
+.automation-node-tag .automation-node-head small{display:none}
+.automation-node-tag .automation-node-head b{margin:0;font-size:13px}
+.automation-node-tag .node-quick-actions .node-delete-action{background:transparent}
+.automation-node-tag .node-quick-actions .node-delete-action:hover{background:#ffffff22}
+.tag-node-body{display:grid;gap:10px;padding:14px 14px 16px}
+.tag-node-chips{display:flex;flex-wrap:wrap;gap:6px 10px}
+.tag-node-chips>span{display:inline-flex;align-items:center;gap:6px;max-width:100%;color:#e8e8ff;font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.tag-node-body p{margin:0;color:#b4b3d6;font-size:11px}
