@@ -7,3 +7,11 @@ export function matchesAutomationTrigger(definition: unknown, event: string, tag
   if (start?.kind !== 'trigger' || String(start.config.event ?? 'message.received') !== event) return false;
   return event !== 'tag.added' || typeof start.config.tagId !== 'string' || start.config.tagId === tagId;
 }
+
+export function isOncePerContact(definition: unknown) {
+  const parsed = AutomationDefinitionSchema.safeParse(definition);
+  const start = parsed.success ? parsed.data.nodes.find(node => node.id === parsed.data.start) : undefined;
+  return start?.kind === 'trigger' && start.config.oncePerContact === true;
+}
+
+export const shouldStartForContact = (oncePerContact: boolean, hasPriorExecution: boolean) => !(oncePerContact && hasPriorExecution);

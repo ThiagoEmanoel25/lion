@@ -12,7 +12,7 @@ import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.j
 import { interactivePayload, regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
 import { firstName } from './automation/live-context.js';
 import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
-import { matchesAutomationTrigger } from './automation/trigger.js';
+import { isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
 import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js';
 import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js';
 
@@ -251,6 +251,9 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     if (!matchesAutomationTrigger(version.definition, input.triggerEvent, input.tagId)) return;
     const active = await this.prisma.execution.findFirst({ where: { conversationId: conversation.id, playbookVersionId: version.id, status: { in: ['RUNNING', 'WAITING'] } } });
     if (active) return;
+    const once = isOncePerContact(version.definition);
+    const prior = once && !!await this.prisma.execution.findFirst({ where: { playbookVersion: { playbookId: version.playbookId }, conversation: { contactId: conversation.contactId } }, select: { id: true } });
+    if (!shouldStartForContact(once, prior)) return;
     if (!await this.canStartExecution(conversation.workspaceId)) {
       await this.prisma.$transaction([
         this.prisma.conversation.update({where:{id:conversation.id},data:{mode:'HUMAN',status:'QUEUED'}}),

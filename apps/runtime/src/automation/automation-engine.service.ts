@@ -466,7 +466,6 @@ export class AutomationEngineService implements OnModuleDestroy {
 
       case 'webhook': {
         const url = renderUrlTemplate(stringConfig(node, 'url'), context);
-        try{await assertPublicHttpsUrl(url)}catch(error){throw new NodeExecutionError('WEBHOOK_URL_BLOCKED',error instanceof Error?error.message:'A URL da integração não é permitida.')}
         const timeoutSeconds = Math.min(input.definition.settings.timeoutSeconds, 30);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
@@ -474,7 +473,9 @@ export class AutomationEngineService implements OnModuleDestroy {
         let body: string | null = null;
         let responseHeaders: Record<string, string> = {};
         let error: string | undefined;
-        try {
+        // A blocked or unresolvable URL is an Integração failure (routes to "erro"), not an execution abort.
+        try { await assertPublicHttpsUrl(url); } catch (caught) { error = caught instanceof Error ? caught.message : 'A URL da integração não é permitida.'; }
+        if (!error) try {
           const method = typeof node.config.method === 'string' ? node.config.method.toUpperCase() : 'POST';
           const configuredHeaders = node.config.headers && typeof node.config.headers === 'object' && !Array.isArray(node.config.headers) ? node.config.headers as Record<string, unknown> : {};
           const blockedHeaders=new Set(['connection','content-length','host','proxy-authorization','transfer-encoding','upgrade']);

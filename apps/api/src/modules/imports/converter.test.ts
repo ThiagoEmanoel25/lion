@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {describe,expect,it} from 'vitest';
 import {AutomationDefinitionSchema} from '@nexo/contracts';
-import {convertLeonaFlow,redactDefinitionSecrets} from './converter.js';
+import {convertLeonaFlow,isLeonaHostedUrl,redactDefinitionSecrets} from './converter.js';
 import {validateAutomation} from '../playbooks/compiler.js';
 
 const load=(name:string)=>JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/${name}`,import.meta.url)),'utf8'));
@@ -91,6 +91,18 @@ describe('conversor Leona',()=>{
     expect(cfg('pixel')[0]).not.toHaveProperty('pixelId');
     expect(items.some(item=>item.sourceType==='pixel'&&item.status==='pending')).toBe(false);
     expect(items.some(item=>item.sourceType==='ai'&&item.message.includes('chave'))).toBe(true);
+    expect(result.definition.nodes.find(node=>node.kind==='trigger')!.config).toMatchObject({event:'message.received',oncePerContact:true});
+    expect(items.some(item=>item.status==='pending'&&item.message.startsWith('O gatilho da Leona não vem no export'))).toBe(true);
+    for(const id of ['5345054','5346541'])expect(items.filter(item=>item.sourceId===id&&/arquivo\(s\) continuam hospedados na Leona/.test(item.message))).toHaveLength(1);
+    expect(JSON.stringify(result.definition)).toContain('leona-production.b-cdn.net');
+  });
+
+  it('isLeonaHostedUrl reconhece o CDN da Leona',()=>{
+    expect(isLeonaHostedUrl('https://leona-production.b-cdn.net/abc')).toBe(true);
+    expect(isLeonaHostedUrl('https://x.b-cdn.net/abc')).toBe(true);
+    expect(isLeonaHostedUrl('https://cdn.leona.com.br/abc')).toBe(true);
+    expect(isLeonaHostedUrl('https://example.com/b-cdn.net')).toBe(false);
+    expect(isLeonaHostedUrl('não é url')).toBe(false);
   });
 
   it('export real: pixel ganha saídas sucesso e falha, condição sem efeito é removida e pixel não conta como convertido',()=>{

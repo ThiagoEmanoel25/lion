@@ -36,6 +36,14 @@ function strings(value:unknown,items:ImportReport['items'],id:string):unknown {
   return value;
 }
 
+export function isLeonaHostedUrl(url:string){try{const host=new URL(url).hostname.toLowerCase();return host.endsWith('.b-cdn.net')||host.includes('leona')}catch{return false}}
+const triggerNote='O gatilho da Leona não vem no export. O fluxo foi importado para iniciar na mensagem recebida, uma vez por contato — confira antes de publicar.';
+function flagLeonaFiles(out:JsonObject[],items:ImportReport['items'],id:string,type:string){
+  const total=out.filter(item=>typeof item.url==='string'&&isLeonaHostedUrl(item.url)).length;
+  if(total)items.push({sourceId:id,sourceType:type,status:'pending',message:`${total} arquivo(s) continuam hospedados na Leona e podem sair do ar se a conta for cancelada; suba-os em outro lugar e troque as URLs.`});
+  return out;
+}
+
 function messageItems(config:JsonObject,items:ImportReport['items'],id:string){
   const actions=Array.isArray(config.items)?config.items:Array.isArray(config.actions)?config.actions:[];
   const converted:JsonObject[]=[];
@@ -48,7 +56,7 @@ function messageItems(config:JsonObject,items:ImportReport['items'],id:string){
     else if(['send_multi_media','multi_media'].includes(type)){for(const rawMedia of Array.isArray(action.items)?action.items:Array.isArray(action.media)?action.media:[]){const media=object(rawMedia);const url=text(media.url,media.mediaUrl,media.media_url);if(url)converted.push({type:'media',mediaType:text(media.mediaType,media.media_type,media.type)??'image',url,...(text(media.caption)?{caption:replaceVariables(text(media.caption)!,items,id)}:{})})}}
     else if(['pause','delay_between_messages','delay'].includes(type)){const min=Math.max(0,Math.min(300,num(action.minSeconds??action.min_seconds??action.min_delay_seconds??action.seconds)));const max=Math.max(min,Math.min(300,num(action.maxSeconds??action.max_seconds??action.max_delay_seconds,min)));converted.push({type:'pause',minSeconds:min,maxSeconds:max})}
   }
-  return converted.length?converted:[{type:'text',text:'Mensagem importada — revise o conteúdo.',typingSeconds:0}];
+  return converted.length?flagLeonaFiles(converted,items,id,'message'):[{type:'text',text:'Mensagem importada — revise o conteúdo.',typingSeconds:0}];
 }
 
 function conditionRules(config:JsonObject,items:ImportReport['items'],id:string){
@@ -86,7 +94,7 @@ function realMessageItems(actions:JsonObject[],items:ImportReport['items'],id:st
     else flag('pending',`Ação “${String(kind)}” não é suportada em mensagens e foi ignorada.`);
   }
   if(!out.length){flag('pending','Mensagem sem conteúdo legível (message_text); revise o conteúdo.');return [{type:'text',text:'Mensagem importada — revise o conteúdo.',typingSeconds:0}]}
-  return out;
+  return flagLeonaFiles(out,items,id,type);
 }
 
 const fieldOperators:Record<string,string>={contains:'contains',not_contains:'not_contains',equal:'equals',not_equal:'not_equals'};
@@ -152,7 +160,7 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items']){
       }
     }
   }
-  if(type==='start'||type==='trigger')return {...base,kind:'trigger' as const,config:{event:'message.received'}};
+  if(type==='start'||type==='trigger'){items.push({sourceId:originalId,sourceType:type,status:'pending',message:triggerNote});return {...base,kind:'trigger' as const,config:{event:'message.received',oncePerContact:true}}}
   if(type==='message'||type==='send_message'||type==='send_file'||type==='send_multi_media'||type==='delay_between_messages')return {...base,kind:'message' as const,config:{items:messageItems(config,items,originalId)}};
   if(type==='wait_response')return {...base,kind:'wait_response' as const,config:{waitIndefinitely:config.waitIndefinitely===true||config.wait_indefinitely===true,timeoutValue:Math.max(1,num(config.timeoutValue??config.timeout_value,1)),timeoutUnit:text(config.timeoutUnit,config.timeout_unit)??'hours',bufferSeconds:Math.max(0,Math.min(300,num(config.bufferSeconds??config.buffer_seconds)))}};
   if(type==='condition')return {...base,kind:'condition' as const,config:conditionRules(config,items,originalId)};
@@ -201,7 +209,7 @@ const ports:ReturnType<typeof edgePort>[]=port?[port]:sourceNode.kind==='pixel'?
     items.splice(0,items.length,...items.filter(item=>item.sourceId!==original));items.push({sourceId:original,sourceType:'condition',status:'adjusted',message:'Condição sem efeito removida: os dois caminhos iam para o mesmo bloco'});
   }
   const nodes=[...kept.values()];let trigger=nodes.find(node=>node.kind==='trigger');
-  if(!trigger){trigger={id:'leona_start',kind:'trigger',name:'Início',config:{event:'message.received'},position:{x:0,y:160}};nodes.unshift(trigger);const first=nodes[1];if(first)edges.unshift({id:'leona_edge_start',source:trigger.id,target:first.id,isDefault:false,priority:0});items.push({status:'adjusted',message:'Um bloco Início foi criado porque a origem não continha gatilho.'})}
+  if(!trigger){trigger={id:'leona_start',kind:'trigger',name:'Início',config:{event:'message.received',oncePerContact:true},position:{x:0,y:160}};nodes.unshift(trigger);items.push({status:'pending',message:triggerNote});const first=nodes[1];if(first)edges.unshift({id:'leona_edge_start',source:trigger.id,target:first.id,isDefault:false,priority:0});items.push({status:'adjusted',message:'Um bloco Início foi criado porque a origem não continha gatilho.'})}
   for(const entry of mapped.filter(entry=>kept.has(entry.id)&&entry.node!.kind!=='pixel'))if(!items.some(item=>item.sourceId===entry.id))items.push({sourceId:entry.id,sourceType:nodeType(entry.raw),status:'converted',message:`Bloco “${entry.node!.name}” convertido.`});
   const definition=AutomationDefinitionSchema.parse({start:trigger.id,nodes,edges,settings:{maxSteps:100,timeoutSeconds:300}});
   return {definition,report:report('leona',items),suggestedName:payload.label?.trim()||'Fluxo importado da Leona'};

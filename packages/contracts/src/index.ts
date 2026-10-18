@@ -71,7 +71,7 @@ export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().p
 export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
-export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional()}).strict();
+export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional(),oncePerContact:z.boolean().default(false)}).strict();
 export const MESSAGE_MAX_ITEMS=30;
 export const MESSAGE_MAX_TYPING_SECONDS=30;
 export const MESSAGE_MAX_PAUSE_SECONDS=300;
