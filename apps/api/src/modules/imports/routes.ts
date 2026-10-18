@@ -42,7 +42,7 @@ export async function resolveTags(tx:Prisma.TransactionClient,workspaceId:string
   report.totals=totals(report.items);
 }
 
-async function resolveKanban(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
+export async function resolveKanban(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
   for(const node of definition.nodes.filter(item=>item.kind==='kanban')){
     const boardName=typeof node.config.boardName==='string'?node.config.boardName.trim():'';const columnName=typeof node.config.columnName==='string'?node.config.columnName.trim():'';
     if(!boardName||!columnName)continue;
@@ -101,7 +101,7 @@ export function reportCompilerIssues(definition:ReturnType<typeof convertLeonaFl
   report.totals=totals(report.items);
 }
 
-async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>;importSource?:Prisma.InputJsonValue}){
+export async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>;importSource?:Prisma.InputJsonValue}){
   return tx.playbook.create({data:{workspaceId:input.workspaceId,name:input.name,description:'Importado como rascunho. Revise as pendências antes de publicar.',status:'DRAFT',...(input.importSource?{importSource:input.importSource}:{}),versions:{create:{version:1,definition:json(input.definition),checksum:checksum(input.definition),createdById:input.userId}}},include:{versions:true}});
 }
 
