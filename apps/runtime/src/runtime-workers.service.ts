@@ -78,6 +78,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       // On the last outbound attempt, persist provider failure or durably retry a
       // continuation failure so the execution cannot remain WAITING forever.
       if (!(error instanceof DelayedError) && job.attemptsMade + 1 >= (job.opts.attempts ?? 1)) {
+        if(!job.data.messageId)throw error;
         const message = await this.prisma.message.findUnique({ where: { id: job.data.messageId }, select: { providerPayload: true, status: true } });
         const sequence = sequenceOf(message?.providerPayload);
         const execution = sequence ? await this.prisma.execution.findUnique({ where: { id: sequence.executionId }, select: { context: true, workspaceId: true } }) : null;
@@ -103,6 +104,12 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sendOutbound(job: Job<OutboundJob>, token?: string) {
+    if(job.data.notification){
+      const {channelId,phone,text}=job.data.notification;const channel=await this.prisma.channel.findUnique({where:{id:channelId}});if(!channel||channel.provider!=='baileys')throw new Error('Notification channel is unavailable');
+      let socket=this.sessions.getSocket(channelId);if(!socket){await this.sessions.connect(channelId);socket=this.sessions.getSocket(channelId)}if(!socket)throw new Error(`WhatsApp session ${channelId} is unavailable`);
+      await socket.sendMessage(`${phone.replace(/\D/g,'')}@s.whatsapp.net`,{text});return;
+    }
+    if(!job.data.messageId)return;
     const message = await this.prisma.message.findUnique({
       where: { id: job.data.messageId },
       include: { conversation: { include: { contact: true, channel: true } } }
@@ -164,13 +171,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','notification.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null };
+      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
+        : event.type==='notification.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.text)
         : event.type === 'automation.sequence.continue.requested' ? Boolean(payload.executionId && payload.resumeStepId && Number.isInteger(payload.sequenceIndex) && payload.sequenceIndex! >= 1)
         : event.type === 'automation.inbound.received' ? Boolean(payload.conversationId)
         : event.type === 'automation.trigger.requested' ? Boolean(payload.event && (payload.conversationId || payload.contactId))
@@ -189,6 +197,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         };
         if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
+        } else if(event.type==='notification.send.requested'){
+          await outboundQueue.add('notification',{notification:{channelId:payload.channelId!,phone:payload.phone!,text:payload.text!}},{...commonOptions,attempts:3});
         } else if(event.type==='automation.sequence.continue.requested'){
           await automationQueue.add('sequence_next', { executionId: payload.executionId!, action: 'sequence_next', resumeStepId: payload.resumeStepId!, sequenceIndex: payload.sequenceIndex! }, sequenceJobOptions(payload.resumeStepId!,payload.sequenceIndex!));
         } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingExecution(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {

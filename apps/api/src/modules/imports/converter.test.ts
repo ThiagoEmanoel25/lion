@@ -137,4 +137,43 @@ describe('conversor Leona',()=>{
     const unknown=convert({event_type:'Xyz',tracking_type:'Facebook',pixel_config_name:'P'});
     expect(unknown.report.items.some(item=>item.sourceType==='pixel'&&item.status==='pending'&&item.message.includes('Xyz'))).toBe(true);
   });
+
+  it('divide a mensagem embutida antes da espera e preserva gravação, reação e citação',()=>{
+    const result=convertLeonaFlow(load('leona-gaps.redacted.json'));const wait=result.definition.nodes.find(node=>node.id==='leona_wait');const message=result.definition.nodes.find(node=>node.id==='leona_wait_message');
+    expect(message).toMatchObject({kind:'message',config:{items:[{type:'text',text:'Qual é sua resposta?',typingSeconds:0}]},position:{x:200,y:0}});
+    expect(wait).toMatchObject({kind:'wait_response',position:{x:240,y:40},config:{waitIndefinitely:false,timeoutValue:10,timeoutUnit:'minutes',bufferSeconds:5,saveReplyTo:'resposta-lead',saveEmpty:false,reactEmoji:'🎉',replyToLeadCount:2}});
+    expect(result.definition.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({source:'leona_start',target:'leona_wait_message'}),
+      expect.objectContaining({source:'leona_wait_message',target:'leona_wait'}),
+      expect.objectContaining({source:'leona_wait',target:'leona_condition',port:'reply'}),
+      expect.objectContaining({source:'leona_wait',target:'leona_notify',port:'timeout'})
+    ]));
+    expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'wait',status:'adjusted',message:expect.stringContaining('separada')})]));
+  });
+
+  it('mapeia salto, distribuidor, notificação e propriedades de áudio sem copiar segredos',()=>{
+    const result=convertLeonaFlow(load('leona-gaps.redacted.json'));const node=(kind:string)=>result.definition.nodes.find(item=>item.kind===kind)!;
+    expect(node('flow_jump').config).toEqual({leonaFlowId:140148,targetName:'FUNIL 02'});
+    expect(node('distributor').config).toEqual({outputs:[{id:'output_a',name:'A',weight:1},{id:'output_b',name:'B',weight:1}],preventRepeat:true});
+    expect(result.definition.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({source:'leona_dist',target:'leona_audio',condition:{field:'distributor.output',operator:'equals',value:'output_a'}}),
+      expect.objectContaining({source:'leona_dist',target:'leona_notify',condition:{field:'distributor.output',operator:'equals',value:'output_b'}})
+    ]));
+    expect(node('notification').config).toEqual({phone:'+5500000000000',message:'Erro: {{ai.fail.reason}}',name:'ERRO IA'});
+    expect((node('message').config.items as Array<Record<string,unknown>>)[0]).toMatchObject({type:'media',mediaType:'audio',typingSeconds:42,forwarded:true,ptt:true});
+    expect(JSON.stringify(result)).not.toMatch(/Authorization|api[_-]?key/i);
+    expect(result.report.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({sourceId:'dist',status:'adjusted',message:'Contadores do distribuidor recomeçam do zero.'}),
+      expect.objectContaining({sourceId:'jump',status:'pending',message:expect.stringContaining('FUNIL 02')})
+    ]));
+  });
+
+  it('distingue variáveis produzidas no fluxo de campos persistentes do contato',()=>{
+    const result=convertLeonaFlow(load('leona-gaps.redacted.json'));const rules=result.definition.nodes.find(node=>node.id==='leona_condition')!.config.rules;
+    expect(rules).toEqual([
+      {field:'resposta.gpt',operator:'contains',value:'ok'},
+      {field:'api.result',operator:'equals',value:'yes'},
+      {field:'contact.customFields.resposta-lead',operator:'not_equals',value:''}
+    ]);
+  });
 });

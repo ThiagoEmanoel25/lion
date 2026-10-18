@@ -6,16 +6,20 @@ import {
   AutomationConditionConfigSchema,
   AutomationDelayConfigSchema,
   AutomationDefinitionSchema,
+  AutomationDistributorConfigSchema,
+  AutomationFlowJumpConfigSchema,
   AutomationImageConfigSchema,
   AutomationKanbanConfigSchema,
   AutomationPixelConfigSchema,
   AutomationMessageConfigSchema,
+  AutomationNotificationConfigSchema,
   AutomationStickerConfigSchema,
   AutomationTagConfigSchema,
   AutomationTriggerConfigSchema,
   AutomationWaitResponseConfigSchema,
   AutomationWebhookConfigSchema,
   conditionMatches,
+  DISTRIBUTOR_ROUTE_FIELD,
   edgePort,
   getPathValue,
   MENU_CHOICE_FIELD,
@@ -28,7 +32,7 @@ type AutomationEdge = AutomationDefinition['edges'][number];
 export type AutomationIssue = { level: 'error' | 'warning'; code: string; message: string; nodeId?: string; edgeId?: string };
 export type SimulationStep = { index: number; nodeId: string; kind: AutomationDefinition['nodes'][number]['kind']; selectedEdgeId: string | null };
 
-const terminalKinds = new Set(['handoff', 'outcome']);
+const terminalKinds = new Set(['handoff', 'outcome', 'flow_jump']);
 const outcomeKinds = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'HANDOFF', 'DISQUALIFIED']);
 
 function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): AutomationIssue[] {
@@ -75,9 +79,24 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationKanbanConfigSchema, 'INVALID_KANBAN_CONFIG', 'Kanban inválido');
     case 'pixel':
       return validateConfig(AutomationPixelConfigSchema, 'INVALID_PIXEL_CONFIG', 'Pixel inválido');
+    case 'flow_jump': {
+      const base=validateConfig(AutomationFlowJumpConfigSchema,'INVALID_FLOW_JUMP_CONFIG','Salto de fluxo inválido');
+      return typeof config.targetPlaybookId==='string'&&config.targetPlaybookId?base:[...base,error('FLOW_JUMP_TARGET_REQUIRED','Escolha o fluxo de destino.')];
+    }
+    case 'distributor':
+      return validateConfig(AutomationDistributorConfigSchema,'INVALID_DISTRIBUTOR_CONFIG','Distribuidor inválido');
+    case 'notification':
+      return validateConfig(AutomationNotificationConfigSchema,'INVALID_NOTIFICATION_CONFIG','Notificação inválida');
     default:
       return [];
   }
+}
+
+function distributorRouteIssues(node:AutomationDefinition['nodes'][number],edges:AutomationEdge[]):AutomationIssue[]{
+  const issues:AutomationIssue[]=[];const error=(code:string,message:string,edgeId?:string):AutomationIssue=>({level:'error',code,message,nodeId:node.id,...(edgeId?{edgeId}:{})});
+  const outputIds=(Array.isArray(node.config.outputs)?node.config.outputs:[]).flatMap(item=>item&&typeof item==='object'&&!Array.isArray(item)&&typeof (item as {id?:unknown}).id==='string'?[(item as {id:string}).id]:[]);const routed=new Set<string>();
+  for(const edge of edges){const outputId=edge.condition?.field===DISTRIBUTOR_ROUTE_FIELD&&edge.condition.operator==='equals'&&typeof edge.condition.value==='string'?edge.condition.value:null;if(!outputId||!outputIds.includes(outputId)){issues.push(error('DISTRIBUTOR_ROUTE_INVALID','Cada conexão deve sair por uma opção existente do distribuidor.',edge.id));continue}if(routed.has(outputId))issues.push(error('DISTRIBUTOR_ROUTE_DUPLICATE','Cada saída do distribuidor aceita uma conexão.',edge.id));routed.add(outputId)}
+  for(const outputId of outputIds)if(!routed.has(outputId))issues.push(error('DISTRIBUTOR_OUTPUT_UNROUTED',`A saída “${outputId}” não possui conexão.`));return issues;
 }
 
 // Nodes with named exits: one edge per port, ports must exist on the node, success is mandatory.
@@ -177,8 +196,9 @@ export function validateAutomation(value: unknown) {
     if (!terminalKinds.has(node.kind) && edges.length === 0) issues.push({ level: 'error', code: 'MISSING_OUTPUT', message: 'O nó precisa de uma conexão de saída.', nodeId: node.id });
     const ports = nodePorts(node.kind);
     const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
-    if (node.kind !== 'condition' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
+    if (node.kind !== 'condition' && node.kind !== 'distributor' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus, distribuidores e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
     if (menuRouted) issues.push(...menuRouteIssues(node, edges));
+    if(node.kind==='distributor')issues.push(...distributorRouteIssues(node,edges));
     if (node.kind === 'ai') {
       const fixedEdges = edges.filter(edge => edge.condition?.field !== AI_ROUTE_FIELD);
       if (edges.length && !fixedEdges.some(edge => edgePort(edge) === 'success')) issues.push({ level: 'error', code: 'AI_SUCCESS_ROUTE_REQUIRED', message: 'O bloco de IA precisa de uma saída de sucesso como rota padrão.', nodeId: node.id });
@@ -244,6 +264,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
       selected = candidates.find(edge => edge.condition && conditionMatches(getPathValue(variables, edge.condition.field), edge.condition))
         ?? candidates.find(edge => !edge.isDefault) ?? candidates.find(edge => edge.isDefault);
     }
+    if(node.kind==='distributor')selected=candidates.find(edge=>edge.condition?.field===DISTRIBUTOR_ROUTE_FIELD);
     if (node.kind === 'condition') {
       const nodeMatch = nodeConditionMatches(node, variables);
       selected = nodeMatch === undefined

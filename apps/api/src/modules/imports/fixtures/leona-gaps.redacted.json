@@ -1,0 +1,31 @@
+{
+  "label": "FUNIL REDIGIDO",
+  "nodes": [
+    {"id":"start","type":"start","position":{"x":0,"y":0}},
+    {"id":"wait","type":"wait_response","position":{"x":200,"y":0},"data":{"label":"Pergunta","actions":[
+      {"action_type":"send_message","order":1,"config":{"message":"Qual é sua resposta?"}},
+      {"action_type":"wait_for_response","order":2,"config":{"timeout_unit":"minutes","timeout_value":10,"buffer_enabled":true,"buffer_value":5,"wait_indefinitely":false,"reply_to_lead_enabled":true,"reply_to_lead_next_messages_count":2,"react_to_lead_check_enabled":true,"react_to_lead_reaction_emoji":"🎉"}},
+      {"action_type":"save_user_data","order":3,"config":{"field_name":"{resposta-lead}","save_empty":false}}
+    ]}},
+    {"id":"condition","type":"condition","position":{"x":500,"y":0},"data":{"actions":[{"action_type":"evaluate_condition","order":1,"config":{"ruleType":"all","conditions":[
+      {"category":"custom_field","systemSubtype":"tag","fieldName":"resposta.gpt","fieldOperator":"contains","fieldValue":"ok"},
+      {"category":"custom_field","fieldName":"api.result","fieldOperator":"equal","fieldValue":"yes"},
+      {"category":"custom_field","fieldName":"resposta-lead","fieldOperator":"not_equal","fieldValue":""}
+    ]}}]}},
+    {"id":"ai","type":"ai","position":{"x":500,"y":200},"data":{"actions":[{"action_type":"ai_call","order":1,"config":{"model":"gpt-5-mini","system_prompt":"Responda.","response_variable":"resposta.gpt","fail_reason_variable":"ai.fail.reason"}}]}},
+    {"id":"http","type":"integration","position":{"x":500,"y":400},"data":{"actions":[{"action_type":"make_http_request","order":1,"config":{"request_url":"https://example.com/hook","request_method":"POST","response_mapping":{"answer":"api.result"},"response_fields":[{"name":"answer","path":"data.answer"}]}}]}},
+    {"id":"dist","type":"distributor","position":{"x":800,"y":0},"data":{"actions":[{"action_type":"distribute_contacts","order":1,"config":{"prevent_repeat":true,"outputs":[{"id":"a","name":"A","quantity":12},{"id":"b","name":"B","quantity":11}]}}]}},
+    {"id":"audio","type":"message","position":{"x":1050,"y":0},"data":{"actions":[{"action_type":"send_multi_media","order":1,"config":{"media_type":"audio","audio_forward":true,"typing_delay_seconds":42,"media_file_info":{"direct_url":"https://cdn.example.com/audio.ogg"}}}]}},
+    {"id":"jump","type":"connection_flow","position":{"x":1300,"y":0},"data":{"actions":[{"action_type":"execute_flow","order":1,"config":{"target_flow_id":140148,"target_flow_name":"FUNIL 02"}}]}},
+    {"id":"notify","type":"notification","position":{"x":800,"y":200},"data":{"actions":[{"action_type":"send_notification","order":1,"config":{"name":"ERRO IA","country_code":"55","phone":"00000000000","message":"Erro: {ai.fail.reason}"}}]}}
+  ],
+  "edges": [
+    {"id":"e1","source":"start","target":"wait"},
+    {"id":"e2","source":"wait","target":"condition","sourceHandle":"client-response"},
+    {"id":"e3","source":"wait","target":"notify","sourceHandle":"timeout"},
+    {"id":"e4","source":"condition","target":"dist","sourceHandle":"success"},
+    {"id":"e5","source":"dist","target":"audio","sourceHandle":"output-a"},
+    {"id":"e6","source":"dist","target":"notify","sourceHandle":"output-b"},
+    {"id":"e7","source":"audio","target":"jump"}
+  ]
+}
