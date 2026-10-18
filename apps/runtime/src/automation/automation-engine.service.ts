@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
-import { AutomationDefinitionSchema, AutomationPixelConfigSchema, renderUrlTemplate } from '@nexo/contracts';
+import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
 import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
@@ -16,6 +16,9 @@ import { NO_CTWA_MESSAGE, PIXEL_TIMEOUT_SECONDS, buildPixelEvent, parsePixelValu
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
+import {FlowJumpError,prepareFlowJump} from './flow-jump.js';
+import {decideDistributorAssignment} from './distributor.js';
+import {decideNotificationLimit,normalizeE164,notificationWindowStart} from './notification.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
 const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
@@ -120,7 +123,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       let step = await this.prisma.executionStep.findFirst({ where: { executionId: execution.id, nodeId: node.id, status: 'RUNNING' }, orderBy: { startedAt: 'desc' } });
       step ??= await this.prisma.executionStep.create({ data: { executionId: execution.id, nodeId: node.id, kind: node.kind, status: 'RUNNING', input: asJson({ context, selectedEdgeId: edge?.id ?? null }) } });
       try {
-        const result = await this.runNode({ executionId: execution.id, workspaceId: execution.workspaceId, conversationId: execution.conversationId, context, definition, node, step, nextNodeId });
+        const result = await this.runNode({ executionId: execution.id, workspaceId: execution.workspaceId, playbookId:execution.playbookVersion.playbookId, conversationId: execution.conversationId, context, definition, node, step, nextNodeId });
         if (result === 'waiting' || result === 'terminal') return;
         if (typeof result === 'object') routedNodeId = result.next;
       } catch (error) {
@@ -139,6 +142,7 @@ export class AutomationEngineService implements OnModuleDestroy {
   private async runNode(input: {
     executionId: string;
     workspaceId: string;
+    playbookId:string;
     conversationId: string;
     context: EngineContext;
     definition: AutomationDefinition;
@@ -146,9 +150,9 @@ export class AutomationEngineService implements OnModuleDestroy {
     step: ExecutionStep;
     nextNodeId?: string;
   }): Promise<'continue' | 'waiting' | 'terminal' | { next: string }> {
-    const { executionId, workspaceId, conversationId, context, node, step, nextNodeId } = input;
+    const { executionId, workspaceId, playbookId,conversationId, context, node, step, nextNodeId } = input;
     const waitsForChoice = routesByChoice(node, input.definition.edges);
-    if (!['handoff', 'outcome'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+    if (!['handoff', 'outcome','flow_jump'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
 
     switch (node.kind) {
       case 'trigger':
@@ -349,6 +353,51 @@ export class AutomationEngineService implements OnModuleDestroy {
           await this.finishInTransaction(tx,executionId,step.id,nextNodeId,context,{action,cardId:card?.id??null,boardId,columnId});
         },{isolationLevel:'Serializable'});
         return 'continue';
+      }
+
+      case 'distributor': {
+        const parsed=AutomationDistributorConfigSchema.safeParse(node.config);if(!parsed.success)throw new NodeExecutionError('INVALID_DISTRIBUTOR_CONFIG','Configure ao menos duas saídas válidas no distribuidor.');
+        const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId,workspaceId},select:{contactId:true}});if(!conversation)throw new NodeExecutionError('CONVERSATION_NOT_FOUND','A conversa da execução não existe.');
+        const selected=await this.prisma.$transaction(async tx=>{
+          for(const output of parsed.data.outputs)await tx.flowDistributorCount.upsert({where:{playbookId_nodeId_outputId:{playbookId,nodeId:node.id,outputId:output.id}},create:{playbookId,nodeId:node.id,outputId:output.id,count:0},update:{}});
+          const counts=await tx.$queryRaw<Array<{outputId:string;count:number}>>(Prisma.sql`SELECT "outputId", "count" FROM "FlowDistributorCount" WHERE "playbookId" = ${playbookId} AND "nodeId" = ${node.id} FOR UPDATE`);
+          const assignment=parsed.data.preventRepeat?await tx.flowDistributorAssignment.findUnique({where:{playbookId_nodeId_contactId:{playbookId,nodeId:node.id,contactId:conversation.contactId}}}):null;
+          const decision=decideDistributorAssignment({outputs:parsed.data.outputs,counts,preventRepeat:parsed.data.preventRepeat,existingOutputId:assignment?.outputId});
+          if(decision.assignmentWrite==='create')await tx.flowDistributorAssignment.create({data:{playbookId,nodeId:node.id,contactId:conversation.contactId,outputId:decision.outputId}});
+          if(decision.assignmentWrite==='update')await tx.flowDistributorAssignment.update({where:{playbookId_nodeId_contactId:{playbookId,nodeId:node.id,contactId:conversation.contactId}},data:{outputId:decision.outputId}});
+          if(decision.incrementCounter)await tx.flowDistributorCount.update({where:{playbookId_nodeId_outputId:{playbookId,nodeId:node.id,outputId:decision.outputId}},data:{count:{increment:1}}});
+          const edge=input.definition.edges.find(item=>item.source===node.id&&item.condition?.field===DISTRIBUTOR_ROUTE_FIELD&&item.condition.operator==='equals'&&item.condition.value===decision.outputId);
+          if(!edge)throw new NodeExecutionError('DISTRIBUTOR_ROUTE_NOT_FOUND',`A saída ${decision.outputId} não está conectada.`);
+          const nextContext=setContextPath(context,DISTRIBUTOR_ROUTE_FIELD,decision.outputId);await this.finishInTransaction(tx,executionId,step.id,edge.target,nextContext,{outputId:decision.outputId,reused:decision.source==='existing'});return {edge,nextContext};
+        },{isolationLevel:'Serializable'});
+        return {next:selected.edge.target};
+      }
+
+      case 'notification': {
+        const parsed=AutomationNotificationConfigSchema.safeParse(node.config);if(!parsed.success)throw new NodeExecutionError('INVALID_NOTIFICATION_CONFIG','Configure número e mensagem da notificação.');
+        const phone=normalizeE164(parsed.data.phone);if(!phone)throw new NodeExecutionError('INVALID_NOTIFICATION_PHONE','Use um telefone E.164 com DDI.');
+        const text=renderTemplate(parsed.data.message,context);const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId,workspaceId},select:{channelId:true}});if(!conversation)throw new NodeExecutionError('CONVERSATION_NOT_FOUND','A conversa da execução não existe.');
+        await this.prisma.$transaction(async tx=>{
+          const used=await tx.outboxEvent.count({where:{workspaceId,type:'notification.send.requested',createdAt:{gte:notificationWindowStart(new Date())}}});const limit=decideNotificationLimit(used);
+          if(limit.allowed)await tx.outboxEvent.create({data:{workspaceId,aggregate:'Execution',aggregateId:executionId,type:'notification.send.requested',payload:{channelId:conversation.channelId,phone,text}}});
+          else await tx.outboxEvent.create({data:{workspaceId,aggregate:'Execution',aggregateId:executionId,type:'notification.send.discarded',payload:{phone,reason:'HOURLY_LIMIT'},processedAt:new Date()}});
+          await this.finishInTransaction(tx,executionId,step.id,nextNodeId,context,{phone,queued:limit.allowed,discarded:!limit.allowed,remaining:limit.remaining});
+        });return 'continue';
+      }
+
+      case 'flow_jump': {
+        try{
+          await this.prisma.$transaction(async tx=>{
+            const targetId=typeof node.config.targetPlaybookId==='string'?node.config.targetPlaybookId:'';
+            const target=targetId?await tx.playbook.findFirst({where:{id:targetId,workspaceId},select:{id:true,workspaceId:true,status:true,activeVersionId:true,name:true}}):null;
+            const plan=prepareFlowJump({workspaceId,conversationId,sourceNodeId:node.id,sourceContext:context,targetPlaybookId:targetId,target});
+            const jumped=await tx.execution.create({data:{...plan.targetExecution,context:asJson(plan.targetExecution.context)}});
+            await tx.executionStep.update({where:{id:step.id},data:{...plan.sourceStep,finishedAt:new Date()}});
+            await tx.execution.update({where:{id:executionId},data:{...plan.sourceExecution,context:asJson(context),finishedAt:new Date()}});
+            await tx.outboxEvent.create({data:{workspaceId,aggregate:'Execution',aggregateId:jumped.id,type:'automation.execution.requested',payload:{executionId:jumped.id}}});
+          },{isolationLevel:'Serializable'});
+          return 'terminal';
+        }catch(error){if(error instanceof FlowJumpError)throw new NodeExecutionError(error.code,error.message);throw error}
       }
 
       case 'handoff': {

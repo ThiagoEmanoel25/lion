@@ -268,6 +268,7 @@ model Contact {
   tags        ContactTag[]
   outcomes    Outcome[]
   kanbanCards KanbanCard[]
+  distributorAssignments FlowDistributorAssignment[]
   @@unique([workspaceId, phone])
   @@index([workspaceId, stage, updatedAt])
   @@index([workspaceId, ownerId, updatedAt])
@@ -365,6 +366,7 @@ model Playbook {
   name        String
   description String?
   status      PlaybookStatus @default(DRAFT)
+  importSource Json?
   activeVersionId String? @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -375,7 +377,35 @@ model Playbook {
   inboundWebhookEndpoints InboundWebhookEndpoint[]
   importSessions FlowImportSession[]
   shareCodes FlowShareCode[]
+  distributorCounts FlowDistributorCount[]
+  distributorAssignments FlowDistributorAssignment[]
   @@index([workspaceId, status])
+}
+
+model FlowDistributorCount {
+  id         String @id @default(cuid())
+  playbookId String
+  nodeId     String
+  outputId   String
+  count      Int @default(0)
+  updatedAt  DateTime @updatedAt
+  playbook   Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  @@unique([playbookId, nodeId, outputId])
+  @@index([playbookId, nodeId])
+}
+
+model FlowDistributorAssignment {
+  id         String @id @default(cuid())
+  playbookId String
+  nodeId     String
+  contactId  String
+  outputId   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  playbook   Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  contact    Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  @@unique([playbookId, nodeId, contactId])
+  @@index([playbookId, nodeId, outputId])
 }
 
 model PlaybookVersion {
