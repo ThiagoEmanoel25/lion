@@ -104,3 +104,23 @@ export function incrementDistributorCount(
   current.set(outputId, previous + 1);
   return [...current].map(([id, count]) => ({ outputId: id, count }));
 }
+
+// Concurrent distributor visits collide on the Serializable tx or on the assignment unique key; a rerun re-reads both.
+export function isRetryableTxError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const { code, meta } = error as { code?: unknown; meta?: { code?: unknown; modelName?: unknown; target?: unknown } };
+  if (code === 'P2034' || code === '40001' || code === '40P01') return true;
+  if (meta?.code === '40001' || meta?.code === '40P01') return true;
+  return code === 'P2002' && (meta?.modelName === 'FlowDistributorAssignment' || meta?.modelName === 'FlowDistributorCount' || (Array.isArray(meta?.target) && meta.target.includes('contactId')));
+}
+
+export async function retryTx<T>(operation: () => Promise<T>, options: { attempts?: number; sleep?: (ms: number) => Promise<unknown>; random?: () => number } = {}): Promise<T> {
+  const { attempts = 5, sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms)), random = Math.random } = options;
+  for (let attempt = 1; ; attempt += 1) {
+    try { return await operation(); }
+    catch (error) {
+      if (attempt >= attempts || !isRetryableTxError(error)) throw error;
+      await sleep(20 + Math.floor(random() * 181));
+    }
+  }
+}

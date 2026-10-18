@@ -158,7 +158,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
             messageId,
             text: message.body ?? '',
             imageUrl: message.mediaUrl,
-            ...interactivePayload(message.providerPayload)
+            ...interactivePayload(message.providerPayload),
+            ...(quoted?{quoted}:{})
           });
       await this.prisma.message.update({
         where: { id: message.id },

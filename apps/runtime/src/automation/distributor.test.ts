@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decideDistributorAssignment, incrementDistributorCount, selectWeightedDistributorOutput, type DistributorCount, type DistributorOutput } from './distributor.js';
+import { decideDistributorAssignment, incrementDistributorCount, isRetryableTxError, retryTx, selectWeightedDistributorOutput, type DistributorCount, type DistributorOutput } from './distributor.js';
 
 describe('distributor', () => {
   const equalOutputs: DistributorOutput[] = [
@@ -78,5 +78,36 @@ describe('distributor', () => {
       { id: 'a', name: 'Outra A', weight: 1 }
     ], [])).toThrow('DISTRIBUTOR_OUTPUT_ID_INVALID');
     expect(() => selectWeightedDistributorOutput(equalOutputs, [{ outputId: 'a', count: -1 }])).toThrow('DISTRIBUTOR_COUNT_INVALID');
+  });
+
+  it('retries only serialization, deadlock and assignment-conflict errors', () => {
+    expect(isRetryableTxError({ code: 'P2034' })).toBe(true);
+    expect(isRetryableTxError({ code: 'P2010', meta: { code: '40001' } })).toBe(true);
+    expect(isRetryableTxError({ code: 'P2010', meta: { code: '40P01' } })).toBe(true);
+    expect(isRetryableTxError({ code: 'P2002', meta: { modelName: 'FlowDistributorAssignment', target: ['playbookId', 'nodeId', 'contactId'] } })).toBe(true);
+    expect(isRetryableTxError({ code: 'P2002', meta: { modelName: 'FlowDistributorCount', target: ['playbookId', 'nodeId', 'outputId'] } })).toBe(true);
+    expect(isRetryableTxError({ code: 'P2002', meta: { modelName: 'Contact', target: ['workspaceId', 'phone'] } })).toBe(false);
+    expect(isRetryableTxError({ code: 'P2025' })).toBe(false);
+    expect(isRetryableTxError(new Error('DISTRIBUTOR_ROUTE_NOT_FOUND'))).toBe(false);
+    expect(isRetryableTxError(null)).toBe(false);
+  });
+
+  it('retries a transaction with jittered backoff until it succeeds', async () => {
+    const delays: number[] = [];
+    let calls = 0;
+    const result = await retryTx(async () => { calls += 1; if (calls < 3) throw { code: 'P2034' }; return 'ok'; }, { sleep: async ms => { delays.push(ms); }, random: () => 0.5 });
+    expect(result).toBe('ok');
+    expect(calls).toBe(3);
+    expect(delays).toHaveLength(2);
+    for (const ms of delays) { expect(ms).toBeGreaterThanOrEqual(20); expect(ms).toBeLessThanOrEqual(200); }
+  });
+
+  it('rethrows the last error after 5 attempts and non-retryable errors at once', async () => {
+    let calls = 0;
+    await expect(retryTx(async () => { calls += 1; throw { code: 'P2034', attempt: calls }; }, { sleep: async () => {} })).rejects.toEqual({ code: 'P2034', attempt: 5 });
+    expect(calls).toBe(5);
+    calls = 0;
+    await expect(retryTx(async () => { calls += 1; throw new Error('boom'); }, { sleep: async () => {} })).rejects.toThrow('boom');
+    expect(calls).toBe(1);
   });
 });

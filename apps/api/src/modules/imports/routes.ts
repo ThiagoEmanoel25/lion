@@ -4,7 +4,7 @@ import type {Prisma,PrismaClient} from '@prisma/client';
 import {AutomationDefinitionSchema,ImportNexoShareInput,LEONA_IMPORT_CODE_TTL_SECONDS,LEONA_IMPORT_MAX_BYTES,LeonaImportPayloadSchema,NEXO_SHARE_CODE_TTL_DAYS} from '@nexo/contracts';
 import {DomainError} from '@nexo/domain';
 import {audit} from '../../core/audit.js';
-import {convertLeonaFlow,redactDefinitionSecrets,type ImportReport} from './converter.js';
+import {convertLeonaFlow,importedNodeId,redactDefinitionSecrets,type ImportReport} from './converter.js';
 import {validateAutomation,type AutomationIssue} from '../playbooks/compiler.js';
 
 const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -79,7 +79,9 @@ export async function resolveFlowJumps(tx:Prisma.TransactionClient,workspaceId:s
     const bySource=leonaFlowId===undefined?undefined:playbooks.find(playbook=>{const source=importSourceOf(playbook.importSource);return source.system==='leona'&&String(source.flowId)===String(leonaFlowId)});
     const byName=targetName?playbooks.find(playbook=>playbook.name.localeCompare(targetName,undefined,{sensitivity:'accent'})===0):undefined;
     const target=bySource??byName;
-    report.items=report.items.filter(item=>!(item.status==='pending'&&['connection_flow','execute_flow'].includes(item.sourceType??'')&&item.message.startsWith('Destino da Leona')&&(!targetName||item.message.toLocaleLowerCase().includes(targetName.toLocaleLowerCase()))));
+    // Keyed by the jump's own node (converter items carry the raw Leona id); the target name only matches items without a source.
+    const ownsItem=(item:ImportReport['items'][number])=>item.sourceId?item.sourceId===node.id||importedNodeId(item.sourceId)===node.id:Boolean(targetName)&&item.message.toLocaleLowerCase().includes(targetName.toLocaleLowerCase());
+    report.items=report.items.filter(item=>!(item.status==='pending'&&['connection_flow','execute_flow'].includes(item.sourceType??'')&&/^(Destino da Leona|Importe “|Selecione o fluxo de destino)/.test(item.message)&&ownsItem(item)));
     if(target){node.config={targetPlaybookId:target.id};report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'adjusted',message:`Salto ligado ao fluxo “${target.name}”.`})}
     else report.items.push({sourceId:node.id,sourceType:'connection_flow',status:'pending',message:targetName?`Importe “${targetName}” primeiro ou selecione o fluxo correspondente.`:'Selecione o fluxo de destino deste salto.'});
   }

@@ -159,12 +159,13 @@ describe('conversor Leona',()=>{
       expect.objectContaining({source:'leona_dist',target:'leona_audio',condition:{field:'distributor.output',operator:'equals',value:'output_a'}}),
       expect.objectContaining({source:'leona_dist',target:'leona_notify',condition:{field:'distributor.output',operator:'equals',value:'output_b'}})
     ]));
-    expect(node('notification').config).toEqual({phone:'+5500000000000',message:'Erro: {{ai.fail.reason}}',name:'ERRO IA'});
+    expect(node('notification').config).toEqual({phone:'',message:'Erro: {{ai.fail.reason}}',name:'ERRO IA'});
     expect((node('message').config.items as Array<Record<string,unknown>>)[0]).toMatchObject({type:'media',mediaType:'audio',typingSeconds:42,forwarded:true,ptt:true});
     expect(JSON.stringify(result)).not.toMatch(/Authorization|api[_-]?key/i);
     expect(result.report.items).toEqual(expect.arrayContaining([
       expect.objectContaining({sourceId:'dist',status:'adjusted',message:'Contadores do distribuidor recomeçam do zero.'}),
-      expect.objectContaining({sourceId:'jump',status:'pending',message:expect.stringContaining('FUNIL 02')})
+      expect.objectContaining({sourceId:'jump',status:'pending',message:expect.stringContaining('FUNIL 02')}),
+      expect.objectContaining({sourceId:'notify',status:'pending',message:expect.stringContaining('Telefone da notificação')})
     ]));
   });
 

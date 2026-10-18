@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { interactivePayload, nativeFlowButtons,outboundPresence, parseButtons, regularOutboundContent } from './outbound-content.js';
+import { proto, type WASocket } from '@whiskeysockets/baileys';
+import { interactivePayload, nativeFlowButtons,outboundPresence, parseButtons, regularOutboundContent, sendInteractiveButtons } from './outbound-content.js';
 
 describe('outbound WhatsApp content', () => {
   it('usa presença de gravação em áudio e digitação nas demais mensagens',()=>{
@@ -50,5 +51,18 @@ describe('outbound WhatsApp content', () => {
   it('keeps buttons mode as quick replies capped at 3', () => {
     const payload = interactivePayload({ kind: 'buttons', buttons: [1, 2, 3, 4].map(n => ({ id: `b${n}`, label: `B${n}` })) });
     expect(nativeFlowButtons(payload.mode, payload.buttons).map(button => button.name)).toEqual(['quick_reply', 'quick_reply', 'quick_reply']);
+  });
+});
+
+describe('sendInteractiveButtons', () => {
+  it('quotes the lead message in the interactive menu', async () => {
+    const relayed: proto.IMessage[] = [];
+    const socket = { user: { id: '5511999999999:1@s.whatsapp.net' }, relayMessage: async (_jid: string, message: proto.IMessage) => { relayed.push(message); return ''; } } as unknown as WASocket;
+    const jid = '5511888888888@s.whatsapp.net';
+    const quoted = proto.WebMessageInfo.create({ key: { remoteJid: jid, fromMe: false, id: 'LEAD-MSG-ID' }, message: { conversation: 'quero' } });
+    await sendInteractiveButtons({ socket, jid, messageId: 'OUT-ID', text: 'Escolha', buttons: [{ id: 'a', label: 'A' }], quoted });
+    const context = relayed[0]?.viewOnceMessage?.message?.interactiveMessage?.contextInfo;
+    expect(context?.stanzaId).toBe('LEAD-MSG-ID');
+    expect(context?.quotedMessage?.conversation).toBe('quero');
   });
 });

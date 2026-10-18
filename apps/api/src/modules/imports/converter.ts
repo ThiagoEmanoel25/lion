@@ -15,6 +15,7 @@ const sourceId=(node:JsonObject,index:number)=>text(node.id,object(node.data).id
 const nodeType=(node:JsonObject)=>String(text(node.type,object(node.data).type,object(node.data).blockType,object(node.data).block_type,object(node.data).kind)??'unknown').toLowerCase();
 const configOf=(node:JsonObject)=>{const data=object(node.data);return Object.keys(object(data.config)).length?object(data.config):data};
 const cleanId=(prefix:string,id:string)=>`${prefix}_${id.replace(/[^A-Za-z0-9_-]/g,'_')}`.slice(0,80);
+export const importedNodeId=(sourceId:string)=>cleanId('leona',sourceId);
 
 function report(source:'leona'|'nexo',items:ImportReport['items']):ImportReport {
   return {source,items,totals:{converted:items.filter(item=>item.status==='converted').length,adjusted:items.filter(item=>item.status==='adjusted').length,pending:items.filter(item=>item.status==='pending').length}};
@@ -118,7 +119,9 @@ function waitConfig(c:JsonObject,saveAction?:JsonObject){
 
 function normalizeNotificationPhone(countryCode:unknown,phone:unknown){
   const country=String(countryCode??'').replace(/\D/g,'');const local=String(phone??'').replace(/\D/g,'');
+  // Leona exports a removed number as zeros; only a real subscriber number is kept.
   const joined=local.startsWith(country)&&country?local:`${country}${local}`;
+  if(!/[1-9]/.test(joined.slice(country.length)))return undefined;
   return /^\d{8,15}$/.test(joined)&&joined[0]!=='0'?`+${joined}`:undefined;
 }
 
@@ -185,9 +188,9 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
         }
         if(type==='notification'){
           const phone=normalizeNotificationPhone(c.country_code,c.phone);const message=text(c.message);
-          if(!phone)pend('Telefone da notificação inválido ou removido; configure-o em E.164 após importar.');
+          if(!phone)pend('Telefone da notificação ausente ou inválido; preencha o campo Telefone em E.164 antes de publicar.');
           if(!message)pend('Notificação sem mensagem; revise o bloco.');
-          return {...base,kind:'notification' as const,config:{phone:phone??'+5500000000000',message:replaceVariables(message??'Notificação importada — revise o conteúdo.',items,originalId),...(text(c.name)?{name:text(c.name)}:{})}};
+          return {...base,kind:'notification' as const,config:{phone:phone??'',message:replaceVariables(message??'Notificação importada — revise o conteúdo.',items,originalId),...(text(c.name)?{name:text(c.name)}:{})}};
         }
       }
     }
@@ -216,8 +219,8 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
     return {...base,kind:'distributor' as const,config:{outputs,preventRepeat:config.prevent_repeat!==false}};
   }
   if(type==='notification'||type==='send_notification'){
-    const phone=normalizeNotificationPhone(config.country_code,config.phone);if(!phone)items.push({sourceId:originalId,sourceType:type,status:'pending',message:'Telefone da notificação inválido ou removido; configure-o em E.164 após importar.'});
-    return {...base,kind:'notification' as const,config:{phone:phone??'+5500000000000',message:replaceVariables(text(config.message)??'Notificação importada — revise o conteúdo.',items,originalId),...(text(config.name)?{name:text(config.name)}:{})}};
+    const phone=normalizeNotificationPhone(config.country_code,config.phone);if(!phone)items.push({sourceId:originalId,sourceType:type,status:'pending',message:'Telefone da notificação ausente ou inválido; preencha o campo Telefone em E.164 antes de publicar.'});
+    return {...base,kind:'notification' as const,config:{phone:phone??'',message:replaceVariables(text(config.message)??'Notificação importada — revise o conteúdo.',items,originalId),...(text(config.name)?{name:text(config.name)}:{})}};
   }
   if(type==='kanban'){
     const board=object(config.board);const column=object(config.column);const action=object(config.action);

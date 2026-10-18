@@ -32,6 +32,18 @@ describe('resolução de saltos na importação Leona',()=>{
     expect(converted.report.items.some(item=>item.sourceType==='compiler'&&item.message.includes('destino'))).toBe(false);
   });
 
+  it('mantém uma pendência por salto com o mesmo destino e resolve cada um separadamente',async()=>{
+    const converted=jumpFlow([{id:1,name:'FUNIL'},{id:2,name:'FUNIL'},{id:'',name:''}]);const pending=()=>converted.report.items.filter(item=>item.status==='pending'&&item.sourceType==='connection_flow').map(item=>item.sourceId).sort();
+    const tx={playbook:{findMany:vi.fn().mockResolvedValue([])}} as unknown as Prisma.TransactionClient;
+    await resolveFlowJumps(tx,'workspace',converted.definition,converted.report);
+    expect(pending()).toEqual(['leona_jump-0','leona_jump-1','leona_jump-2']);
+    // A later pass (a share copy reuses the report) resolves only the first jump.
+    vi.mocked(tx.playbook.findMany).mockResolvedValue([{id:'flow-1',name:'Outro',importSource:{system:'leona',flowId:'1'}}] as never);
+    await resolveFlowJumps(tx,'workspace',converted.definition,converted.report);
+    expect(pending()).toEqual(['leona_jump-1','leona_jump-2']);
+    expect(converted.report.items.filter(item=>item.status==='adjusted'&&item.sourceType==='connection_flow').map(item=>item.sourceId)).toEqual(['leona_jump-0']);
+  });
+
   it('captura sourceFlowId no payload e forma metadado de origem sem segredos',()=>{
     const input=parseLeonaImportRequest({source:'leona',version:1,sourceFlowId:'140360',nodes:[{id:'1'}],edges:[],label:'Fluxo'});
     expect(input.sourceFlowId).toBe('140360');expect(leonaImportSource(input.sourceFlowId)).toEqual({system:'leona',flowId:'140360'});

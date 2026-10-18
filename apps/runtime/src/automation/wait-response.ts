@@ -43,8 +43,9 @@ export function joinReplies(messages: Array<{ body: string | null; type: string 
 }
 
 export function waitReplyActions(config:{saveReplyTo?:string;saveEmpty:boolean;reactEmoji?:string;replyToLeadCount:number},reply:{last_message:string},latest:{id:string;externalId:string|null}){
+  const field=config.saveReplyTo?.trim();
   return {
-    ...(config.saveReplyTo&&(config.saveEmpty||reply.last_message.length>0)?{saveReply:{field:config.saveReplyTo,value:reply.last_message}}:{}),
+    ...(field&&(config.saveEmpty||reply.last_message.length>0)?{saveReply:{field,value:reply.last_message}}:{}),
     ...(config.replyToLeadCount>0?{quoteNext:{messageId:latest.id,remaining:config.replyToLeadCount}}:{}),
     ...(config.reactEmoji&&latest.externalId?{reaction:{emoji:config.reactEmoji,messageExternalId:latest.externalId}}:{})
   };

@@ -17,7 +17,7 @@ import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import {FlowJumpError,prepareFlowJump} from './flow-jump.js';
-import {decideDistributorAssignment} from './distributor.js';
+import {decideDistributorAssignment,retryTx} from './distributor.js';
 import {decideNotificationLimit,normalizeE164,notificationWindowStart} from './notification.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
@@ -376,7 +376,8 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'distributor': {
         const parsed=AutomationDistributorConfigSchema.safeParse(node.config);if(!parsed.success)throw new NodeExecutionError('INVALID_DISTRIBUTOR_CONFIG','Configure ao menos duas saídas válidas no distribuidor.');
         const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId,workspaceId},select:{contactId:true}});if(!conversation)throw new NodeExecutionError('CONVERSATION_NOT_FOUND','A conversa da execução não existe.');
-        const selected=await this.prisma.$transaction(async tx=>{
+        // Each attempt re-reads counts and the assignment, so a lost race on the unique insert reuses the winner's output.
+        const selected=await retryTx(()=>this.prisma.$transaction(async tx=>{
           for(const output of parsed.data.outputs)await tx.flowDistributorCount.upsert({where:{playbookId_nodeId_outputId:{playbookId,nodeId:node.id,outputId:output.id}},create:{playbookId,nodeId:node.id,outputId:output.id,count:0},update:{}});
           const counts=await tx.$queryRaw<Array<{outputId:string;count:number}>>(Prisma.sql`SELECT "outputId", "count" FROM "FlowDistributorCount" WHERE "playbookId" = ${playbookId} AND "nodeId" = ${node.id} FOR UPDATE`);
           const assignment=parsed.data.preventRepeat?await tx.flowDistributorAssignment.findUnique({where:{playbookId_nodeId_contactId:{playbookId,nodeId:node.id,contactId:conversation.contactId}}}):null;
@@ -387,7 +388,7 @@ export class AutomationEngineService implements OnModuleDestroy {
           const edge=input.definition.edges.find(item=>item.source===node.id&&item.condition?.field===DISTRIBUTOR_ROUTE_FIELD&&item.condition.operator==='equals'&&item.condition.value===decision.outputId);
           if(!edge)throw new NodeExecutionError('DISTRIBUTOR_ROUTE_NOT_FOUND',`A saída ${decision.outputId} não está conectada.`);
           const nextContext=setContextPath(context,DISTRIBUTOR_ROUTE_FIELD,decision.outputId);await this.finishInTransaction(tx,executionId,step.id,edge.target,nextContext,{outputId:decision.outputId,reused:decision.source==='existing'});return {edge,nextContext};
-        },{isolationLevel:'Serializable'});
+        },{isolationLevel:'Serializable'}));
         return {next:selected.edge.target};
       }
 
@@ -713,12 +714,10 @@ export class AutomationEngineService implements OnModuleDestroy {
     const latest=messages[messages.length-1]!;
     const actions=waitReplyActions(config,reply,latest);
     if(actions.quoteNext)next={...next,_runtime:{...stableRuntime(next),quoteNext:actions.quoteNext}};
-    const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId},select:{workspaceId:true,channelId:true,contact:{select:{id:true,phone:true,externalRef:true,customFields:true}}}});
+    const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId},select:{workspaceId:true,channelId:true,contact:{select:{id:true,phone:true,externalRef:true}}}});
     await this.prisma.$transaction(async tx=>{
-      if(actions.saveReply&&conversation){
-        const fields=conversation.contact.customFields&&typeof conversation.contact.customFields==='object'&&!Array.isArray(conversation.contact.customFields)?conversation.contact.customFields as Record<string,Prisma.JsonValue>:{};
-        await tx.contact.update({where:{id:conversation.contact.id},data:{customFields:asJson({...fields,[actions.saveReply.field]:actions.saveReply.value})}});
-      }
+      // Sets only this key in SQL so concurrent writers of other custom fields are not overwritten; a non-object value resets to {} as before.
+      if(actions.saveReply&&conversation)await tx.$executeRaw`UPDATE "Contact" SET "customFields" = jsonb_set(CASE WHEN jsonb_typeof("customFields") = 'object' THEN "customFields" ELSE '{}'::jsonb END, ARRAY[${actions.saveReply.field}]::text[], to_jsonb(${actions.saveReply.value}::text), true), "updatedAt" = now() WHERE "id" = ${conversation.contact.id} AND "workspaceId" = ${conversation.workspaceId}`;
       if(actions.reaction&&conversation)await tx.outboxEvent.create({data:{workspaceId:conversation.workspaceId,aggregate:'Message',aggregateId:latest.id,type:'reaction.send.requested',payload:{channelId:conversation.channelId,phone:conversation.contact.externalRef??conversation.contact.phone,messageExternalId:actions.reaction.messageExternalId,emoji:actions.reaction.emoji}}});
       await tx.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: { messageIds, last_message_type: reply.last_message_type,savedTo:actions.saveReply?.field??null,reactionQueued:Boolean(actions.reaction) }, finishedAt: new Date() } });
     });

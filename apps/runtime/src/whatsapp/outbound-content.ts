@@ -54,8 +54,9 @@ export async function sendInteractiveButtons(input: {
   mode?: MenuMode;
   buttonText?: string;
   imageUrl?: string | null;
+  quoted?: proto.IWebMessageInfo;
 }): Promise<string> {
-  const { socket, jid, messageId, text, footer, buttons, mode = 'buttons', buttonText, imageUrl } = input;
+  const { socket, jid, messageId, text, footer, buttons, mode = 'buttons', buttonText, imageUrl, quoted } = input;
   if (!socket.user?.id) throw new Error('WhatsApp socket has no authenticated user');
   if (!buttons.length) throw new Error('Interactive message requires at least one button');
 
@@ -73,7 +74,7 @@ export async function sendInteractiveButtons(input: {
         })
       }
     }
-  }, { userJid: socket.user.id, messageId });
+  }, { userJid: socket.user.id, messageId, ...(quoted ? { quoted } : {}) });
 
   await socket.relayMessage(jid, generated.message!, { messageId: generated.key.id! });
   return generated.key.id!;

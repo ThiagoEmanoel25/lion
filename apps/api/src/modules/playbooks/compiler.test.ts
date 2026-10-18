@@ -381,6 +381,8 @@ describe('blocos de paridade Leona G',()=>{
   it('aceita notificação E.164 com saída normal',()=>{
     const definition={start:'start',nodes:[validDefinition.nodes[0],{id:'notify',kind:'notification',name:'Avisar equipe',config:{phone:'+5571999999999',message:'Falha para {{contact.name}}'},position:{x:100,y:0}},end],edges:[{id:'e1',source:'start',target:'notify'},{id:'e2',source:'notify',target:'done'}],settings:{maxSteps:10,timeoutSeconds:60}};
     expect(validateAutomation(definition).valid).toBe(true);
+    const empty=structuredClone(definition);(empty.nodes[1]!.config as {phone:string}).phone='';const result=validateAutomation(empty);
+    expect(result.valid).toBe(false);expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({code:'INVALID_NOTIFICATION_CONFIG',nodeId:'notify'})]));
   });
 });
 

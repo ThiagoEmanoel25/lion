@@ -21,6 +21,9 @@ describe('wait-response', () => {
   it('monta gravação persistente, reação e próximas mensagens citadas',()=>{
     expect(waitReplyActions({saveReplyTo:'resposta-lead',saveEmpty:false,reactEmoji:'✅',replyToLeadCount:2},{last_message:'aceito'},{id:'message-id',externalId:'wa-id'})).toEqual({saveReply:{field:'resposta-lead',value:'aceito'},quoteNext:{messageId:'message-id',remaining:2},reaction:{emoji:'✅',messageExternalId:'wa-id'}});
     expect(waitReplyActions({saveReplyTo:'resposta-lead',saveEmpty:false,replyToLeadCount:0},{last_message:''},{id:'media-id',externalId:null})).toEqual({});
+    expect(waitReplyActions({saveReplyTo:'resposta-lead',saveEmpty:true,replyToLeadCount:0},{last_message:''},{id:'media-id',externalId:null})).toEqual({saveReply:{field:'resposta-lead',value:''}});
+    expect(waitReplyActions({saveReplyTo:'  resposta-lead ',saveEmpty:false,replyToLeadCount:0},{last_message:'sim'},{id:'m',externalId:null}).saveReply).toEqual({field:'resposta-lead',value:'sim'});
+    expect(waitReplyActions({saveReplyTo:'   ',saveEmpty:true,replyToLeadCount:0},{last_message:'sim'},{id:'m',externalId:null})).toEqual({});
   });
   it('lê a espera nova e a do Menu antigo', () => {
     expect(pendingWaitOf({ pendingWait: { stepId: 's', nodeId: 'n', kind: 'reply', since: '2026-10-15T00:00:00.000Z' } })?.kind).toBe('reply');
