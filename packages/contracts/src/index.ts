@@ -74,23 +74,24 @@ export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().p
 export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel','flow_jump','distributor','notification']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
+export const PlaybookAssetUrlSchema=z.union([HttpsUrlSchema,z.string().trim().regex(/^nexo-asset:\/\/[a-z0-9]{20,32}$/i,'Use um arquivo enviado ou uma URL HTTPS.')]);
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional(),oncePerContact:z.boolean().default(false)}).strict();
 export const MESSAGE_MAX_ITEMS=30;
 export const MESSAGE_MAX_TYPING_SECONDS=30;
 export const MEDIA_MAX_TYPING_SECONDS=60;
 export const MESSAGE_MAX_PAUSE_SECONDS=300;
 const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0)}).strict();
-const MessageFileItemSchema=z.object({type:z.literal('file'),url:HttpsUrlSchema,fileName:z.string().trim().min(1).max(255),caption:z.string().trim().max(1024).optional()}).strict();
-const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional(),typingSeconds:z.number().int().min(0).max(MEDIA_MAX_TYPING_SECONDS).default(0),forwarded:z.boolean().default(false)}).strict().superRefine((item,ctx)=>{
+const MessageFileItemSchema=z.object({type:z.literal('file'),url:PlaybookAssetUrlSchema,fileName:z.string().trim().min(1).max(255),caption:z.string().trim().max(1024).optional()}).strict();
+const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:PlaybookAssetUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional(),typingSeconds:z.number().int().min(0).max(MEDIA_MAX_TYPING_SECONDS).default(0),forwarded:z.boolean().default(false)}).strict().superRefine((item,ctx)=>{
   if(item.mediaType==='audio'&&item.caption)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Áudio não tem legenda.',path:['caption']});
   if(item.mediaType!=='audio'&&item.ptt!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Somente áudio pode ser enviado como mensagem de voz.',path:['ptt']});
 });
 const MessagePauseItemSchema=z.object({type:z.literal('pause'),minSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS),maxSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS)}).strict().refine(item=>item.minSeconds<=item.maxSeconds,{message:'O mínimo não pode passar do máximo.',path:['minSeconds']});
 export const AutomationMessageItemSchema=z.union([MessageTextItemSchema,MessageFileItemSchema,MessageMediaItemSchema,MessagePauseItemSchema]);
 export const AutomationMessageConfigSchema=z.union([z.object({text:z.string().trim().min(1).max(4096)}).strict(),z.object({items:z.array(AutomationMessageItemSchema).min(1).max(MESSAGE_MAX_ITEMS)}).strict()]);
-export const AutomationImageConfigSchema=z.object({url:HttpsUrlSchema,caption:z.string().trim().max(1024).optional()}).strict();
-export const AutomationAudioConfigSchema=z.object({url:HttpsUrlSchema,ptt:z.boolean().optional()}).strict();
-export const AutomationStickerConfigSchema=z.object({url:HttpsUrlSchema}).strict();
+export const AutomationImageConfigSchema=z.object({url:PlaybookAssetUrlSchema,caption:z.string().trim().max(1024).optional()}).strict();
+export const AutomationAudioConfigSchema=z.object({url:PlaybookAssetUrlSchema,ptt:z.boolean().optional()}).strict();
+export const AutomationStickerConfigSchema=z.object({url:PlaybookAssetUrlSchema}).strict();
 export const AutomationButtonConfigSchema=z.object({id:z.string().trim().min(1).max(256),label:z.string().trim().min(1).max(24),description:z.string().trim().max(72).optional()}).strict();
 // WhatsApp caps: quick_reply buttons show up to 3, a single_select list up to 10 rows.
 export const MENU_MAX_OPTIONS={buttons:3,list:10} as const;
@@ -101,7 +102,7 @@ export const AutomationButtonsConfigSchema=z.object({
   mode:z.enum(['buttons','list']).default('buttons'),
   text:z.string().trim().min(1).max(1024),
   footer:z.string().trim().max(60).optional(),
-  imageUrl:HttpsUrlSchema.optional(),
+  imageUrl:PlaybookAssetUrlSchema.optional(),
   buttonText:z.string().trim().max(20).optional(),
   buttons:z.array(AutomationButtonConfigSchema).min(1).max(MENU_MAX_OPTIONS.list),
   timeoutSeconds:z.number().int().min(0).max(MENU_MAX_TIMEOUT_SECONDS).default(0),

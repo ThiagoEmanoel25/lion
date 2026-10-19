@@ -4,6 +4,8 @@ export type LeonaImportSession={code:string;expiresAt:string;bookmarklet:string}
 export type LeonaImportStatus={code:string;status:'WAITING'|'PROCESSING'|'COMPLETED'|'EXPIRED';expiresAt:string;usedAt:string|null;playbookId:string|null;report:ImportReport|null};
 export type IntegrationTestResult={ok:boolean;status:number;durationMs:number;headers:Record<string,string>;body:unknown};
 export type DistributorCounts={items:Array<{nodeId:string;outputs:Array<{outputId:string;count:number}>}>};
+export type PlaybookAsset={id:string;fileName:string;contentType:string;size:number;url:string};
+export function uploadPlaybookAsset(file:File){return api<PlaybookAsset>('/v1/playbook-assets',{method:'POST',headers:{'content-type':'application/octet-stream','x-file-name':encodeURIComponent(file.name),'x-file-content-type':file.type||'application/octet-stream'},body:file})}
 export function usePlaybooks(){return useQuery({queryKey:['playbooks'],queryFn:()=>api<Playbook[]>('/v1/playbooks')})}
 export function usePlaybook(id:string){return useQuery({queryKey:['playbooks',id],queryFn:()=>api<Playbook>(`/v1/playbooks/${id}`),enabled:Boolean(id)})}
 export function useDistributorCounts(id:string){return useQuery({queryKey:['playbooks',id,'distributors'],queryFn:()=>api<DistributorCounts>(`/v1/playbooks/${id}/distributors`),enabled:Boolean(id),refetchInterval:30_000})}

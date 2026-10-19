@@ -2,10 +2,10 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent,type ReactN
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,useEdges,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {BellRing,Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,Copy,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,Pencil,MessageSquare,Mic,Play,Plus,Search,Share2,ShieldCheck,Shuffle,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {BellRing,Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,Copy,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,LoaderCircle,Pencil,MessageSquare,Mic,Play,Plus,Search,Share2,ShieldCheck,Shuffle,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,UploadCloud,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {ImportReport,AutomationDefinition,AutomationEdge,AutomationIssue,AutomationNodeKind,AutomationValidation,KanbanBoard,Playbook,PlaybookVersion} from '../../shared/types/api';
-import {useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
+import {uploadPlaybookAsset,useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
 import {useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
@@ -22,9 +22,9 @@ type FlowEdge=Edge<FlowEdgeData>;
 const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;description:string;rule:string}>=[
   {kind:'trigger',icon:Zap,label:'Gatilho',description:'Inicia o fluxo',rule:'Aceita apenas o evento (mensagem recebida, etiqueta adicionada ou conversa criada) e, para etiqueta, o id dela. Só um gatilho pode ser o nó inicial.'},
   {kind:'message',icon:MessageSquare,label:'Mensagem',description:'Envia texto, arquivos e mídia no WhatsApp',rule:'1 a 30 conteúdos: texto, arquivo, mídia e pausa, enviados em ordem.'},
-  {kind:'image',icon:Image,label:'Imagem',description:'Envia imagem com legenda',rule:'URL HTTPS obrigatória (até 2048 caracteres) e legenda opcional de até 1024.'},
-  {kind:'audio',icon:Mic,label:'Áudio',description:'Envia áudio ou mensagem de voz',rule:'URL HTTPS obrigatória; enviar como voz é opcional.'},
-  {kind:'sticker',icon:Sticker,label:'Figurinha',description:'Envia uma figurinha',rule:'URL HTTPS obrigatória, apontando para um WebP compatível.'},
+  {kind:'image',icon:Image,label:'Imagem',description:'Envia imagem com legenda',rule:'Faça upload (até 10 MB) ou use URL HTTPS; legenda opcional de até 1024.'},
+  {kind:'audio',icon:Mic,label:'Áudio',description:'Envia áudio ou mensagem de voz',rule:'Faça upload (até 10 MB) ou use URL HTTPS; enviar como voz é opcional.'},
+  {kind:'sticker',icon:Sticker,label:'Figurinha',description:'Envia uma figurinha',rule:'Faça upload de WebP compatível (até 10 MB) ou use URL HTTPS.'},
   {kind:'buttons',icon:List,label:'Menu interativo',description:'Oferece até três escolhas',rule:'Texto de 1 a 1024, rodapé até 60 e de 1 a 3 botões com identificador e texto (até 20) únicos.'},
   {kind:'wait_response',icon:Hourglass,label:'Aguarda Resposta',description:'Pausa até o contato responder',rule:'Saída de resposta obrigatória; saída de timeout opcional (não existe ao esperar indefinidamente). Espera máxima de 31 dias; junta mensagens por até 300 s.'},
   {kind:'ai',icon:Bot,label:'Bloco de IA',description:'Chama a IA com prompt próprio',rule:'Exige prompt de sistema. Saída de sucesso grava a resposta na variável; saída de erro grava o motivo.'},
@@ -360,9 +360,9 @@ function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags
     <label>Nome<input value={node.data.name} onChange={event=>onName(event.target.value)} /></label>
     {kind==='trigger'&&<label>Evento<select value={String(config.event??'message.received')} onChange={event=>onConfig('event',event.target.value)}><option value="message.received">Mensagem recebida</option><option value="tag.added">Etiqueta adicionada</option><option value="conversation.created">Conversa criada</option></select></label>}
     {kind==='trigger'&&<><label className="check-field"><input type="checkbox" checked={config.oncePerContact===true} onChange={event=>onConfig('oncePerContact',event.target.checked)}/>Executar só uma vez por contato</label><p className="field-help">Se marcado, quem já passou por este fluxo não recomeça ao mandar nova mensagem.</p></>}
-    {kind==='image'&&<><label>URL HTTPS da imagem<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/imagem.jpg" /></label><label>Legenda opcional<textarea rows={3} value={String(config.caption??'')} onChange={event=>onConfig('caption',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label></>}
-    {kind==='audio'&&<><label>URL HTTPS do áudio<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/audio.ogg" /></label><label className="check-field"><input type="checkbox" checked={config.ptt===true} onChange={event=>onConfig('ptt',event.target.checked)}/> Enviar como mensagem de voz</label></>}
-    {kind==='sticker'&&<><label>URL HTTPS da figurinha<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://cdn.exemplo.com/figurinha.webp" /></label><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
+    {kind==='image'&&<><MediaUploadField label="Imagem" value={String(config.url??'')} accept="image/jpeg,image/png,image/webp" onChange={value=>onConfig('url',value)}/><label>Legenda opcional<textarea rows={3} value={String(config.caption??'')} onChange={event=>onConfig('caption',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label></>}
+    {kind==='audio'&&<><MediaUploadField label="Áudio" value={String(config.url??'')} accept="audio/*" onChange={value=>onConfig('url',value)}/><label className="check-field"><input type="checkbox" checked={config.ptt===true} onChange={event=>onConfig('ptt',event.target.checked)}/> Enviar como mensagem de voz</label></>}
+    {kind==='sticker'&&<><MediaUploadField label="Figurinha WebP" value={String(config.url??'')} accept="image/webp,.webp" onChange={value=>onConfig('url',value)}/><p className="field-help">Use WebP compatível com WhatsApp. O arquivo será enviado pelo canal Baileys.</p></>}
     {kind==='ai'&&<>{aiKeyConfigured===false&&<p className="field-help">Sem chave da OpenAI no workspace, o bloco usa a chave padrão do servidor, se houver; sem nenhuma, segue pela saída de erro. Configure em Configurações → Inteligência artificial.</p>}<label>Modelo<input value={String(config.model??'gpt-5.4-mini')} onChange={event=>onConfig('model',event.target.value)} list="ai-models"/><datalist id="ai-models"><option value="gpt-5.4-mini"/><option value="gpt-5.4"/><option value="gpt-4.1-mini"/></datalist></label><label>Prompt do sistema<textarea rows={8} value={String(config.systemPrompt??'')} onChange={event=>onConfig('systemPrompt',event.target.value)} placeholder="Explique à IA o que analisar e o formato da resposta."/></label><label>Mensagem do usuário<input value={String(config.userMessage??'{{last_message}}')} onChange={event=>onConfig('userMessage',event.target.value)}/><small>Use {'{{last_message}}'} para a última mensagem do contato.</small></label><label className="check-field"><input type="checkbox" checked={config.understandImage===true} onChange={event=>onConfig('understandImage',event.target.checked)}/> Ler imagens recebidas</label><label className="check-field"><input type="checkbox" checked={config.understandPdf===true} onChange={event=>onConfig('understandPdf',event.target.checked)}/> Ler PDFs recebidos</label><label className="check-field"><input type="checkbox" checked={config.autoSendResponse===true} onChange={event=>onConfig('autoSendResponse',event.target.checked)}/> Enviar a resposta ao contato</label><label>Salvar resposta em<input value={String(config.responseVariable??'ai.response')} onChange={event=>onConfig('responseVariable',event.target.value)}/></label><label>Salvar motivo da falha em<input value={String(config.failReasonVariable??'ai.fail.reason')} onChange={event=>onConfig('failReasonVariable',event.target.value)}/></label><label>Mensagens de contexto<input type="number" min="1" max="20" value={Number(config.contextInteractions??1)} onChange={event=>onConfig('contextInteractions',Math.min(20,Math.max(1,Number(event.target.value)||1)))}/></label></>}
     {kind==='wait_response'&&<WaitFields config={config} onConfigs={onConfigs}/>}
     {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
@@ -550,6 +550,24 @@ function WebhookEditor({playbookId,node,variablesJson,onEditTestData,onSave,onCa
     </div></>
 }
 const HTTPS_URL=/^https:\/\/\S+\.\S+/;
+const INTERNAL_ASSET_URL=/^nexo-asset:\/\/[a-z0-9]{20,32}$/i;
+const validMediaUrl=(value:string)=>HTTPS_URL.test(value)||INTERNAL_ASSET_URL.test(value);
+function MediaUploadField({label,value,accept,onChange,onFileName}:{label:string;value:string;accept?:string;onChange:(value:string)=>void;onFileName?:(name:string)=>void}){
+  const [uploading,setUploading]=useState(false);const [error,setError]=useState('');const internal=INTERNAL_ASSET_URL.test(value);
+  async function select(file:File|undefined){
+    if(!file)return;setError('');
+    if(file.size>10*1024*1024){setError('O arquivo deve ter no máximo 10 MB.');return}
+    setUploading(true);
+    try{const asset=await uploadPlaybookAsset(file);onChange(asset.url);onFileName?.(asset.fileName)}catch(caught){setError(errorMessage(caught))}finally{setUploading(false)}
+  }
+  return <div className="media-upload-field">
+    <span className="media-upload-label">{label}</span>
+    <label className={`media-upload-button ${uploading?'busy':''}`}><input type="file" accept={accept} disabled={uploading} onChange={event=>{void select(event.target.files?.[0]);event.target.value=''}}/>{uploading?<LoaderCircle size={18} className="spin"/>:<UploadCloud size={18}/>}<b>{uploading?'Enviando…':internal?'Trocar arquivo':'Fazer upload'}</b><small>Máximo 10 MB</small></label>
+    {internal&&<div className="media-upload-current"><CircleCheck size={16}/><span>Arquivo armazenado com segurança</span><button type="button" aria-label={`Remover ${label}`} onClick={()=>onChange('')}><X size={15}/></button></div>}
+    <label className="media-url-fallback"><span>ou use uma URL HTTPS</span><input type="url" inputMode="url" value={internal?'':value} onChange={event=>onChange(event.target.value)} placeholder="https://cdn.exemplo.com/arquivo"/></label>
+    {error&&<small className="field-error">{error}</small>}
+  </div>
+}
 function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const keyRef=useRef(0);const nextKey=()=>(keyRef.current+=1);
   const [name,setName]=useState(node.data.name);
@@ -562,7 +580,7 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
   const itemError=(item:MessageItem):string=>{
     if(item.type==='text')return !item.text.trim()?'Escreva o texto.':item.text.length>4096?'Use até 4096 caracteres.':!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MESSAGE_MAX_TYPING_SECONDS?`Digitando: use de 0 a ${MESSAGE_MAX_TYPING_SECONDS} segundos.`:'';
     if(item.type==='pause')return ![item.minSeconds,item.maxSeconds].every(n=>Number.isInteger(n)&&n>=0&&n<=MESSAGE_MAX_PAUSE_SECONDS)?`Use de 0 a ${MESSAGE_MAX_PAUSE_SECONDS} segundos.`:item.minSeconds>item.maxSeconds?'O mínimo não pode passar do máximo.':'';
-    if(!HTTPS_URL.test(item.url.trim()))return 'Informe uma URL HTTPS válida.';
+    if(!validMediaUrl(item.url.trim()))return 'Faça upload de um arquivo ou informe uma URL HTTPS válida.';
     if(item.type==='file'&&!item.fileName.trim())return 'Informe o nome do arquivo.';
     if(item.type==='media'&&(!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MEDIA_MAX_TYPING_SECONDS))return `Use de 0 a ${MEDIA_MAX_TYPING_SECONDS} segundos para a presença.`;
     return (item.caption??'').length>1024?'A legenda aceita até 1024 caracteres.':'';
@@ -594,8 +612,8 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
         <span><button type="button" aria-label={`Mover conteúdo ${index+1} para cima`} title="Subir" disabled={index===0} onClick={()=>move(index,-1)}><ChevronUp size={16}/></button><button type="button" aria-label={`Mover conteúdo ${index+1} para baixo`} title="Descer" disabled={index===rows.length-1} onClick={()=>move(index,1)}><ChevronDown size={16}/></button><button type="button" aria-label={`Remover conteúdo ${index+1}`} title="Remover" onClick={()=>setRows(current=>current.filter((_,i)=>i!==index))}><X size={16}/></button></span></div>
       {item.type==='text'&&<><WhatsAppField value={item.text} onChange={text=>patch(index,{text})} maxLength={4096} placeholder="Use {{variavel}} para personalizar." invalid={Boolean(submitted&&itemError(item))}/>
         <label>Digitando por (segundos)<input type="number" min="0" max={MESSAGE_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>patch(index,{typingSeconds:Number(event.target.value)})}/></label></>}
-      {item.type==='file'&&<><label>URL HTTPS do arquivo<input type="url" inputMode="url" value={item.url} onChange={event=>patch(index,{url:event.target.value})} placeholder="https://cdn.exemplo.com/arquivo.pdf"/></label><label>Nome do arquivo<input value={item.fileName} maxLength={255} onChange={event=>patch(index,{fileName:event.target.value})} placeholder="contrato.pdf"/></label><label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label></>}
-      {item.type==='media'&&<><label>Tipo<select value={item.mediaType} onChange={event=>patch(index,{mediaType:event.target.value as 'image'|'video'|'audio'})}>{(Object.keys(MEDIA_LABELS) as Array<keyof typeof MEDIA_LABELS>).map(type=><option key={type} value={type}>{MEDIA_LABELS[type]}</option>)}</select></label><label>URL HTTPS<input type="url" inputMode="url" value={item.url} onChange={event=>patch(index,{url:event.target.value})} placeholder="https://cdn.exemplo.com/midia"/></label>
+      {item.type==='file'&&<><MediaUploadField label="Arquivo" value={item.url} onChange={url=>patch(index,{url})} onFileName={fileName=>patch(index,{fileName})}/><label>Nome do arquivo<input value={item.fileName} maxLength={255} onChange={event=>patch(index,{fileName:event.target.value})} placeholder="contrato.pdf"/></label><label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label></>}
+      {item.type==='media'&&<><label>Tipo<select value={item.mediaType} onChange={event=>patch(index,{mediaType:event.target.value as 'image'|'video'|'audio'})}>{(Object.keys(MEDIA_LABELS) as Array<keyof typeof MEDIA_LABELS>).map(type=><option key={type} value={type}>{MEDIA_LABELS[type]}</option>)}</select></label><MediaUploadField label={MEDIA_LABELS[item.mediaType]} value={item.url} accept={item.mediaType==='image'?'image/jpeg,image/png,image/webp':item.mediaType==='video'?'video/*':'audio/*'} onChange={url=>patch(index,{url})}/>
         {item.mediaType!=='audio'&&<label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label>}
         {item.mediaType==='audio'&&<label className="check-field"><input type="checkbox" checked={item.ptt===true} onChange={event=>patch(index,{ptt:event.target.checked})}/> Enviar como mensagem de voz</label>}
         <label>{item.mediaType==='audio'?'Gravando áudio por':'Digitando por'} (segundos)<input type="number" min="0" max={MEDIA_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>patch(index,{typingSeconds:Number(event.target.value)})}/></label>
@@ -631,7 +649,7 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
   const errors={
     text:!text.trim()?'Escreva a mensagem do menu.':text.length>1024?'Use até 1024 caracteres.':'',
     buttonText:mode==='list'&&!buttonText.trim()?'Informe o texto do botão que abre a lista.':'',
-    image:isButtons&&imageEnabled?(!/^https:\/\/\S+\.\S+/.test(imageUrl.trim())?'Informe uma URL HTTPS válida para a imagem.':''):'',
+    image:isButtons&&imageEnabled?(!validMediaUrl(imageUrl.trim())?'Faça upload ou informe uma URL HTTPS válida para a imagem.':''):'',
     timeout:timeoutSeconds>MENU_MAX_TIMEOUT_SECONDS?'O limite é 31 dias no total.':'',
     options:!options.length?'Adicione ao menos uma opção.':options.length>limit?(mode==='buttons'?'Botões aceitam até 3 opções. Remova opções ou use Lista.':'A lista aceita até 10 opções.'):'',
     option:(index:number)=>!labels[index]?'Dê um texto para a opção.':labels[index]!.length>labelMax?`Até ${labelMax} caracteres.`:labels.indexOf(labels[index]!)!==index?'Já existe uma opção com este texto.':'',
@@ -668,7 +686,7 @@ function MenuEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,co
     {isButtons&&<div className={`menu-image ${imageEnabled?'open':''}`}>
       <label className="menu-image-toggle"><input type="checkbox" checked={imageEnabled} onChange={event=>setImageEnabled(event.target.checked)}/> Imagem <span>(opcional)</span></label>
       {imageEnabled&&<div className="menu-image-body">
-        <label>URL HTTPS da imagem<input type="url" inputMode="url" value={imageUrl} onChange={event=>setImageUrl(event.target.value)} placeholder="https://cdn.exemplo.com/capa.jpg" aria-invalid={Boolean(submitted&&errors.image)}/>{show(errors.image)}</label>
+        <MediaUploadField label="Imagem do menu" value={imageUrl} accept="image/jpeg,image/png,image/webp" onChange={setImageUrl}/>{show(errors.image)}
         {/^https:\/\/\S+\.\S+/.test(imageUrl.trim())&&<img src={imageUrl.trim()} alt="Prévia da imagem do menu" loading="lazy"/>}
       </div>}
     </div>}

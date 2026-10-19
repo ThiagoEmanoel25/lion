@@ -60,7 +60,13 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
         getMessage: async () => undefined
       });
       const renewTimer = setInterval(async () => {
-        if (await lease.renew()) return;
+        if (await lease.renew()) {
+          // The session snapshot is intentionally ephemeral so a crashed runtime
+          // cannot look connected forever. Keep its TTL alive while this process
+          // still owns the channel lease.
+          await this.redis.expire(`wa:session:${channelId}`, 300);
+          return;
+        }
         this.logger.error({ channelId }, 'lost session lease');
         socket.end(new Error('session lease lost'));
         await this.dropSession(channelId);
