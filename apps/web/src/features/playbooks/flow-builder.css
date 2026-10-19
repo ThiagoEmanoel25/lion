@@ -153,5 +153,4 @@
 .wait-node-box{position:relative;padding:10px 12px;border:1px solid #6b3a2c;border-radius:9px;background:#3a2530;color:#fbd6b8;font-size:12px;line-height:1.4}
 .wait-node-box .react-flow__handle{right:-16px;background:#68718d}
 .wait-node-body p{display:grid;gap:8px;margin:2px 0;text-align:center;color:#d4d2e6;font-size:11px}
-.wait-node-message{padding:10px 12px;border:1px solid #33447b;border-radius:9px;background:#1b2550;color:#e6ecff;font-size:12px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .automation-node-wait_response .wait-node-body p{max-width:none;justify-items:center;white-space:normal;overflow:visible;font-size:11px;color:#d4d2e6}

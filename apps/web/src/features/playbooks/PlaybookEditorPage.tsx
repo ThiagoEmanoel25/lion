@@ -133,8 +133,7 @@ function ConditionNodeBody({id,config}:{id:string;config:Record<string,unknown>}
   <div className="condition-node-rules">{rules.length?rules.map((rule,index)=><span key={index}>{index>0&&<i>{config.logic==='any'?'ou':'e'}</i>}{ruleSummary(rule,itemId=>names.get(itemId))}</span>):<span className="empty">{nodeSummary('condition',config)}</span>}<Handle type="source" position={Position.Right}/></div>{!hasMatch&&<small className="condition-node-note">Se atender, o fluxo é encerrado</small>}
   <p className="condition-node-else">{hasDefault?'Caso não atenda a condição o fluxo continua por aqui':'Caso não atenda a condição o fluxo é encerrado'}<Handle id="fallback" type="source" position={Position.Right}/></p>
 </div>}
-function WaitNodeBody({config}:{config:Record<string,unknown>}){const message=String(config.message??'').trim();return <div className="wait-node-body">
-  {message&&<div className="wait-node-message">{message}</div>}
+function WaitNodeBody({config}:{config:Record<string,unknown>}){return <div className="wait-node-body">
   <div className="wait-node-box">Aguardar pela resposta do cliente.<Handle id="reply" type="source" position={Position.Right}/></div>
   {!waitIndefinite(config)&&<><p>Ou<span>caso não responda</span></p><div className="wait-node-box">Após {Number(config.timeoutValue??1)} {WAIT_UNIT_LABELS[waitUnitOf(config)]}<Handle id="timeout" type="source" position={Position.Right}/></div></>}
 </div>}
