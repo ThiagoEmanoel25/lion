@@ -132,37 +132,12 @@
 /* Narrow screens: save/publish move to the bottom-right so they never cover the tools button. */
 @media(max-width:1100px){.flow-editor-actions{top:auto;bottom:15px;left:auto;width:auto}.flow-editor-shell .react-flow__minimap{display:none}}
 @media(max-width:720px){.flow-editor-actions{bottom:10px;right:10px}.flow-editor-actions button:not(.primary){display:block}.tools-dropdown{left:8px;width:calc(100vw - 16px);max-height:calc(100dvh - 140px)}}
-/* Aguarda Resposta editor, Leona style (dark) */
-.flow-inspector.wait-edit-modal{background:#1f2533!important;border-color:#2f3747!important;color:#eef1f6}
-.wait-edit-modal>header{background:transparent;border-bottom:1px solid #343c4d;padding:22px 56px 20px 24px}
-.wait-edit-modal>header b{font-size:19px;color:#fff;margin:0}
-.wait-edit-modal>header .palette-icon{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff}
-.wait-edit-modal .panel-close{background:transparent;color:#a3acbd}
-.wait-edit-modal .wait-editor{display:grid;gap:18px;padding:20px 24px}
-.wait-edit-modal .wait-editor>label,.wait-edit-modal .wait-time>b{margin:0;color:#eef1f6;font-size:14px;font-weight:600}
-.wait-edit-modal .wait-time{display:grid;gap:10px}
-.wait-edit-modal input,.wait-edit-modal select,.wait-edit-modal textarea{background:#374151;border-color:#4b5563;color:#fff;font-size:15px}
-.wait-edit-modal input::placeholder,.wait-edit-modal textarea::placeholder{color:#9ca3af}
-.wait-edit-modal .duration-fields input{text-align:center}
-.wait-edit-modal small{color:#9ca3af;font-size:12px;font-weight:400}
-.wait-edit-modal .field-error{color:#fca5a5}
-.wait-edit-modal .ai-toggle-card{padding:0;border:0;background:transparent}
-.wait-edit-modal .ai-toggle-card b{color:#eef1f6;font-size:14px;font-weight:600}
-.wait-edit-modal .ai-toggle-card p{color:#9ca3af;font-size:12px}
-.wait-edit-modal .ai-switch{background:#4b5563}.wait-edit-modal .ai-switch.active{background:#7c3aed}
-.wait-edit-modal .wait-inline{display:grid;gap:6px;margin-top:10px;color:#cbd2dc;font-size:12px}
-.wait-edit-modal .wait-emojis{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.wait-edit-modal .wait-emojis button{width:34px;height:34px;border:1px solid #4b5563;border-radius:8px;background:#2b3341;font-size:16px}
-.wait-edit-modal .wait-emojis button.active{border-color:#a78bfa;background:#4c1d95}
-.wait-edit-modal .check-field{color:#cbd2dc;background:transparent;border-color:#4b5563}
-.wait-edit-modal .menu-message{background:#374151;border-color:#4b5563}
-.wait-edit-modal .menu-message textarea{background:transparent;border:0}
-.wait-edit-modal .menu-format button{color:#d1d5db}
-.wait-edit-modal .menu-actions{border-top:1px solid #343c4d;background:transparent;margin:0 24px;padding:18px 0 22px}
-.wait-edit-modal .menu-actions button{background:transparent;border:1px solid #4b5563;color:#eef1f6}
-.wait-edit-modal .menu-actions button.primary{background:#7c3aed;border-color:#7c3aed;color:#fff}
-.wait-edit-modal input,.wait-edit-modal select,.wait-edit-modal textarea{font-weight:400}
-.wait-edit-modal .menu-message textarea{box-shadow:none!important;border-bottom:0!important}
-.wait-edit-modal .menu-format{border-top:0;background:transparent}
-.wait-edit-modal .menu-actions{position:sticky;bottom:0;z-index:2;margin:0;padding:16px 24px 20px;background:#1f2533;display:flex;justify-content:flex-end;gap:10px}
-.wait-edit-modal .menu-actions button{min-width:110px;height:46px;border-radius:10px;font-size:14px}
+/* Aguarda Resposta editor: toggles from the AI editor, same tokens */
+.wait-editor>label{margin:0}
+.wait-editor .wait-time{display:grid;gap:6px}
+.wait-editor .wait-time>span{font-size:9px;font-weight:800;color:#65736c}
+.wait-editor .wait-inline{display:grid;gap:4px;margin-top:6px;font-size:10px;font-weight:700;color:#65736c}
+.wait-editor .wait-emojis{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.wait-editor .wait-emojis button{width:34px;height:34px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:16px}
+.wait-editor .wait-emojis button.active{border-color:var(--green);background:#edf7f2;box-shadow:0 0 0 2px #badbcd}
+.wait-editor .wait-time small{font-size:8px;line-height:1.5;color:#89958f}.wait-editor .wait-time small.field-error{color:#a14e44}
