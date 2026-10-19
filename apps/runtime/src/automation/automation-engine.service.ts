@@ -11,7 +11,7 @@ import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
 import { aiLastMessage, joinReplies, pendingWaitOf,waitReplyActions, waitTimeoutSeconds, type PendingWait } from './wait-response.js';
-import { itemMessage, pauseSeconds, sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
+import { itemMessage, pauseSeconds, safeMediaUrl,sequenceItems, sequenceJobOptions, type SequenceItem } from './message-sequence.js';
 import { NO_CTWA_MESSAGE, PIXEL_TIMEOUT_SECONDS, buildPixelEvent, parsePixelValue, pixelOutcome, pixelRequest } from '@nexo/domain';
 import { FieldCipher } from '../crypto/field-cipher.js';
 import { loadConfig } from '../config.js';
@@ -202,7 +202,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         // Menus carry an optional header image (buttons format only); media blocks require one.
         const urlValue = node.kind === 'buttons' ? (node.config.mode === 'list' ? undefined : node.config.imageUrl) : node.config.url;
         const rawUrl = typeof urlValue === 'string' ? renderTemplate(urlValue, context).trim() : '';
-        if ((node.kind !== 'buttons' || rawUrl) && !rawUrl.startsWith('https://')) throw new NodeExecutionError('MEDIA_HTTPS_REQUIRED', 'A mídia precisa usar uma URL HTTPS.');
+        if(node.kind!=='buttons'||rawUrl){try{safeMediaUrl(rawUrl)}catch{throw new NodeExecutionError('MEDIA_HTTPS_REQUIRED','Envie um arquivo ou informe uma URL HTTPS válida.')}}
         const body = node.kind === 'image'
           ? (typeof node.config.caption === 'string' ? renderTemplate(node.config.caption, context) : null)
           : node.kind === 'buttons' ? renderTemplate(stringConfig(node, 'text'), context) : null;
@@ -663,7 +663,7 @@ export class AutomationEngineService implements OnModuleDestroy {
     let content: ReturnType<typeof itemMessage>;
     try { content = itemMessage(item, context); } catch (error) {
       const code = error instanceof Error ? error.message : 'INVALID_NODE_CONFIG';
-      throw new NodeExecutionError(code, code === 'EMPTY_MESSAGE' ? 'A mensagem ficou vazia após a interpolação.' : code === 'MEDIA_HTTPS_REQUIRED' ? 'A mídia precisa usar uma URL HTTPS.' : `O item ${index + 1} da mensagem é inválido.`);
+      throw new NodeExecutionError(code, code === 'EMPTY_MESSAGE' ? 'A mensagem ficou vazia após a interpolação.' : code === 'MEDIA_HTTPS_REQUIRED' ? 'Envie um arquivo ou informe uma URL HTTPS válida.' : `O item ${index + 1} da mensagem é inválido.`);
     }
     const quote=consumeQuote(base);
     const providerPayload = { ...content.providerPayload, ...(quote.quotedMessageId?{quotedMessageId:quote.quotedMessageId}:{}),sequence: { executionId, stepId: step.id, index } };

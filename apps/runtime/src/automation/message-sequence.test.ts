@@ -60,6 +60,7 @@ describe('itemMessage', () => {
 describe('safeMediaUrl', () => {
   it('accepts public HTTPS and rejects credentials, local hosts and private IP literals', () => {
     expect(safeMediaUrl('https://cdn.example.com/a.pdf')).toBe('https://cdn.example.com/a.pdf');
+    expect(safeMediaUrl('nexo-asset://cmvfs3ut40011bbinvkji87uu')).toBe('nexo-asset://cmvfs3ut40011bbinvkji87uu');
     expect(() => safeMediaUrl('https://user:pass@cdn.example.com/a')).toThrow('MEDIA_HTTPS_REQUIRED');
     expect(() => safeMediaUrl('https://localhost/a')).toThrow('MEDIA_PRIVATE_HOST');
     expect(() => safeMediaUrl('https://127.0.0.1/a')).toThrow('MEDIA_PRIVATE_HOST');

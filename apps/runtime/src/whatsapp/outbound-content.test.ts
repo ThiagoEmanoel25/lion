@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { proto, type WASocket } from '@whiskeysockets/baileys';
-import { interactivePayload, nativeFlowButtons,outboundPresence, parseButtons, regularOutboundContent, sendInteractiveButtons } from './outbound-content.js';
+import { interactivePayload, nativeFlowButtons,outboundPresence,parseButtons,playbookAssetId, regularOutboundContent, sendInteractiveButtons } from './outbound-content.js';
 
 describe('outbound WhatsApp content', () => {
   it('usa presença de gravação em áudio e digitação nas demais mensagens',()=>{
@@ -27,6 +27,12 @@ describe('outbound WhatsApp content', () => {
     expect(regularOutboundContent({ type: 'VIDEO', body: 'Olha', mediaUrl: 'https://cdn.test/a.mp4', providerPayload: {} }))
       .toEqual({ video: { url: 'https://cdn.test/a.mp4' }, caption: 'Olha' });
     expect(regularOutboundContent({ type: 'TEXT', body: 'Oi', mediaUrl: null, providerPayload: {} })).toEqual({ text: 'Oi' });
+  });
+
+  it('uses private uploaded bytes and their stored content type',()=>{
+    const data=Buffer.from('pdf');
+    expect(playbookAssetId('nexo-asset://cmvfs3ut40011bbinvkji87uu')).toBe('cmvfs3ut40011bbinvkji87uu');
+    expect(regularOutboundContent({type:'DOCUMENT',body:null,mediaUrl:'nexo-asset://cmvfs3ut40011bbinvkji87uu',providerPayload:{kind:'file',fileName:'recibo.pdf'}},{data,contentType:'application/pdf',fileName:'upload.pdf'})).toEqual({document:data,fileName:'recibo.pdf',mimetype:'application/pdf'});
   });
 
   it('recognizes interactive messages and accepts label/title during migration', () => {

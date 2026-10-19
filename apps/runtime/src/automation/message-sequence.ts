@@ -5,6 +5,7 @@ import { renderTemplate } from './routing.js';
 
 export type SequenceItem = z.output<typeof AutomationMessageItemSchema>;
 type SendItem = Exclude<SequenceItem, { type: 'pause' }>;
+const INTERNAL_ASSET_URL=/^nexo-asset:\/\/[a-z0-9]{20,32}$/i;
 
 export function sequenceItems(config: Record<string, unknown>): SequenceItem[] {
   if (Array.isArray(config.items)) {
@@ -34,6 +35,7 @@ const privateIpv4 = (hostname: string): boolean => {
 // so deployments should additionally restrict the runtime's egress at the network boundary.
 export function safeMediaUrl(value: string): string {
   if (value.length > 2048) throw new Error('MEDIA_URL_TOO_LONG');
+  if(INTERNAL_ASSET_URL.test(value))return value;
   let url: URL;
   try { url = new URL(value); } catch { throw new Error('MEDIA_HTTPS_REQUIRED'); }
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('MEDIA_HTTPS_REQUIRED');
