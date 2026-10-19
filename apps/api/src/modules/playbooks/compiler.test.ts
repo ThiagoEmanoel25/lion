@@ -129,6 +129,23 @@ describe('validateAutomation', () => {
     expect(simulation.stoppedBecause).toBe('completed');
   });
 
+  it('aceita bloco sem saída e sem desfecho: o fluxo encerra depois dele', () => {
+    const definition = {
+      start: 'start',
+      nodes: [
+        { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+        { id: 'msg', kind: 'message', name: 'Oi', config: { text: 'Oi!' }, position: { x: 100, y: 0 } }
+      ],
+      edges: [{ id: 'e1', source: 'start', target: 'msg' }],
+      settings: { maxSteps: 10, timeoutSeconds: 60 }
+    };
+    const validation = validateAutomation(definition);
+    expect(validation.valid).toBe(true);
+    expect(validation.issues.map(issue => [issue.level, issue.code])).toEqual([['warning', 'MISSING_OUTPUT']]);
+    if (!validation.definition) throw new Error('fixture inválida');
+    expect(simulateAutomation(validation.definition)).toMatchObject({ path: ['start', 'msg'], stoppedBecause: 'completed' });
+  });
+
   it('rejeita condição com duas saídas “Caso contrário”', () => {
     const definition = structuredClone(validDefinition);
     definition.edges.push({ id: 'e5', source: 'condition', target: 'done', isDefault: true } as never);

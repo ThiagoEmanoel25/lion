@@ -41,7 +41,8 @@ describe('relatório honesto da importação real',()=>{
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.some(issue=>issue.code==='DUPLICATE_CONNECTION')).toBe(false);
     for(const issue of errors)expect(report.items.some(item=>item.status==='pending'&&item.sourceId===(issue.nodeId??issue.edgeId)&&(item.message===issue.message||issue.code==='INVALID_PIXEL_CONFIG'))).toBe(true);
-    expect(report.items).toEqual(expect.arrayContaining([expect.objectContaining({status:'pending',message:'Adicione um desfecho ou handoff para encerrar a jornada.'})]));
+    // A block without an exit ends the flow, as in Leona: not a pending item.
+    expect(report.items.some(item=>item.message==='Adicione um desfecho ou handoff para encerrar a jornada.'||item.message==='O nó precisa de uma conexão de saída.')).toBe(false);
     expect(report.items.filter(item=>item.sourceId?.endsWith('5346058'))).toEqual([expect.objectContaining({status:'pending',message:'Configure o pixel ‘PIXEL - MARITZA’ em Configurações.'})]);
     for(const status of ['converted','adjusted','pending'] as const)expect(report.totals[status]).toBe(report.items.filter(item=>item.status===status).length);
   });

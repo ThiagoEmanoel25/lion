@@ -115,7 +115,8 @@ function portIssues(node: AutomationDefinition['nodes'][number], edges: Automati
     used.add(port);
   }
   const required = ports[0]!;
-  if (edges.length && !used.has(required)) issues.push(error(required === 'reply' ? 'REPLY_ROUTE_REQUIRED' : 'SUCCESS_ROUTE_REQUIRED', required === 'reply' ? 'Ligue a saída de resposta.' : 'Ligue a saída de sucesso.'));
+  // Without this exit the flow ends after the block, as in Leona.
+  if (edges.length && !used.has(required)) issues.push({ ...error(required === 'reply' ? 'REPLY_ROUTE_REQUIRED' : 'SUCCESS_ROUTE_REQUIRED', required === 'reply' ? 'Sem saída de resposta: quando o contato responder, o fluxo é encerrado.' : 'Sem saída de sucesso: quando der certo, o fluxo é encerrado.'), level: 'warning' });
   return issues;
 }
 
@@ -193,7 +194,7 @@ export function validateAutomation(value: unknown) {
   for (const node of definition.nodes) {
     const edges = outgoing.get(node.id) ?? [];
     if (terminalKinds.has(node.kind) && edges.length) issues.push({ level: 'error', code: 'TERMINAL_HAS_OUTPUT', message: 'Nós finais não podem ter conexões de saída.', nodeId: node.id });
-    if (!terminalKinds.has(node.kind) && node.kind !== 'condition' && edges.length === 0) issues.push({ level: 'error', code: 'MISSING_OUTPUT', message: 'O nó precisa de uma conexão de saída.', nodeId: node.id });
+    if (!terminalKinds.has(node.kind) && edges.length === 0) issues.push({ level: 'warning', code: 'MISSING_OUTPUT', message: 'Sem saída: o fluxo é encerrado depois deste bloco.', nodeId: node.id });
     const ports = nodePorts(node.kind);
     const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
     if (node.kind !== 'condition' && node.kind !== 'distributor' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus, distribuidores e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
@@ -211,9 +212,8 @@ export function validateAutomation(value: unknown) {
       const conditional = edges.filter(edge => !edge.isDefault);
       const usesNodeRules = Array.isArray(node.config.rules);
       if (defaults > 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição pode ter só uma saída “Caso contrário”.', nodeId: node.id });
-      if (!edges.length) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'A condição não tem saídas: o fluxo é encerrado aqui.', nodeId: node.id });
-      else if (!defaults) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'Sem saída “Caso contrário”: quando a condição não for atendida, o fluxo é encerrado.', nodeId: node.id });
-      else if (!conditional.length) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'Sem saída “Condição atendida”: quando a condição for atendida, o fluxo é encerrado.', nodeId: node.id });
+      if (edges.length && !defaults) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'Sem saída “Caso contrário”: quando a condição não for atendida, o fluxo é encerrado.', nodeId: node.id });
+      else if (edges.length && !conditional.length) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'Sem saída “Condição atendida”: quando a condição for atendida, o fluxo é encerrado.', nodeId: node.id });
       if (!usesNodeRules && conditional.some(edge => !edge.condition)) issues.push({ level: 'error', code: 'BRANCH_CONDITION_REQUIRED', message: 'Toda saída não padrão precisa de uma condição.', nodeId: node.id });
       if (usesNodeRules && conditional.length > 1) issues.push({ level: 'error', code: 'CONDITION_SUCCESS_ROUTE_REQUIRED', message: 'A condicional configurada no bloco pode ter só uma saída “Condição atendida”.', nodeId: node.id });
       const priorities = new Set<number>();
@@ -239,7 +239,6 @@ export function validateAutomation(value: unknown) {
   if (nodes.has(definition.start)) walk(definition.start);
   for (const node of definition.nodes) if (!visited.has(node.id)) issues.push({ level: 'warning', code: 'UNREACHABLE_NODE', message: `O nó “${node.name}” nunca será executado.`, nodeId: node.id });
   for (const nodeId of cyclicNodes) issues.push({ level: 'warning', code: 'CYCLE_DETECTED', message: 'A jornada contém um ciclo e será limitada por maxSteps.', nodeId });
-  if (!definition.nodes.some(node => terminalKinds.has(node.kind))) issues.push({ level: 'error', code: 'NO_TERMINAL_NODE', message: 'Adicione um desfecho ou handoff para encerrar a jornada.' });
   return { valid: !issues.some(issue => issue.level === 'error'), issues, definition };
 }
 
@@ -276,8 +275,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
         : nodeMatch ? candidates.find(edge => !edge.isDefault) : candidates.find(edge => edge.isDefault);
     }
     steps.push({ index: steps.length, nodeId: current, kind: node.kind, selectedEdgeId: selected?.id ?? null });
-    if (terminalKinds.has(node.kind) || (node.kind === 'condition' && !selected)) { current = undefined; break; }
-    if (!selected) { stoppedBecause = 'dead_end'; current = undefined; break; }
+    if (terminalKinds.has(node.kind) || !selected) { current = undefined; break; }
     current = selected.target;
   }
   if (current && steps.length >= definition.settings.maxSteps) stoppedBecause = 'max_steps';

@@ -149,7 +149,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       processed += 1;
       currentNodeId = routedNodeId;
       if (!currentNodeId) {
-        await this.failExecution(execution.id, 'DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+        await this.succeedExecution(execution.id);
         return;
       }
     }
@@ -168,7 +168,6 @@ export class AutomationEngineService implements OnModuleDestroy {
   }): Promise<'continue' | 'waiting' | 'terminal' | { next: string }> {
     const { executionId, workspaceId, playbookId,conversationId, context, node, step, nextNodeId } = input;
     const waitsForChoice = routesByChoice(node, input.definition.edges);
-    if (!['handoff', 'outcome','flow_jump','condition'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
 
     switch (node.kind) {
       case 'condition':
@@ -254,6 +253,11 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'delay': {
         const seconds = node.config.seconds;
         if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1 || seconds > 2_678_400) throw new NodeExecutionError('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 31 dias.');
+        if (!nextNodeId) {
+          await this.completeStep(executionId, step.id, undefined, context, { delaySeconds: seconds, endedFlow: true });
+          await this.succeedExecution(executionId);
+          return 'terminal';
+        }
         const waitingContext: EngineContext = { ...context, _runtime: { ...stableRuntime(context),pendingDelayStepId: step.id } };
         await this.prisma.$transaction([
           this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { delaySeconds: seconds, resumeAt: new Date(Date.now() + seconds * 1000).toISOString() }, finishedAt: new Date() } }),
@@ -318,7 +322,9 @@ export class AutomationEngineService implements OnModuleDestroy {
           const edge = selectPortEdge(input.definition.edges, node.id, outcome.port);
           if (!edge) {
             if (outcome.port === 'failure') throw new NodeExecutionError('PIXEL_FAILED', outcome.error!.message);
-            throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+            await this.completeStep(executionId, step.id, undefined, context, asJson({ eventName, eventId: step.id, status, endedFlow: true }));
+            await this.succeedExecution(executionId);
+            return 'terminal' as const;
           }
           const nextContext = outcome.error ? setContextPath(context, 'pixel.error', outcome.error) : context;
           await this.completeStep(executionId, step.id, edge.target, nextContext, asJson({ eventName, eventId: step.id, status, ...(outcome.error ? { error: outcome.error.message } : {}) }));
@@ -482,7 +488,9 @@ export class AutomationEngineService implements OnModuleDestroy {
           const edge = selectPortEdge(input.definition.edges, node.id, port);
           if (!edge) {
             if (port === 'failure') throw new NodeExecutionError('AI_FAILED', String(output.reason));
-            throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+            await this.completeStep(executionId, step.id, undefined, nextContext, asJson({ ...output, endedFlow: true }));
+            await this.succeedExecution(executionId);
+            return 'terminal' as const;
           }
           await this.completeStep(executionId, step.id, edge.target, nextContext, asJson(output));
           return { next: edge.target };
@@ -574,7 +582,9 @@ export class AutomationEngineService implements OnModuleDestroy {
         const edge = selectPortEdge(input.definition.edges, node.id, outcome.port);
         if (!edge) {
           if (outcome.port === 'failure') throw new NodeExecutionError('WEBHOOK_FAILED', String(outcome.output.error));
-          throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+          await this.completeStep(executionId, step.id, undefined, outcome.context as EngineContext, asJson({ ...outcome.output, endedFlow: true }));
+          await this.succeedExecution(executionId);
+          return 'terminal';
         }
         await this.completeStep(executionId, step.id, edge.target, outcome.context as EngineContext, asJson(outcome.output));
         return { next: edge.target };
@@ -678,7 +688,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       throw error;
     }
     if (nextNodeId) return { context:stableContext(context), nextNodeId };
-    await this.failExecution(execution.id, 'DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+    await this.succeedExecution(execution.id, context);
     return null;
   }
 
@@ -733,7 +743,7 @@ export class AutomationEngineService implements OnModuleDestroy {
     });
     const edge = selectPortEdge(definition.edges, node.id, 'reply');
     if (edge) return { context: next, nextNodeId: edge.target };
-    await this.failExecution(executionId, 'DEAD_END', `O nó ${node.id} não possui saída de resposta.`);
+    await this.succeedExecution(executionId, next);
     return null;
   }
 
@@ -764,13 +774,14 @@ export class AutomationEngineService implements OnModuleDestroy {
     const edge = selectNextEdge(node, definition.edges, next);
     await this.prisma.executionStep.update({ where: { id: pending.stepId }, data: { status: 'SUCCEEDED', output: asJson({ ...output, selectedEdgeId: edge?.id ?? null }), finishedAt: new Date() } });
     if (edge) return { context: next, nextNodeId: edge.target };
-    if (job.action === 'menu_timeout') {
-      // No inactivity exit wired: the journey simply ends when the menu expires.
-      await this.prisma.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: null, finishedAt: new Date(), context: asJson(next) } });
-    } else {
-      await this.failExecution(executionId, 'DEAD_END', `A opção escolhida no menu ${node.id} não possui saída.`);
-    }
+    // No exit wired for this option or for inactivity: the journey simply ends here.
+    await this.succeedExecution(executionId, next);
     return null;
+  }
+
+  // A block with no exit ends the flow, as in Leona.
+  private async succeedExecution(executionId: string, context?: EngineContext) {
+    await this.prisma.execution.updateMany({ where: { id: executionId, status: { in: ['RUNNING', 'WAITING'] } }, data: { status: 'SUCCEEDED', currentNode: null, finishedAt: new Date(), ...(context ? { context: asJson(context) } : {}) } });
   }
 
   private async failExecution(executionId: string, code: string, message: string) {
