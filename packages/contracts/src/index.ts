@@ -161,7 +161,7 @@ export const AutomationAiConfigSchema=z.object({
     const ids=new Set<string>();
     items.forEach((item,index)=>{if(ids.has(item.id))ctx.addIssue({code:z.ZodIssueCode.custom,path:[index,'id'],message:'O identificador deve ser único.'});ids.add(item.id)});
   }),
-  responseVariable:ContextPathSchema.default('resposta.gpt'),
+  responseVariable:ContextPathSchema.default('ai.response'),
   failReasonVariable:ContextPathSchema.default('ai.fail.reason'),
   autoSendResponse:z.boolean().default(false),
   contextInteractions:z.number().int().min(1).max(20).default(1)

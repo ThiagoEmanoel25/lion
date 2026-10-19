@@ -6,7 +6,7 @@ import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationN
 import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
-import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
@@ -492,7 +492,7 @@ export class AutomationEngineService implements OnModuleDestroy {
         const config = node.config;
         const latest = await this.aiSourceMessage(executionId, step.id, workspaceId, conversationId, context, config);
         let aiContext: EngineContext = { ...context, last_message: aiLastMessage(context, latest) };
-        const responseVariable = typeof config.responseVariable === 'string' && config.responseVariable ? config.responseVariable : 'resposta.gpt';
+        const responseVariable = typeof config.responseVariable === 'string' && config.responseVariable ? config.responseVariable : 'ai.response';
         const failReasonVariable = typeof config.failReasonVariable === 'string' && config.failReasonVariable ? config.failReasonVariable : 'ai.fail.reason';
         const finish = async (port: 'success' | 'failure', nextContext: EngineContext, output: Record<string, unknown>) => {
           const edge = selectPortEdge(input.definition.edges, node.id, port);
@@ -544,7 +544,8 @@ export class AutomationEngineService implements OnModuleDestroy {
           routing: { identifyReceipt: config.identifyReceipt === true, conditionals: smartConditionals }
         });
         if (!result.ok) return fail(result.reason);
-        aiContext = setContextPath(aiContext, responseVariable, result.text);
+        // ai.response is the stable contract; imported flows may also keep a legacy path.
+        aiContext = setAiResponseContext(aiContext, responseVariable, result.text);
         const routeId = result.receiptValid ? 'receipt_valid' : result.routeId;
         aiContext = setContextPath(aiContext, 'ai.route', routeId);
         aiContext = setContextPath(aiContext, 'ai.receiptValid', result.receiptValid);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conditionMatches, getPathValue, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, type AutomationNode, type AutomationEdge } from './routing.js';
+import { conditionMatches, getPathValue, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, setAiResponseContext, type AutomationNode, type AutomationEdge } from './routing.js';
 
 describe('automation routing', () => {
   it('resolve caminhos aninhados e operadores', () => {
@@ -37,6 +37,15 @@ describe('automation routing', () => {
   it('interpola dados sem executar expressões', () => {
     expect(renderTemplate('Olá {{ contact.name }}, protocolo {{id}}', { contact: { name: 'Ana' }, id: 42 })).toBe('Olá Ana, protocolo 42');
     expect(renderTemplate('{{missing}}', {})).toBe('');
+  });
+
+  it('salva a resposta da IA no contrato estável e na variável personalizada', () => {
+    expect(setAiResponseContext({ contact: { name: 'Ana' } }, 'resposta.gpt', 'Tudo certo')).toEqual({
+      contact: { name: 'Ana' },
+      ai: { response: 'Tudo certo' },
+      resposta: { gpt: 'Tudo certo' }
+    });
+    expect(setAiResponseContext({}, 'ai.response', 'Olá')).toEqual({ ai: { response: 'Olá' } });
   });
 
   describe('menu', () => {
