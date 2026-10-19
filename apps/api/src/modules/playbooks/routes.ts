@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import {
@@ -21,6 +20,7 @@ import { assertWorkspaceQuota } from '../billing/service.js';
 import { kanbanReferenceIssues } from '../kanban/validation.js';
 import { pixelReferenceIssues } from '../pixels/validation.js';
 import {IntegrationUrlBlockedError,integrationTestRateLimit,testIntegrationRequest} from './integration-test.js';
+import { definitionChecksum } from './checksum.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
@@ -44,7 +44,7 @@ const templates: Record<'qualification' | 'reactivation' | 'support', Automation
   })
 };
 
-const checksum = (definition: unknown) => createHash('sha256').update(JSON.stringify(definition)).digest('hex');
+const checksum = definitionChecksum;
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 const blockCount = (definition: unknown) => { const nodes = (definition as { nodes?: unknown } | null | undefined)?.nodes; return Array.isArray(nodes) ? nodes.length : 0; };
 async function uniqueFolderName<T>(write: () => Promise<T>) {
@@ -232,7 +232,12 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       if (!latest || latest.version !== input.expectedVersion) throw new DomainError('VERSION_CONFLICT', 'Somente a versão mais recente pode ser publicada.', 409, { currentVersion: latest?.version ?? 0 });
       const validation = await validateForWorkspace(tx,request.auth.workspaceId,latest.definition);
       if (!validation.valid) throw new DomainError('INVALID_AUTOMATION', 'A versão possui erros e não pode ser publicada.', 422, validation.issues);
-      if (latest.checksum !== checksum(validation.definition)) throw new DomainError('CHECKSUM_MISMATCH', 'A integridade da versão não pôde ser confirmada.', 409);
+      const persistedChecksum = checksum(latest.definition);
+      const validatedChecksum = checksum(validation.definition);
+      if (persistedChecksum !== validatedChecksum) throw new DomainError('CHECKSUM_MISMATCH', 'A integridade da versão não pôde ser confirmada.', 409);
+      // Versions created before canonical checksums used JSON.stringify directly.
+      // Repair them lazily after proving that validation preserved the definition.
+      if (latest.checksum !== persistedChecksum) await tx.playbookVersion.update({ where: { id: latest.id }, data: { checksum: persistedChecksum } });
       if (playbook.activeVersionId === latest.id && playbook.status === 'PUBLISHED') return playbook;
       if (playbook.activeVersionId !== latest.id) await tx.playbookVersion.update({ where: { id: latest.id }, data: { publishedAt: new Date() } });
       const published = await tx.playbook.update({ where: { id }, data: { activeVersionId: latest.id, status: 'PUBLISHED' }, include: { activeVersion: true } });

@@ -14,12 +14,14 @@ enum MembershipRole {
   AGENT
   VIEWER
 }
+
 enum ChannelStatus {
   PENDING
   CONNECTED
   DEGRADED
   DISCONNECTED
 }
+
 enum ConversationStatus {
   NEW
   AUTOMATED
@@ -28,15 +30,18 @@ enum ConversationStatus {
   ASSIGNED
   RESOLVED
 }
+
 enum ConversationMode {
   AI
   HUMAN
   PAUSED
 }
+
 enum MessageDirection {
   INBOUND
   OUTBOUND
 }
+
 enum MessageType {
   TEXT
   IMAGE
@@ -47,6 +52,7 @@ enum MessageType {
   SYSTEM
   NOTE
 }
+
 enum MessageStatus {
   PENDING
   QUEUED
@@ -55,12 +61,14 @@ enum MessageStatus {
   READ
   FAILED
 }
+
 enum PlaybookStatus {
   DRAFT
   PUBLISHED
   PAUSED
   ARCHIVED
 }
+
 enum ExecutionStatus {
   RUNNING
   WAITING
@@ -68,12 +76,14 @@ enum ExecutionStatus {
   FAILED
   CANCELLED
 }
+
 enum KnowledgeStatus {
   PENDING
   INDEXING
   READY
   FAILED
 }
+
 enum WebhookStatus {
   RECEIVED
   PROCESSING
@@ -81,6 +91,7 @@ enum WebhookStatus {
   FAILED
   DEAD
 }
+
 enum OutcomeType {
   QUALIFIED
   APPOINTMENT
@@ -91,96 +102,100 @@ enum OutcomeType {
 }
 
 model Workspace {
-  id           String   @id @default(cuid())
-  name         String
-  slug         String   @unique
-  timezone     String   @default("America/Bahia")
-  locale       String   @default("pt-BR")
-  settings     Json     @default("{}")
-  openaiApiKeyEncrypted String?
-  openaiApiKeyLast4     String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  memberships  Membership[]
-  channels     Channel[]
-  contacts     Contact[]
-  tags         Tag[]
-  conversations Conversation[]
-  playbooks    Playbook[]
-  knowledgeSources KnowledgeSource[]
-  usageRecords UsageRecord[]
-  auditLogs    AuditLog[]
-  subscriptions Subscription[]
-  departments Department[]
-  invites      WorkspaceInvite[]
-  aiAgents      AiAgent[]
+  id                      String                   @id @default(cuid())
+  name                    String
+  slug                    String                   @unique
+  timezone                String                   @default("America/Bahia")
+  locale                  String                   @default("pt-BR")
+  settings                Json                     @default("{}")
+  openaiApiKeyEncrypted   String?
+  openaiApiKeyLast4       String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  memberships             Membership[]
+  channels                Channel[]
+  contacts                Contact[]
+  tags                    Tag[]
+  conversations           Conversation[]
+  playbooks               Playbook[]
+  knowledgeSources        KnowledgeSource[]
+  usageRecords            UsageRecord[]
+  auditLogs               AuditLog[]
+  subscriptions           Subscription[]
+  departments             Department[]
+  invites                 WorkspaceInvite[]
+  aiAgents                AiAgent[]
   inboundWebhookEndpoints InboundWebhookEndpoint[]
-  kanbanBoards KanbanBoard[]
-  flowImportSessions FlowImportSession[]
-  flowShareCodes FlowShareCode[]
-  metaPixels   MetaPixel[]
-  playbookFolders PlaybookFolder[]
+  kanbanBoards            KanbanBoard[]
+  flowImportSessions      FlowImportSession[]
+  flowShareCodes          FlowShareCode[]
+  metaPixels              MetaPixel[]
+  playbookFolders         PlaybookFolder[]
+  playbookAssets          PlaybookAsset[]
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  passwordHash String
-  isActive     Boolean  @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  memberships  Membership[]
-  sessions     Session[]
-  assignedConversations Conversation[] @relation("ConversationAssignee")
-  ownedContacts Contact[] @relation("ContactOwner")
+  id                        String              @id @default(cuid())
+  email                     String              @unique
+  name                      String
+  passwordHash              String
+  isActive                  Boolean             @default(true)
+  lastLoginAt               DateTime?
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+  memberships               Membership[]
+  sessions                  Session[]
+  assignedConversations     Conversation[]      @relation("ConversationAssignee")
+  ownedContacts             Contact[]           @relation("ContactOwner")
   createdFlowImportSessions FlowImportSession[] @relation("FlowImportCreatedBy")
-  createdFlowShareCodes FlowShareCode[] @relation("FlowShareCreatedBy")
+  createdFlowShareCodes     FlowShareCode[]     @relation("FlowShareCreatedBy")
 }
 
 model Membership {
-  id          String @id @default(cuid())
+  id          String             @id @default(cuid())
   workspaceId String
   userId      String
   role        MembershipRole
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   departments DepartmentMember[]
+
   @@unique([workspaceId, userId])
   @@index([userId])
 }
 
 model WorkspaceInvite {
-  id          String @id @default(cuid())
+  id          String         @id @default(cuid())
   workspaceId String
   email       String
   name        String?
   role        MembershipRole
-  tokenHash   String @unique
-  status      String @default("PENDING")
+  tokenHash   String         @unique
+  status      String         @default("PENDING")
   expiresAt   DateTime
   acceptedAt  DateTime?
   createdById String
-  createdAt   DateTime @default(now())
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime       @default(now())
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, status, createdAt])
   @@index([workspaceId, email])
 }
 
 model Department {
-  id          String @id @default(cuid())
+  id          String             @id @default(cuid())
   workspaceId String
   name        String
   description String?
-  color       String @default("#17765b")
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  color       String             @default("#17765b")
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members     DepartmentMember[]
+
   @@unique([workspaceId, name])
   @@index([workspaceId, isActive])
 }
@@ -188,54 +203,57 @@ model Department {
 model DepartmentMember {
   departmentId String
   membershipId String
-  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
   @@id([departmentId, membershipId])
   @@index([membershipId])
 }
 
 model Session {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, expiresAt])
 }
 
 model Channel {
-  id              String @id @default(cuid())
-  workspaceId     String
-  activePlaybookId String?
-  provider        String @default("meta")
-  displayName     String
-  phoneNumber     String
-  externalAccountId String?
-  externalPhoneId String? @unique
-  encryptedCredentials String?
-  status          ChannelStatus @default(PENDING)
-  lastInboundAt   DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  activePlaybook  Playbook? @relation("ChannelActivePlaybook", fields: [activePlaybookId], references: [id], onDelete: SetNull)
-  conversations   Conversation[]
-  webhookEvents   RawWebhookEvent[]
-  whatsappAuth    WhatsAppAuthState?
-  whatsappKeys    WhatsAppAuthKey[]
+  id                      String                   @id @default(cuid())
+  workspaceId             String
+  activePlaybookId        String?
+  provider                String                   @default("meta")
+  displayName             String
+  phoneNumber             String
+  externalAccountId       String?
+  externalPhoneId         String?                  @unique
+  encryptedCredentials    String?
+  status                  ChannelStatus            @default(PENDING)
+  lastInboundAt           DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  workspace               Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  activePlaybook          Playbook?                @relation("ChannelActivePlaybook", fields: [activePlaybookId], references: [id], onDelete: SetNull)
+  conversations           Conversation[]
+  webhookEvents           RawWebhookEvent[]
+  whatsappAuth            WhatsAppAuthState?
+  whatsappKeys            WhatsAppAuthKey[]
   inboundWebhookEndpoints InboundWebhookEndpoint[]
+
   @@index([workspaceId, status])
   @@index([workspaceId, activePlaybookId])
 }
 
 model WhatsAppAuthState {
-  channelId       String   @id
-  encryptedCreds  String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  channel         Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId      String   @id
+  encryptedCreds String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  channel        Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
 }
 
 model WhatsAppAuthKey {
@@ -246,78 +264,83 @@ model WhatsAppAuthKey {
   encryptedValue String
   updatedAt      DateTime @updatedAt
   channel        Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
   @@unique([channelId, category, keyId])
   @@index([channelId, category])
 }
 
 model Contact {
-  id          String @id @default(cuid())
-  workspaceId String
-  ownerId     String?
-  externalRef String?
-  name        String?
-  phone       String
-  email       String?
-  source      String?
-  stage       String @default("new")
-  customFields Json @default("{}")
-  consentAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  owner       User? @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  conversations Conversation[]
-  tags        ContactTag[]
-  outcomes    Outcome[]
-  kanbanCards KanbanCard[]
+  id                     String                      @id @default(cuid())
+  workspaceId            String
+  ownerId                String?
+  externalRef            String?
+  name                   String?
+  phone                  String
+  email                  String?
+  source                 String?
+  stage                  String                      @default("new")
+  customFields           Json                        @default("{}")
+  consentAt              DateTime?
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  workspace              Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner                  User?                       @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  conversations          Conversation[]
+  tags                   ContactTag[]
+  outcomes               Outcome[]
+  kanbanCards            KanbanCard[]
   distributorAssignments FlowDistributorAssignment[]
+
   @@unique([workspaceId, phone])
   @@index([workspaceId, stage, updatedAt])
   @@index([workspaceId, ownerId, updatedAt])
 }
 
 model Tag {
-  id          String @id @default(cuid())
+  id          String       @id @default(cuid())
   workspaceId String
   name        String
-  color       String @default("#17765b")
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  color       String       @default("#17765b")
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contacts    ContactTag[]
+
   @@unique([workspaceId, name])
 }
 
 model ContactTag {
   contactId String
   tagId     String
-  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  tag     Tag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
   @@id([contactId, tagId])
 }
 
 model Conversation {
-  id          String @id @default(cuid())
-  workspaceId String
-  channelId   String
-  contactId   String
-  assigneeId  String?
-  status      ConversationStatus @default(NEW)
-  mode        ConversationMode @default(AI)
-  queue       String?
-  unreadCount Int @default(0)
-  summary     String?
-  metadata    Json @default("{}")
+  id              String             @id @default(cuid())
+  workspaceId     String
+  channelId       String
+  contactId       String
+  assigneeId      String?
+  status          ConversationStatus @default(NEW)
+  mode            ConversationMode   @default(AI)
+  queue           String?
+  unreadCount     Int                @default(0)
+  summary         String?
+  metadata        Json               @default("{}")
   firstResponseAt DateTime?
-  resolvedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  channel     Channel @relation(fields: [channelId], references: [id])
-  contact     Contact @relation(fields: [contactId], references: [id])
-  assignee    User? @relation("ConversationAssignee", fields: [assigneeId], references: [id])
-  messages    Message[]
-  executions  Execution[]
-  outcomes    Outcome[]
-  kanbanCards KanbanCard[]
+  resolvedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel         Channel            @relation(fields: [channelId], references: [id])
+  contact         Contact            @relation(fields: [contactId], references: [id])
+  assignee        User?              @relation("ConversationAssignee", fields: [assigneeId], references: [id])
+  messages        Message[]
+  executions      Execution[]
+  outcomes        Outcome[]
+  kanbanCards     KanbanCard[]
+
   @@index([workspaceId, status, updatedAt])
   @@index([workspaceId, assigneeId, status])
 }
@@ -332,87 +355,105 @@ model MessageMedia {
   data        Bytes?
   createdAt   DateTime @default(now())
   message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
   @@index([createdAt])
 }
 
+model PlaybookAsset {
+  id          String    @id @default(cuid())
+  workspaceId String
+  fileName    String
+  contentType String
+  size        Int
+  data        Bytes
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
 model Message {
-  id             String @id @default(cuid())
-  workspaceId    String
-  conversationId String
-  externalId     String?
+  id              String           @id @default(cuid())
+  workspaceId     String
+  conversationId  String
+  externalId      String?
   clientRequestId String?
-  direction      MessageDirection
-  type           MessageType @default(TEXT)
-  status         MessageStatus @default(PENDING)
-  body           String?
-  mediaUrl       String?
-  authorType     String
-  authorId       String?
-  replyToId      String?
+  direction       MessageDirection
+  type            MessageType      @default(TEXT)
+  status          MessageStatus    @default(PENDING)
+  body            String?
+  mediaUrl        String?
+  authorType      String
+  authorId        String?
+  replyToId       String?
   providerPayload Json?
-  errorCode      String?
-  sentAt         DateTime?
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  createdAt      DateTime @default(now())
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  media          MessageMedia?
+  errorCode       String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  createdAt       DateTime         @default(now())
+  conversation    Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  media           MessageMedia?
+
   @@unique([workspaceId, externalId])
   @@unique([workspaceId, clientRequestId])
   @@index([workspaceId, conversationId, createdAt])
 }
 
 model Playbook {
-  id          String @id @default(cuid())
-  workspaceId String
-  name        String
-  description String?
-  status      PlaybookStatus @default(DRAFT)
-  importSource Json?
-  folderId    String?
-  activeVersionId String? @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  versions    PlaybookVersion[] @relation("PlaybookVersions")
-  activeVersion PlaybookVersion? @relation("ActivePlaybookVersion", fields: [activeVersionId], references: [id])
-  channels      Channel[] @relation("ChannelActivePlaybook")
+  id                      String                      @id @default(cuid())
+  workspaceId             String
+  name                    String
+  description             String?
+  status                  PlaybookStatus              @default(DRAFT)
+  importSource            Json?
+  folderId                String?
+  activeVersionId         String?                     @unique
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+  workspace               Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions                PlaybookVersion[]           @relation("PlaybookVersions")
+  activeVersion           PlaybookVersion?            @relation("ActivePlaybookVersion", fields: [activeVersionId], references: [id])
+  channels                Channel[]                   @relation("ChannelActivePlaybook")
   inboundWebhookEndpoints InboundWebhookEndpoint[]
-  importSessions FlowImportSession[]
-  shareCodes FlowShareCode[]
-  distributorCounts FlowDistributorCount[]
-  distributorAssignments FlowDistributorAssignment[]
-  folder      PlaybookFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  importSessions          FlowImportSession[]
+  shareCodes              FlowShareCode[]
+  distributorCounts       FlowDistributorCount[]
+  distributorAssignments  FlowDistributorAssignment[]
+  folder                  PlaybookFolder?             @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
   @@index([workspaceId, status])
   @@index([folderId])
 }
 
 model PlaybookFolder {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   workspaceId String
   name        String
   position    Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   playbooks   Playbook[]
+
   @@unique([workspaceId, name])
 }
 
 model FlowDistributorCount {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   playbookId String
   nodeId     String
   outputId   String
-  count      Int @default(0)
+  count      Int      @default(0)
   updatedAt  DateTime @updatedAt
   playbook   Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
   @@unique([playbookId, nodeId, outputId])
   @@index([playbookId, nodeId])
 }
 
 model FlowDistributorAssignment {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   playbookId String
   nodeId     String
   contactId  String
@@ -420,48 +461,51 @@ model FlowDistributorAssignment {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   playbook   Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
-  contact    Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact    Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
   @@unique([playbookId, nodeId, contactId])
   @@index([playbookId, nodeId, outputId])
 }
 
 model PlaybookVersion {
-  id          String @id @default(cuid())
+  id          String      @id @default(cuid())
   playbookId  String
   version     Int
   definition  Json
   checksum    String
   publishedAt DateTime?
   createdById String
-  createdAt   DateTime @default(now())
-  playbook    Playbook @relation("PlaybookVersions", fields: [playbookId], references: [id], onDelete: Cascade)
-  activeFor   Playbook? @relation("ActivePlaybookVersion")
+  createdAt   DateTime    @default(now())
+  playbook    Playbook    @relation("PlaybookVersions", fields: [playbookId], references: [id], onDelete: Cascade)
+  activeFor   Playbook?   @relation("ActivePlaybookVersion")
   executions  Execution[]
+
   @@unique([playbookId, version])
 }
 
 model FlowImportSession {
-  id          String   @id @default(cuid())
-  code        String   @unique
+  id          String    @id @default(cuid())
+  code        String    @unique
   workspaceId String
   createdById String
-  source      String   @default("leona")
-  status      String   @default("WAITING")
+  source      String    @default("leona")
+  status      String    @default("WAITING")
   playbookId  String?
   report      Json?
   expiresAt   DateTime
   usedAt      DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy   User @relation("FlowImportCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("FlowImportCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   playbook    Playbook? @relation(fields: [playbookId], references: [id], onDelete: SetNull)
+
   @@index([workspaceId, createdAt])
   @@index([expiresAt, status])
 }
 
 model FlowShareCode {
-  id          String   @id @default(cuid())
-  code        String   @unique
+  id          String    @id @default(cuid())
+  code        String    @unique
   workspaceId String
   playbookId  String
   createdById String
@@ -470,32 +514,34 @@ model FlowShareCode {
   report      Json
   expiresAt   DateTime
   revokedAt   DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  playbook    Playbook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
-  createdBy   User @relation("FlowShareCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  playbook    Playbook  @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("FlowShareCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, playbookId, createdAt])
   @@index([expiresAt, revokedAt])
 }
 
 model Execution {
-  id                String @id @default(cuid())
+  id                String          @id @default(cuid())
   workspaceId       String
   conversationId    String
   playbookVersionId String
   status            ExecutionStatus @default(RUNNING)
   currentNode       String?
-  context           Json @default("{}")
-  startedAt         DateTime @default(now())
+  context           Json            @default("{}")
+  startedAt         DateTime        @default(now())
   finishedAt        DateTime?
-  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation      Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   playbookVersion   PlaybookVersion @relation(fields: [playbookVersionId], references: [id])
   steps             ExecutionStep[]
+
   @@index([workspaceId, conversationId, startedAt])
 }
 
 model ExecutionStep {
-  id          String @id @default(cuid())
+  id          String          @id @default(cuid())
   executionId String
   nodeId      String
   kind        String
@@ -504,90 +550,96 @@ model ExecutionStep {
   output      Json?
   reason      String?
   durationMs  Int?
-  costCents   Int @default(0)
-  startedAt   DateTime @default(now())
+  costCents   Int             @default(0)
+  startedAt   DateTime        @default(now())
   finishedAt  DateTime?
-  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  execution   Execution       @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
   @@index([executionId, startedAt])
 }
 
 model KnowledgeSource {
-  id          String @id @default(cuid())
+  id          String                 @id @default(cuid())
   workspaceId String
   name        String
   kind        String
   uri         String?
   contentHash String?
-  status      KnowledgeStatus @default(PENDING)
+  status      KnowledgeStatus        @default(PENDING)
   error       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   chunks      KnowledgeChunk[]
   agents      AgentKnowledgeSource[]
+
   @@index([workspaceId, status])
 }
 
 model AiAgent {
-  id                  String   @id @default(cuid())
+  id                  String                 @id @default(cuid())
   workspaceId         String
   name                String
   description         String?
-  provider            String   @default("openai")
+  provider            String                 @default("openai")
   model               String
   objective           String
   systemPrompt        String
-  tone                String   @default("professional")
-  confidenceThreshold Float    @default(0.7)
+  tone                String                 @default("professional")
+  confidenceThreshold Float                  @default(0.7)
   handoffMessage      String
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  isActive            Boolean                @default(true)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  workspace           Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   knowledgeSources    AgentKnowledgeSource[]
+
   @@index([workspaceId, isActive, updatedAt])
 }
 
 model AgentKnowledgeSource {
   agentId  String
   sourceId String
-  agent    AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent    AiAgent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
   source   KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
   @@id([agentId, sourceId])
   @@index([sourceId])
 }
 
 model KnowledgeChunk {
-  id          String @id @default(cuid())
+  id          String                       @id @default(cuid())
   workspaceId String
   sourceId    String
   ordinal     Int
   content     String
-  metadata    Json @default("{}")
+  metadata    Json                         @default("{}")
   embedding   Unsupported("vector(1536)")?
-  source      KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source      KnowledgeSource              @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
   @@unique([sourceId, ordinal])
   @@index([workspaceId, sourceId])
 }
 
 model RawWebhookEvent {
-  id          String @id @default(cuid())
-  workspaceId String?
-  channelId   String?
-  provider    String
-  externalId  String
-  signature   String?
-  payload     Json
-  status      WebhookStatus @default(RECEIVED)
-  attempts    Int @default(0)
-  error       String?
-  receivedAt  DateTime @default(now())
-  processedAt DateTime?
+  id                String                  @id @default(cuid())
+  workspaceId       String?
+  channelId         String?
+  provider          String
+  externalId        String
+  signature         String?
+  payload           Json
+  status            WebhookStatus           @default(RECEIVED)
+  attempts          Int                     @default(0)
+  error             String?
+  receivedAt        DateTime                @default(now())
+  processedAt       DateTime?
   webhookEndpointId String?
-  replayedFromId String?
-  executionId String?
-  channel     Channel? @relation(fields: [channelId], references: [id])
-  webhookEndpoint InboundWebhookEndpoint? @relation(fields: [webhookEndpointId], references: [id], onDelete: SetNull)
+  replayedFromId    String?
+  executionId       String?
+  channel           Channel?                @relation(fields: [channelId], references: [id])
+  webhookEndpoint   InboundWebhookEndpoint? @relation(fields: [webhookEndpointId], references: [id], onDelete: SetNull)
+
   @@unique([provider, externalId])
   @@unique([webhookEndpointId, externalId])
   @@index([status, receivedAt])
@@ -595,153 +647,162 @@ model RawWebhookEvent {
 }
 
 model InboundWebhookEndpoint {
-  id              String   @id @default(cuid())
+  id              String            @id @default(cuid())
   workspaceId     String
   playbookId      String
   channelId       String
-  publicId        String   @unique
+  publicId        String            @unique
   name            String
   encryptedSecret String
   secretHint      String
   mapping         Json
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  playbook        Playbook @relation(fields: [playbookId], references: [id], onDelete: Restrict)
-  channel         Channel @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  playbook        Playbook          @relation(fields: [playbookId], references: [id], onDelete: Restrict)
+  channel         Channel           @relation(fields: [channelId], references: [id], onDelete: Restrict)
   events          RawWebhookEvent[]
+
   @@index([workspaceId, isActive])
   @@index([playbookId])
   @@index([channelId])
 }
 
 model OutboxEvent {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   aggregate   String
   aggregateId String
   type        String
   payload     Json
-  attempts    Int @default(0)
-  availableAt DateTime @default(now())
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now())
   processedAt DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
+
   @@index([processedAt, availableAt])
   @@index([workspaceId, aggregate, aggregateId])
 }
 
 model Outcome {
-  id             String @id @default(cuid())
+  id             String       @id @default(cuid())
   workspaceId    String
   conversationId String
   contactId      String
   type           OutcomeType
   valueCents     Int?
-  metadata       Json @default("{}")
-  occurredAt     DateTime @default(now())
+  metadata       Json         @default("{}")
+  occurredAt     DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id])
-  contact        Contact @relation(fields: [contactId], references: [id])
+  contact        Contact      @relation(fields: [contactId], references: [id])
+
   @@index([workspaceId, type, occurredAt])
 }
 
 model KanbanBoard {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   workspaceId String
   name        String
-  position    Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  position    Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   columns     KanbanColumn[]
   cards       KanbanCard[]
+
   @@unique([workspaceId, name])
   @@index([workspaceId, position])
 }
 
 model KanbanColumn {
-  id        String   @id @default(cuid())
-  boardId   String
-  name      String
-  color     String   @default("#17765b")
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  board     KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  cards     KanbanCard[]
+  id         String            @id @default(cuid())
+  boardId    String
+  name       String
+  color      String            @default("#17765b")
+  position   Int               @default(0)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  board      KanbanBoard       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards      KanbanCard[]
   eventsFrom KanbanCardEvent[] @relation("KanbanEventFrom")
   eventsTo   KanbanCardEvent[] @relation("KanbanEventTo")
+
   @@unique([boardId, name])
   @@index([boardId, position])
 }
 
 model KanbanCard {
-  id             String   @id @default(cuid())
+  id             String            @id @default(cuid())
   boardId        String
   columnId       String
   contactId      String
   conversationId String?
-  position       Int      @default(0)
-  movedAt        DateTime @default(now())
+  position       Int               @default(0)
+  movedAt        DateTime          @default(now())
   movedByType    String
   movedById      String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  board          KanbanBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  column         KanbanColumn @relation(fields: [columnId], references: [id], onDelete: Restrict)
-  contact        Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  board          KanbanBoard       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  column         KanbanColumn      @relation(fields: [columnId], references: [id], onDelete: Restrict)
+  contact        Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation   Conversation?     @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   events         KanbanCardEvent[]
+
   @@unique([boardId, contactId])
   @@index([columnId, position])
   @@index([conversationId])
 }
 
 model KanbanCardEvent {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   cardId       String
   fromColumnId String?
   toColumnId   String?
   movedByType  String
   movedById    String
-  createdAt    DateTime @default(now())
-  card         KanbanCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now())
+  card         KanbanCard    @relation(fields: [cardId], references: [id], onDelete: Cascade)
   fromColumn   KanbanColumn? @relation("KanbanEventFrom", fields: [fromColumnId], references: [id], onDelete: SetNull)
   toColumn     KanbanColumn? @relation("KanbanEventTo", fields: [toColumnId], references: [id], onDelete: SetNull)
+
   @@index([cardId, createdAt])
   @@index([toColumnId, createdAt])
 }
 
 model UsageRecord {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   kind        String
-  quantity    Decimal @db.Decimal(18, 6)
+  quantity    Decimal   @db.Decimal(18, 6)
   unit        String
   costCents   Int
   provider    String?
   referenceId String?
-  occurredAt  DateTime @default(now())
+  occurredAt  DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, kind, occurredAt])
 }
 
 model Subscription {
-  id          String @id @default(cuid())
-  workspaceId String
-  provider    String
-  externalId  String? @unique
-  plan        String
-  status      String
-  limits      Json
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  provider           String
+  externalId         String?   @unique
+  plan               String
+  status             String
+  limits             Json
   currentPeriodStart DateTime
-  currentPeriodEnd DateTime
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentPeriodEnd   DateTime
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, status])
 }
 
 model AuditLog {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workspaceId String
   actorId     String?
   action      String
@@ -750,14 +811,15 @@ model AuditLog {
   ip          String?
   userAgent   String?
   changes     Json?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action])
 }
 
 model MetaPixel {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   workspaceId          String
   name                 String
   pixelId              String
@@ -765,8 +827,9 @@ model MetaPixel {
   accessTokenLast4     String
   pageId               String?
   testEventCode        String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
   workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([workspaceId, name])
 }
