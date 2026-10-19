@@ -443,4 +443,12 @@ describe('pixel', () => {
     expect(validateAutomation(make({ pixelId: pid, eventName: 'Lead' }, [{ id: 'p1', source: 'px', target: 'done', port: 'reply' }])).issues.map(i => i.code)).toContain('EDGE_PORT_INVALID');
     expect(validateAutomation(make({ pixelId: pid, eventName: 'Purchase' })).issues.map(i => i.code)).toContain('INVALID_PIXEL_CONFIG');
   });
+  it('aceita mensagem antes de aguardar a resposta', () => {
+    const definition = structuredClone(validDefinition);
+    definition.nodes[2] = { id: 'yes', kind: 'wait_response', name: 'Aguarda', config: { timeoutValue: 20, timeoutUnit: 'minutes', message: 'Qual é o seu nome?' }, position: { x: 200, y: -50 } } as never;
+    definition.edges[3] = { id: 'e4', source: 'yes', target: 'done', port: 'reply' } as never;
+    const result = validateAutomation(definition);
+    expect(result.issues.filter(issue => issue.level === 'error')).toEqual([]);
+    expect(result.definition?.nodes[2]?.config.message).toBe('Qual é o seu nome?');
+  });
 });
