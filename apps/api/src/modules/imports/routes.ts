@@ -1,4 +1,4 @@
-import {createHash,randomBytes} from 'node:crypto';
+import {randomBytes} from 'node:crypto';
 import type {FastifyInstance,FastifyPluginAsync} from 'fastify';
 import type {Prisma,PrismaClient} from '@prisma/client';
 import {AutomationDefinitionSchema,ImportNexoShareInput,LEONA_IMPORT_CODE_TTL_SECONDS,LEONA_IMPORT_MAX_BYTES,LeonaImportPayloadSchema,NEXO_SHARE_CODE_TTL_DAYS} from '@nexo/contracts';
@@ -6,10 +6,11 @@ import {DomainError} from '@nexo/domain';
 import {audit} from '../../core/audit.js';
 import {convertLeonaFlow,importedNodeId,redactDefinitionSecrets,type ImportReport} from './converter.js';
 import {validateAutomation,type AutomationIssue} from '../playbooks/compiler.js';
+import {definitionChecksum} from '../playbooks/checksum.js';
 
 const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const json=(value:unknown)=>value as Prisma.InputJsonValue;
-const checksum=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const checksum=definitionChecksum;
 const code=(length:number)=>Array.from(randomBytes(length),byte=>alphabet[byte%alphabet.length]).join('');
 const totals=(items:ImportReport['items'])=>({converted:items.filter(item=>item.status==='converted').length,adjusted:items.filter(item=>item.status==='adjusted').length,pending:items.filter(item=>item.status==='pending').length});
 const importGuidance='Para resolver os saltos automaticamente, importe os funis do último para o primeiro (por exemplo: 05 → 01).';
