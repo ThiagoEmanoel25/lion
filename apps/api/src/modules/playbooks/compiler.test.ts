@@ -114,6 +114,26 @@ describe('validateAutomation', () => {
     expect(simulateAutomation(validation.definition, { contact: { stage: 'qualified', tags: ['vip'] } }).path).toEqual(['start', 'condition', 'yes', 'done']);
     expect(simulateAutomation(validation.definition, { contact: { stage: 'qualified', tags: [] } }).path).toEqual(['start', 'condition', 'human']);
   });
+
+  it('aceita condição com uma saída só: o caminho sem conexão encerra o fluxo', () => {
+    const definition = structuredClone(validDefinition);
+    definition.nodes[1]!.config = { logic: 'all', rules: [{ field: 'contact.stage', operator: 'equals', value: 'qualified' }] } as never;
+    definition.edges = definition.edges.filter(edge => edge.id !== 'e3');
+    definition.nodes = definition.nodes.filter(node => node.id !== 'human');
+    const validation = validateAutomation(definition);
+    expect(validation.valid).toBe(true);
+    expect(validation.issues.map(issue => [issue.level, issue.code])).toEqual([['warning', 'CONDITION_ENDS_FLOW']]);
+    if (!validation.definition) throw new Error('fixture inválida');
+    const simulation = simulateAutomation(validation.definition, { contact: { stage: 'lead' } });
+    expect(simulation.path).toEqual(['start', 'condition']);
+    expect(simulation.stoppedBecause).toBe('completed');
+  });
+
+  it('rejeita condição com duas saídas “Caso contrário”', () => {
+    const definition = structuredClone(validDefinition);
+    definition.edges.push({ id: 'e5', source: 'condition', target: 'done', isDefault: true } as never);
+    expect(validateAutomation(definition).issues.map(issue => issue.code)).toContain('CONDITION_DEFAULT_REQUIRED');
+  });
 });
 
 describe('simulateAutomation', () => {

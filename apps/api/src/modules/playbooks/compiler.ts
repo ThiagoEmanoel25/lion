@@ -193,7 +193,7 @@ export function validateAutomation(value: unknown) {
   for (const node of definition.nodes) {
     const edges = outgoing.get(node.id) ?? [];
     if (terminalKinds.has(node.kind) && edges.length) issues.push({ level: 'error', code: 'TERMINAL_HAS_OUTPUT', message: 'Nós finais não podem ter conexões de saída.', nodeId: node.id });
-    if (!terminalKinds.has(node.kind) && edges.length === 0) issues.push({ level: 'error', code: 'MISSING_OUTPUT', message: 'O nó precisa de uma conexão de saída.', nodeId: node.id });
+    if (!terminalKinds.has(node.kind) && node.kind !== 'condition' && edges.length === 0) issues.push({ level: 'error', code: 'MISSING_OUTPUT', message: 'O nó precisa de uma conexão de saída.', nodeId: node.id });
     const ports = nodePorts(node.kind);
     const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
     if (node.kind !== 'condition' && node.kind !== 'distributor' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus, distribuidores e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
@@ -206,12 +206,16 @@ export function validateAutomation(value: unknown) {
     } else issues.push(...portIssues(node, edges, ports));
     if (node.kind === 'wait_response' && node.config.waitIndefinitely === true) for (const edge of edges) if (edgePort(edge) === 'timeout') issues.push({ level: 'error', code: 'TIMEOUT_ROUTE_INVALID', message: 'Sem tempo limite, o bloco não tem saída de timeout.', nodeId: node.id, edgeId: edge.id });
     if (node.kind === 'condition') {
-      if (edges.length < 2) issues.push({ level: 'error', code: 'CONDITION_BRANCHES_REQUIRED', message: 'A condição precisa de ao menos duas saídas.', nodeId: node.id });
-      if (edges.filter(edge => edge.isDefault).length !== 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição precisa de exatamente uma saída padrão.', nodeId: node.id });
+      // An unconnected branch ends the flow; only duplicated branches are errors.
+      const defaults = edges.filter(edge => edge.isDefault).length;
       const conditional = edges.filter(edge => !edge.isDefault);
       const usesNodeRules = Array.isArray(node.config.rules);
+      if (defaults > 1) issues.push({ level: 'error', code: 'CONDITION_DEFAULT_REQUIRED', message: 'A condição pode ter só uma saída “Caso contrário”.', nodeId: node.id });
+      if (!edges.length) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'A condição não tem saídas: o fluxo é encerrado aqui.', nodeId: node.id });
+      else if (!defaults) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'Sem saída “Caso contrário”: quando a condição não for atendida, o fluxo é encerrado.', nodeId: node.id });
+      else if (!conditional.length) issues.push({ level: 'warning', code: 'CONDITION_ENDS_FLOW', message: 'Sem saída “Condição atendida”: quando a condição for atendida, o fluxo é encerrado.', nodeId: node.id });
       if (!usesNodeRules && conditional.some(edge => !edge.condition)) issues.push({ level: 'error', code: 'BRANCH_CONDITION_REQUIRED', message: 'Toda saída não padrão precisa de uma condição.', nodeId: node.id });
-      if (usesNodeRules && conditional.length !== 1) issues.push({ level: 'error', code: 'CONDITION_SUCCESS_ROUTE_REQUIRED', message: 'A condicional configurada no bloco precisa de uma saída atendida e uma saída padrão.', nodeId: node.id });
+      if (usesNodeRules && conditional.length > 1) issues.push({ level: 'error', code: 'CONDITION_SUCCESS_ROUTE_REQUIRED', message: 'A condicional configurada no bloco pode ter só uma saída “Condição atendida”.', nodeId: node.id });
       const priorities = new Set<number>();
       for (const edge of conditional) {
         if (priorities.has(edge.priority)) issues.push({ level: 'error', code: 'DUPLICATE_BRANCH_PRIORITY', message: 'As prioridades das condições devem ser únicas.', nodeId: node.id, edgeId: edge.id });
@@ -272,7 +276,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
         : nodeMatch ? candidates.find(edge => !edge.isDefault) : candidates.find(edge => edge.isDefault);
     }
     steps.push({ index: steps.length, nodeId: current, kind: node.kind, selectedEdgeId: selected?.id ?? null });
-    if (terminalKinds.has(node.kind)) { current = undefined; break; }
+    if (terminalKinds.has(node.kind) || (node.kind === 'condition' && !selected)) { current = undefined; break; }
     if (!selected) { stoppedBecause = 'dead_end'; current = undefined; break; }
     current = selected.target;
   }

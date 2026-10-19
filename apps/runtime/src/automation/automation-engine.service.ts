@@ -168,11 +168,21 @@ export class AutomationEngineService implements OnModuleDestroy {
   }): Promise<'continue' | 'waiting' | 'terminal' | { next: string }> {
     const { executionId, workspaceId, playbookId,conversationId, context, node, step, nextNodeId } = input;
     const waitsForChoice = routesByChoice(node, input.definition.edges);
-    if (!['handoff', 'outcome','flow_jump'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
+    if (!['handoff', 'outcome','flow_jump','condition'].includes(node.kind) && !nextNodeId && !waitsForChoice) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
 
     switch (node.kind) {
-      case 'trigger':
       case 'condition':
+        // A branch left unconnected ends the flow, as in Leona.
+        if (!nextNodeId) {
+          await this.prisma.$transaction(async tx => {
+            await tx.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { selectedTarget: null, endedFlow: true }, finishedAt: new Date() } });
+            await tx.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: node.id, context: asJson(context), finishedAt: new Date() } });
+          });
+          return 'terminal';
+        }
+        await this.completeStep(executionId, step.id, nextNodeId, context, { selectedTarget: nextNodeId });
+        return 'continue';
+      case 'trigger':
         await this.completeStep(executionId, step.id, nextNodeId, context, { selectedTarget: nextNodeId });
         return 'continue';
 
