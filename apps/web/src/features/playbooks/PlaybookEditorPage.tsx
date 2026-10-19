@@ -110,7 +110,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
   if(kind==='pixel'){const label=PIXEL_EVENT_OPTIONS.find(item=>item[0]===config.eventName)?.[1]??'Evento não definido';const value=String(config.value??'').trim();const currency=String(config.currency??'BRL');return value?`${label} · ${/^[\d.,]+$/.test(value)?(currency==='BRL'?`R$ ${value}`:`${value} ${currency}`):value}`:label}
   if(kind==='kanban')return config.boardId&&config.columnId?'Criar ou mover card na coluna selecionada':'Selecione quadro e coluna';
-  if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
+  if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);const question=String(config.message??'').trim();return `${question?`“${question.length>80?question.slice(0,80)+'…':question}” · `:''}${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
   if(kind==='flow_jump')return String(config.targetName||config.targetPlaybookId||'Escolha o fluxo de destino');
   if(kind==='distributor'){const outputs=distributorOutputsOf(config);return `${outputs.length} saídas · ${config.preventRepeat===false?'redistribui contatos':'mantém a distribuição'}`}
   if(kind==='notification')return `${String(config.name||'Aviso interno')} · ${String(config.phone||'número não definido')}`;
@@ -192,6 +192,8 @@ export function PlaybookEditorPage(){
   function updateSelected(patch:Partial<FlowNodeData>){if(!selectedNodeId)return;setNodes(current=>current.map(node=>node.id===selectedNodeId?{...node,data:{...node.data,...patch}}:node));setDirty(true);setResult(null)}
   function updateConfig(key:string,value:unknown){if(!selectedNode)return;updateSelected({config:{...selectedNode.data.config,[key]:value}})}
   function updateConfigs(patch:Record<string,unknown>){if(!selectedNode)return;if(selectedNode.data.kind==='wait_response'&&patch.waitIndefinitely===true){const nodeId=selectedNode.id;setEdges(current=>current.filter(edge=>!(edge.source===nodeId&&edge.sourceHandle==='timeout')))}if(selectedNode.data.kind==='distributor'&&Array.isArray(patch.outputs)){const nodeId=selectedNode.id;const outputs=distributorOutputsOf({...selectedNode.data.config,...patch});const labels=new Map(outputs.map(output=>[output.id,output.name]));setEdges(current=>current.flatMap(edge=>edge.source!==nodeId||!edge.sourceHandle?.startsWith('dist:')?[edge]:labels.has(edge.sourceHandle.slice(5))?[{...edge,label:labels.get(edge.sourceHandle.slice(5))||edge.label}]:[]))}updateSelected({config:{...selectedNode.data.config,...patch}})}
+  // Waiting forever has no timeout exit, so its connection goes away with it.
+  function saveWait(config:Record<string,unknown>){if(!selectedNode)return;const nodeId=selectedNode.id;if(config.waitIndefinitely===true)setEdges(current=>current.filter(edge=>!(edge.source===nodeId&&edge.sourceHandle==='timeout')));updateSelected({config});setInspectorOpen(false)}
   function saveCondition(name:string,config:Record<string,unknown>){updateSelected({name,config});setInspectorOpen(false)}
   function saveMenu(name:string,config:Record<string,unknown>){
     if(!selectedNode)return;const nodeId=selectedNode.id;const options=menuOptionsOf(config);const labels=new Map(options.map(option=>[option.id,option.label]));const hasTimeout=Number(config.timeoutSeconds??0)>0;
@@ -246,7 +248,7 @@ export function PlaybookEditorPage(){
         {toolsResults.length===0&&<p className="palette-empty">Nenhum bloco para “{toolsQuery}”. Tente “mensagem”, “condição” ou “etiqueta”.</p>}
       </aside>}
       {inspectorOpen&&selectedNode&&<div className="node-modal-backdrop" onMouseDown={()=>setInspectorOpen(false)} aria-hidden="true"/>}
-      {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''} ${selectedNode?.data.kind==='ai'?'ai-edit-modal':''} ${selectedNode?.data.kind==='webhook'?'integration-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
+      {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''} ${selectedNode?.data.kind==='ai'?'ai-edit-modal':''} ${selectedNode?.data.kind==='webhook'?'integration-edit-modal':''} ${selectedNode?.data.kind==='wait_response'?'wait-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
           ? selectedNode.data.kind==='message'
             ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
@@ -256,6 +258,8 @@ export function PlaybookEditorPage(){
             ? <PixelEditor key={selectedNode.id} playbookId={id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='webhook'
             ? <WebhookEditor key={selectedNode.id} playbookId={id} node={selectedNode} variablesJson={simulationVariables} onEditTestData={(name,config)=>{updateSelected({name,config});setSelectedNodeId(null);setSelectedEdgeId(null)}} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='wait_response'
+            ? <WaitEditor key={selectedNode.id} node={selectedNode} onSave={saveWait} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
@@ -399,6 +403,26 @@ function WhatsAppField({id,value,onChange,rows=5,maxLength,placeholder,invalid}:
       {emojiOpen&&<div className="menu-emoji" role="listbox" aria-label="Emojis">{MENU_EMOJIS.map(emoji=><button type="button" role="option" aria-selected="false" key={emoji} onClick={()=>insertEmoji(emoji)}>{emoji}</button>)}</div>}
     </div>
   </div>
+}
+function WaitEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const [config,setConfig]=useState<Record<string,unknown>>({...node.data.config});const patch=(change:Record<string,unknown>)=>setConfig(current=>({...current,...change}));
+  const unit=waitUnitOf(config);const indefinite=waitIndefinite(config);const value=Number(config.timeoutValue??1);const buffer=Number(config.bufferSeconds??0);const replyCount=Number(config.replyToLeadCount??0);const saveReplyTo=String(config.saveReplyTo??'');
+  const timeError=!indefinite&&(!Number.isInteger(value)||value<1?'Informe um número inteiro a partir de 1.':value*WAIT_UNIT_SECONDS[unit]>WAIT_MAX_SECONDS?'O limite é 31 dias no total.':'');
+  const bufferError=!Number.isInteger(buffer)||buffer<0||buffer>WAIT_MAX_BUFFER_SECONDS?`Use de 0 a ${WAIT_MAX_BUFFER_SECONDS} segundos.`:'';
+  const fieldError=saveReplyTo&&!/^[\w.-]+$/.test(saveReplyTo)?'Use letras, números, _, - e pontos.':'';
+  function save(){if(timeError||bufferError||fieldError)return;const message=String(config.message??'');onSave({...config,saveReplyTo:saveReplyTo||undefined,message:message.trim()?message:undefined})}
+  return <><header><span className="palette-icon wait_response"><Hourglass size={17} aria-hidden="true"/></span><div><b>Editar {node.data.name}</b></div></header>
+    <div className="inspector-form wait-editor">
+      <ToggleCard title="Aguardar indefinidamente (sem encerrar automaticamente por tempo)" description="O fluxo só avança quando o lead responder (ou por outra ação externa)." checked={indefinite} onChange={checked=>patch({waitIndefinitely:checked})}/>
+      {!indefinite&&<div className="wait-time"><b>Tempo máximo aguardando a resposta do lead:</b><div className="duration-fields"><input type="number" min="1" step="1" aria-label="Tempo" value={value} onChange={event=>patch({timeoutValue:Number(event.target.value)})}/><select aria-label="Unidade" value={unit} onChange={event=>patch({timeoutUnit:event.target.value})}>{(Object.keys(WAIT_UNIT_LABELS) as WaitUnit[]).map(item=><option key={item} value={item}>{WAIT_UNIT_LABELS[item].replace(/^./,letter=>letter.toUpperCase())}</option>)}</select></div><small className={timeError?'field-error':undefined}>{timeError||`Limite total: 31 dias (máximo ${Math.floor(WAIT_MAX_SECONDS/WAIT_UNIT_SECONDS[unit])} nesta unidade).`}</small></div>}
+      <ToggleCard title="Ativar buffer de mensagens" description="Ative o buffer para definir o tempo de espera entre mensagens." checked={buffer>0} onChange={checked=>patch({bufferSeconds:checked?10:0})}>{buffer>0&&<label className="wait-inline">Juntar mensagens por (segundos)<input type="number" min="1" max={WAIT_MAX_BUFFER_SECONDS} step="1" value={buffer} onChange={event=>patch({bufferSeconds:Number(event.target.value)})}/>{bufferError&&<small className="field-error">{bufferError}</small>}</label>}</ToggleCard>
+      <ToggleCard title="Responder como resposta à mensagem do lead" description="As próximas mensagens do fluxo saem citando a resposta do lead." checked={replyCount>0} onChange={checked=>patch({replyToLeadCount:checked?1:0})}>{replyCount>0&&<label className="wait-inline">Quantas mensagens citar<input type="number" min="1" max="10" step="1" value={replyCount} onChange={event=>patch({replyToLeadCount:Math.min(10,Math.max(1,Number(event.target.value)||1))})}/></label>}</ToggleCard>
+      <ToggleCard title="Reagir na mensagem do lead" description="Reage na última resposta do lead ao enviar o próximo bloco." checked={Boolean(config.reactEmoji)} onChange={checked=>patch({reactEmoji:checked?'👍':undefined})}>{Boolean(config.reactEmoji)&&<div className="wait-emojis" role="radiogroup" aria-label="Reação">{['👍','❤️','😂','😮','😢','🙏','✅','🔥'].map(emoji=><button type="button" role="radio" aria-checked={config.reactEmoji===emoji} className={config.reactEmoji===emoji?'active':''} key={emoji} onClick={()=>patch({reactEmoji:emoji})}>{emoji}</button>)}</div>}</ToggleCard>
+      <label>Campo para salvar a informação no usuário:<input value={saveReplyTo} maxLength={60} placeholder="Nome" aria-invalid={Boolean(fieldError)} onChange={event=>patch({saveReplyTo:event.target.value})}/>{fieldError&&<small className="field-error">{fieldError}</small>}</label>
+      {saveReplyTo&&<label className="check-field"><input type="checkbox" checked={config.saveEmpty!==false} onChange={event=>patch({saveEmpty:event.target.checked})}/> Salvar mesmo quando a resposta contiver somente mídia</label>}
+      <label>Mensagem antes de aguardar a resposta:<WhatsAppField value={String(config.message??'')} onChange={message=>patch({message})} rows={4} maxLength={4096} placeholder="Ex.: Qual é o seu nome?"/></label>
+    </div>
+    <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer></>
 }
 function ToggleCard({title,description,checked,onChange,tone,children}:{title:string;description:string;checked:boolean;onChange:(checked:boolean)=>void;tone?:'success';children?:ReactNode}){
   return <div className={`ai-toggle-card ${tone??''}`}><div><b>{title}</b><p>{description}</p>{children}</div><button type="button" role="switch" aria-checked={checked} aria-label={title} className={`ai-switch ${checked?'active':''}`} onClick={()=>onChange(!checked)}><span/></button></div>

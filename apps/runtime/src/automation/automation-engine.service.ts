@@ -465,10 +465,20 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'wait_response': {
         // `since` bounds which inbound messages count as the reply; startedAt comes from the DB clock, like Message.createdAt.
         const pendingWait: PendingWait = { stepId: step.id, nodeId: node.id, kind: 'reply', since: step.startedAt.toISOString() };
-        await this.prisma.$transaction([
-          this.prisma.executionStep.update({ where: { id: step.id }, data: { output: { waitingForReply: true } } }),
-          this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { ...stableRuntime(context),pendingWait } }) } })
-        ]);
+        const question = typeof node.config.message === 'string' ? renderTemplate(node.config.message, context).trim() : '';
+        if (question) {
+          const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, include: { channel: true } });
+          if (!conversation || conversation.workspaceId !== workspaceId) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
+          if (conversation.channel.provider !== 'baileys' || conversation.channel.status !== 'CONNECTED') throw new NodeExecutionError('CHANNEL_UNAVAILABLE', 'O canal Baileys precisa estar conectado para enviar a mensagem.');
+        }
+        await this.prisma.$transaction(async tx => {
+          if (question) {
+            const message = await tx.message.create({ data: { workspaceId, conversationId, direction: 'OUTBOUND', type: 'TEXT', status: 'PENDING', body: question.slice(0, 4096), authorType: 'automation', authorId: executionId } });
+            await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: message.id, type: 'message.send.requested', payload: { messageId: message.id } } });
+          }
+          await tx.executionStep.update({ where: { id: step.id }, data: { output: { waitingForReply: true, sentQuestion: Boolean(question) } } });
+          await tx.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: node.id, context: asJson({ ...context, _runtime: { ...stableRuntime(context),pendingWait } }) } });
+        });
         try {
           await this.queue.add('menu_timeout', { executionId, action: 'menu_timeout', resumeStepId: step.id }, { jobId: `automation-wait-timeout-${executionId}-${step.id}`, delay: waitTimeoutSeconds(node.config).seconds * 1000, attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });
         } catch (error) {

@@ -178,7 +178,9 @@ export const AutomationWaitResponseConfigSchema=z.object({
   saveReplyTo:z.string().trim().min(1).max(60).regex(/^[\w.-]+$/,'Use letras, números, _, - e pontos.').optional(),
   saveEmpty:z.boolean().default(true),
   reactEmoji:z.string().trim().min(1).max(16).optional(),
-  replyToLeadCount:z.number().int().min(0).max(10).default(0)
+  replyToLeadCount:z.number().int().min(0).max(10).default(0),
+  // Sent to the contact right before the wait starts.
+  message:z.string().max(4096).optional()
 }).superRefine((value,ctx)=>{
   if(value.waitIndefinitely)return;
   if(value.timeoutValue===undefined){ctx.addIssue({code:z.ZodIssueCode.custom,path:['timeoutValue'],message:'Informe o tempo de espera.'});return}
