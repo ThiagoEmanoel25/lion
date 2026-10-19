@@ -480,7 +480,7 @@ export class AutomationEngineService implements OnModuleDestroy {
 
       case 'ai': {
         const config = node.config;
-        const latest = await this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' } });
+        const latest = await this.aiSourceMessage(executionId, step.id, workspaceId, conversationId, context, config);
         let aiContext: EngineContext = { ...context, last_message: aiLastMessage(context, latest) };
         const responseVariable = typeof config.responseVariable === 'string' && config.responseVariable ? config.responseVariable : 'resposta.gpt';
         const failReasonVariable = typeof config.failReasonVariable === 'string' && config.failReasonVariable ? config.failReasonVariable : 'ai.fail.reason';
@@ -777,6 +777,19 @@ export class AutomationEngineService implements OnModuleDestroy {
     // No exit wired for this option or for inactivity: the journey simply ends here.
     await this.succeedExecution(executionId, next);
     return null;
+  }
+
+  // Right after a wait, read what ended the wait (preferring media this block understands), not whatever arrived
+  // since: a receipt followed a second later by "segue o comprovante" must still reach the AI as an image.
+  private async aiSourceMessage(executionId: string, stepId: string, workspaceId: string, conversationId: string, context: EngineContext, config: Record<string, unknown>) {
+    const ids = (context.wait as { messageIds?: unknown } | undefined)?.messageIds;
+    const previous = Array.isArray(ids) && ids.length ? await this.prisma.executionStep.findFirst({ where: { executionId, id: { not: stepId } }, orderBy: { startedAt: 'desc' }, select: { kind: true } }) : null;
+    if (previous?.kind !== 'wait_response') return this.prisma.message.findFirst({ where: { workspaceId, conversationId, direction: 'INBOUND' }, orderBy: { createdAt: 'desc' } });
+    const waitIds = (ids as unknown[]).filter((id): id is string => typeof id === 'string');
+    const mediaTypes = [...(config.understandImage === true || config.identifyReceipt === true ? ['IMAGE'] : []), ...(config.understandPdf === true || config.identifyReceipt === true ? ['DOCUMENT'] : []), ...(config.understandAudio === true ? ['AUDIO'] : [])];
+    const where = { workspaceId, conversationId, direction: 'INBOUND' as const, id: { in: waitIds } };
+    return (mediaTypes.length ? await this.prisma.message.findFirst({ where: { ...where, type: { in: mediaTypes as never } }, orderBy: { createdAt: 'desc' } }) : null)
+      ?? await this.prisma.message.findFirst({ where, orderBy: { createdAt: 'desc' } });
   }
 
   // A block with no exit ends the flow, as in Leona.
