@@ -99,3 +99,23 @@ export function ruleError(rule: ConditionRule): string {
 export function coerceRuleValue(operator: ConditionOperator, input: string): unknown {
   return (operator === 'greater_than' || operator === 'less_than') && input.trim() !== '' && Number.isFinite(Number(input)) ? Number(input) : input;
 }
+
+// One-line Leona-style description of a rule for the canvas, e.g. "Etiqueta igual VIP".
+export function ruleSummary(rule: ConditionRule, nameOf: (id: string) => string | undefined = () => undefined): string {
+  const item = itemForRule(rule);
+  if (valueKind(item, rule.operator) === 'none' && item.group === 'Atendimento') return `Atendimento ${rule.operator === 'not_equals' ? 'não está' : 'está'} em ${item.label}`;
+  const label = item.key === 'variable' ? rule.field || 'Variável' : item.key === 'custom' ? rule.field.slice(CUSTOM_FIELD_PREFIX.length) || 'Campo' : item.label;
+  const operator = item.key === 'tag' ? (rule.operator === 'not_in' ? 'diferente de' : 'igual') : item.operators.find(option => option.value === rule.operator)?.label ?? rule.operator;
+  const list = Array.isArray(rule.value) ? rule.value : [];
+  let value: string;
+  switch (valueKind(item, rule.operator)) {
+    case 'kanbanColumns': value = `${list.length} coluna(s)`; break;
+    case 'tags': case 'members': value = list.map(id => nameOf(String(id)) ?? String(id)).join(', '); break;
+    case 'weekdays': value = list.map(day => WEEKDAY_LABELS[Number(day)] ?? String(day)).join(', '); break;
+    case 'timeRange': case 'dateRange': value = list.join('–'); break;
+    case 'boolean': value = rule.value === false ? 'fechada' : 'aberta'; break;
+    case 'none': value = ''; break;
+    default: value = rule.value === undefined || rule.value === null ? '' : String(rule.value);
+  }
+  return [label, operator, value].filter(Boolean).join(' ');
+}

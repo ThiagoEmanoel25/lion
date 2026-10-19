@@ -111,3 +111,24 @@
 .flows-menu-backdrop{position:fixed;inset:0;z-index:20}
 .flows-none td{text-align:center;color:#8a958f;cursor:default;box-shadow:none!important}
 @media(max-width:720px){.flows-heading{flex-direction:column;align-items:flex-start;gap:14px}.flows-layout{grid-template-columns:minmax(0,1fr)}.flows-folders{display:none}.flows-folder-select{display:block;width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:11px;background:#fff}.flows-table .wide{display:none}}
+/* Condition node, Leona style */
+.automation-node-condition{border:2px solid #4ea7ea;background:#141430}
+.automation-node-condition .automation-node-head{grid-template-columns:44px minmax(0,1fr) auto;padding:14px 12px;background:linear-gradient(135deg,#6cc4f4,#3f93e2)}
+.automation-node-condition .automation-node-head .automation-node-icon{width:40px;height:40px;border-color:#ffffffb3;background:#ffffff26}
+.automation-node-condition .automation-node-head small{display:none}
+.automation-node-condition .automation-node-head b{margin:0;font-size:13px}
+.automation-node-condition .node-quick-actions .node-delete-action{background:transparent}
+.automation-node-condition .node-quick-actions .node-delete-action:hover{background:#ffffff22}
+.condition-node-body{display:grid;gap:10px;padding:14px 14px 12px}
+.condition-node-rules{position:relative;display:grid;gap:6px}
+.condition-node-rules>span{padding:10px 12px;border:1px solid #2f4377;border-radius:9px;background:#1b2550;color:#e6ecff;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.condition-node-rules>span.empty{color:#9fb0dc}
+.condition-node-rules i{display:block;margin-bottom:4px;color:#6cc4f4;font-size:9px;font-style:normal;font-weight:800;text-transform:uppercase;letter-spacing:.6px}
+.condition-node-rules small{color:#9fb0dc;font-size:10px}
+.condition-node-else{position:relative;margin:0;padding:0 8px;color:#7cc4f5;font-size:11px;line-height:1.4;text-align:center}
+.automation-node-condition .condition-node-body .react-flow__handle{right:-16px}
+.automation-node-condition .condition-node-note{margin-top:-4px;display:block;font-size:10px;letter-spacing:0;text-transform:none;color:#9fb0dc}
+.automation-node-condition p.condition-node-else{max-width:none;margin:0;font-size:11px;color:#7cc4f5;white-space:normal;overflow:visible}
+/* Narrow screens: save/publish move to the bottom-right so they never cover the tools button. */
+@media(max-width:1100px){.flow-editor-actions{top:auto;bottom:15px;left:auto;width:auto}.flow-editor-shell .react-flow__minimap{display:none}}
+@media(max-width:720px){.flow-editor-actions{bottom:10px;right:10px}.flow-editor-actions button:not(.primary){display:block}.tools-dropdown{left:8px;width:calc(100vw - 16px);max-height:calc(100dvh - 140px)}}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONDITION_GROUPS, CONDITION_ITEMS, coerceRuleValue, itemForRule, ruleError, searchConditionItems, valueKind } from './condition-catalog';
+import { CONDITION_GROUPS, CONDITION_ITEMS, coerceRuleValue, itemForRule, ruleError, ruleSummary, searchConditionItems, valueKind } from './condition-catalog';
 
 const item = (key: string) => CONDITION_ITEMS.find(entry => entry.key === key)!;
 
@@ -83,5 +83,16 @@ describe('condition catalog', () => {
     expect(coerceRuleValue('equals', '50')).toBe('50');
     expect(coerceRuleValue('less_than', 'abc')).toBe('abc');
     expect(coerceRuleValue('greater_than', '')).toBe('');
+  });
+});
+
+describe('ruleSummary', () => {
+  it('descreve a regra como no Leona, com nomes resolvidos', () => {
+    expect(ruleSummary({ field: 'contact.tagIds', operator: 'in', value: ['t1'] }, id => id === 't1' ? 'GELATINA-PARTE-01' : undefined)).toBe('Etiqueta igual GELATINA-PARTE-01');
+    expect(ruleSummary({ field: 'contact.tagIds', operator: 'not_in', value: ['x'] })).toBe('Etiqueta diferente de x');
+    expect(ruleSummary({ field: 'system.time', operator: 'between', value: ['08:00', '18:00'] })).toBe('Hora entre 08:00–18:00');
+    expect(ruleSummary({ field: 'system.weekday', operator: 'in', value: [1, 5] })).toBe('Dia da semana é um dos dias Seg, Sex');
+    expect(ruleSummary({ field: 'conversation.status', operator: 'equals', value: 'QUEUED' })).toBe('Atendimento está em Aguardando');
+    expect(ruleSummary({ field: 'contact.customFields.cidade', operator: 'equals', value: 'SP' })).toBe('cidade é igual a SP');
   });
 });
