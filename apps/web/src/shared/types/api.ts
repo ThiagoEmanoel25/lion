@@ -14,7 +14,7 @@ export type AutomationEdgeCondition={field:string;operator:'equals'|'not_equals'
 export type AutomationEdge={id:string;source:string;target:string;label?:string;condition?:AutomationEdgeCondition;isDefault?:boolean;priority?:number;port?:'success'|'failure'|'reply'|'timeout'};
 export type AutomationDefinition={start:string;nodes:AutomationNode[];edges:AutomationEdge[];settings:{maxSteps:number;timeoutSeconds:number}};
 export type PlaybookVersion={id:string;version:number;definition:AutomationDefinition;checksum:string;publishedAt:string|null;createdAt:string};
-export type Playbook={id:string;name:string;description:string|null;status:string;updatedAt:string;activeVersion?:Pick<PlaybookVersion,'id'|'version'|'publishedAt'>|null;versions?:PlaybookVersion[];_count?:{versions:number}};
+export type Playbook={id:string;name:string;description:string|null;status:string;updatedAt:string;activeVersion?:Pick<PlaybookVersion,'id'|'version'|'publishedAt'>|null;versions?:PlaybookVersion[];_count?:{versions:number};importSource?:{system?:string;flowId?:number|string;report?:ImportReport}|null};
 export type AutomationIssue={level:'error'|'warning';code:string;message:string;nodeId?:string;edgeId?:string};
 export type AutomationSimulation={steps:Array<{index:number;nodeId:string;kind:AutomationNodeKind;selectedEdgeId:string|null}>;path:string[];stoppedBecause:'max_steps'|'dead_end'|'completed'};
 export type AutomationValidation={valid:boolean;issues:AutomationIssue[];definition?:AutomationDefinition;simulation:AutomationSimulation|null};
@@ -51,3 +51,5 @@ export type KanbanBoard={id:string;name:string;position:number;columns:KanbanCol
 
 export type MetaPixel={id:string;name:string;pixelId:string;pageId:string|null;testEventCode:string|null;tokenLast4:string};
 export type PixelTestResult={ok:boolean;status:number;eventsReceived:number;message:string};
+
+export type ImportReport={source:'leona'|'nexo';items:Array<{sourceId?:string;sourceType?:string;status:'converted'|'adjusted'|'pending';message:string}>;totals:{converted:number;adjusted:number;pending:number}};

@@ -101,8 +101,9 @@ export function reportCompilerIssues(definition:ReturnType<typeof convertLeonaFl
   report.totals=totals(report.items);
 }
 
-export async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>;importSource?:Prisma.InputJsonValue}){
-  return tx.playbook.create({data:{workspaceId:input.workspaceId,name:input.name,description:'Importado como rascunho. Revise as pendências antes de publicar.',status:'DRAFT',...(input.importSource?{importSource:input.importSource}:{}),versions:{create:{version:1,definition:json(input.definition),checksum:checksum(input.definition),createdById:input.userId}}},include:{versions:true}});
+export async function createImportedPlaybook(tx:Prisma.TransactionClient,input:{workspaceId:string;userId:string;name:string;definition:ReturnType<typeof AutomationDefinitionSchema.parse>;importSource?:Prisma.InputJsonValue;report:ImportReport}){
+  const importSource=json({...(input.importSource?importSourceOf(input.importSource):{system:'nexo'}),report:input.report});
+  return tx.playbook.create({data:{workspaceId:input.workspaceId,name:input.name,description:'Importado como rascunho. Revise as pendências antes de publicar.',status:'DRAFT',importSource,versions:{create:{version:1,definition:json(input.definition),checksum:checksum(input.definition),createdById:input.userId}}},include:{versions:true}});
 }
 
 export function bookmarklet(apiOrigin:string){
@@ -140,7 +141,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
       await resolvePixels(tx,existing.workspaceId,converted.definition,converted.report);
       await resolveFlowJumps(tx,existing.workspaceId,converted.definition,converted.report);
       reportCompilerIssues(converted.definition,converted.report);
-      const importSource=leonaImportSource(input.sourceFlowId);const playbook=await createImportedPlaybook(tx,{workspaceId:existing.workspaceId,userId:existing.createdById,name:converted.suggestedName,definition:converted.definition,...(importSource?{importSource}:{})});
+      const importSource=leonaImportSource(input.sourceFlowId);const playbook=await createImportedPlaybook(tx,{workspaceId:existing.workspaceId,userId:existing.createdById,name:converted.suggestedName,definition:converted.definition,report:converted.report,...(importSource?{importSource}:{})});
       await tx.flowImportSession.update({where:{id:existing.id},data:{status:'COMPLETED',playbookId:playbook.id,report:json(converted.report)}});
       await audit(tx,{workspaceId:existing.workspaceId,actorId:existing.createdById,action:'playbook.imported_from_leona',targetType:'Playbook',targetId:playbook.id,changes:{report:converted.report.totals}});
       return playbook;
@@ -185,7 +186,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const input=ImportNexoShareInput.parse(request.body);const share=await app.prisma.flowShareCode.findUnique({where:{code:input.code}});
     if(!share||share.revokedAt||share.expiresAt<=new Date())throw new DomainError('SHARE_CODE_INVALID','Código inexistente, expirado ou revogado.',410);
     const definition=AutomationDefinitionSchema.parse(share.definition);const sourceReport=structuredClone(share.report) as ImportReport;
-    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);await resolveFlowJumps(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
+    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);await resolveFlowJumps(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition,report:sourceReport});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
     return reply.status(201).send({playbookId:playbook.id,report:sourceReport});
   });
 };

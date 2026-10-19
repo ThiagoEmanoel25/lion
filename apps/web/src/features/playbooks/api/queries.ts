@@ -1,5 +1,5 @@
-import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {AutomationDefinition,AutomationSimulation,AutomationValidation,Playbook,PlaybookVersion} from '../../../shared/types/api';
-export type ImportReport={source:'leona'|'nexo';items:Array<{sourceId?:string;sourceType?:string;status:'converted'|'adjusted'|'pending';message:string}>;totals:{converted:number;adjusted:number;pending:number}};
+import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';import {api} from '../../../shared/api/client';import type {ImportReport,AutomationDefinition,AutomationSimulation,AutomationValidation,Playbook,PlaybookVersion} from '../../../shared/types/api';
+export type {ImportReport};
 export type LeonaImportSession={code:string;expiresAt:string;bookmarklet:string};
 export type LeonaImportStatus={code:string;status:'WAITING'|'PROCESSING'|'COMPLETED'|'EXPIRED';expiresAt:string;usedAt:string|null;playbookId:string|null;report:ImportReport|null};
 export type IntegrationTestResult={ok:boolean;status:number;durationMs:number;headers:Record<string,string>;body:unknown};

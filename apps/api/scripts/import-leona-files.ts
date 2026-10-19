@@ -22,10 +22,24 @@ async function main(){
   if(!owner)throw new Error('O workspace não tem dono ativo.');
   console.log(`Workspace: ${workspace.name}${dryRun?' (simulação, nada será gravado)':''}`);
   for(const flow of flows){
-    if(await prisma.playbook.findFirst({where:{workspaceId:workspace.id,name:flow.name},select:{id:true}})){console.log(`\n${flow.name}: já existe, pulado.`);continue}
+    const existing=await prisma.playbook.findFirst({where:{workspaceId:workspace.id,name:flow.name},select:{id:true,importSource:true}});
+    const source=existing?.importSource&&typeof existing.importSource==='object'&&!Array.isArray(existing.importSource)?existing.importSource as Record<string,unknown>:undefined;
+    if(existing&&source?.report){console.log(`\n${flow.name}: já existe, pulado.`);continue}
     const exported=JSON.parse(readFileSync(flow.file,'utf8')) as {nodes:Record<string,unknown>[];edges:Record<string,unknown>[]};
     const converted=convertLeonaFlow({nodes:exported.nodes,edges:exported.edges,label:flow.name});
     const DRY_RUN=Symbol('dry-run');
+    if(existing){
+      // Backfill: recompute the report only; the stored definition is left untouched.
+      await prisma.$transaction(async tx=>{
+        await resolveTags(tx,workspace.id,converted.definition,converted.report);
+        await resolveKanban(tx,workspace.id,converted.definition,converted.report);
+        await resolvePixels(tx,workspace.id,converted.definition,converted.report);
+        await resolveFlowJumps(tx,workspace.id,converted.definition,converted.report);
+        reportCompilerIssues(converted.definition,converted.report);
+        if(!dryRun)await tx.playbook.update({where:{id:existing.id},data:{importSource:{...(source??{system:'leona'}),report:converted.report} as never}});
+      });
+      console.log(`\n${flow.name}: relatório atualizado`);continue;
+    }
     try{
       await prisma.$transaction(async tx=>{
         await resolveTags(tx,workspace.id,converted.definition,converted.report);
@@ -34,7 +48,7 @@ async function main(){
         await resolveFlowJumps(tx,workspace.id,converted.definition,converted.report);
         reportCompilerIssues(converted.definition,converted.report);
         const importSource=leonaImportSource(flow.flowId);
-        const playbook=await createImportedPlaybook(tx,{workspaceId:workspace.id,userId:owner.userId,name:flow.name,definition:converted.definition,...(importSource?{importSource}:{})});
+        const playbook=await createImportedPlaybook(tx,{workspaceId:workspace.id,userId:owner.userId,name:flow.name,definition:converted.definition,report:converted.report,...(importSource?{importSource}:{})});
         await tx.auditLog.create({data:{workspaceId:workspace.id,actorId:owner.userId,action:'playbook.imported_from_leona',targetType:'Playbook',targetId:playbook.id,changes:{report:converted.report.totals,source:'script'}}});
         if(dryRun)throw DRY_RUN;
       });
