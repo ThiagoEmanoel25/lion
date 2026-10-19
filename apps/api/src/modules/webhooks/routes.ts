@@ -26,6 +26,7 @@ function stringAt(payload:unknown,valuePath:string,required=false){const value=r
 
 async function processEvent(app:Parameters<FastifyPluginAsync>[0],endpoint:EndpointWithVersion,eventId:string,payload:unknown,idempotencyKey:string){
   if(!endpoint.playbook.activeVersion)throw new DomainError('PLAYBOOK_NOT_PUBLISHED','O fluxo deste webhook não está publicado.',409);
+  if(endpoint.playbook.status==='PAUSED')throw new DomainError('PLAYBOOK_NOT_PUBLISHED','O fluxo deste webhook está pausado.',409);
   const mapping=mappingSchema.parse(endpoint.mapping) as Mapping,phone=stringAt(payload,mapping.phonePath,true)!,name=mapping.namePath?stringAt(payload,mapping.namePath):undefined,email=mapping.emailPath?stringAt(payload,mapping.emailPath):undefined;
   if(phone.length<8||phone.length>24)throw new DomainError('WEBHOOK_MAPPING_FAILED','O telefone mapeado é inválido.',422);
   const variables=mappedVariables(payload,mapping.variables);

@@ -58,6 +58,7 @@ enum MessageStatus {
 enum PlaybookStatus {
   DRAFT
   PUBLISHED
+  PAUSED
   ARCHIVED
 }
 enum ExecutionStatus {
@@ -118,6 +119,7 @@ model Workspace {
   flowImportSessions FlowImportSession[]
   flowShareCodes FlowShareCode[]
   metaPixels   MetaPixel[]
+  playbookFolders PlaybookFolder[]
 }
 
 model User {
@@ -367,6 +369,7 @@ model Playbook {
   description String?
   status      PlaybookStatus @default(DRAFT)
   importSource Json?
+  folderId    String?
   activeVersionId String? @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -379,7 +382,21 @@ model Playbook {
   shareCodes FlowShareCode[]
   distributorCounts FlowDistributorCount[]
   distributorAssignments FlowDistributorAssignment[]
+  folder      PlaybookFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   @@index([workspaceId, status])
+  @@index([folderId])
+}
+
+model PlaybookFolder {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  position    Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  playbooks   Playbook[]
+  @@unique([workspaceId, name])
 }
 
 model FlowDistributorCount {

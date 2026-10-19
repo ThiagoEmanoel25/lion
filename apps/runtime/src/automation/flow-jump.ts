@@ -4,6 +4,7 @@ export const FLOW_JUMP_ERRORS = {
   targetRequired: 'FLOW_JUMP_TARGET_REQUIRED',
   targetNotFound: 'FLOW_JUMP_TARGET_NOT_FOUND',
   targetUnpublished: 'FLOW_JUMP_TARGET_UNPUBLISHED',
+  targetPaused: 'FLOW_JUMP_TARGET_PAUSED',
   limit: 'FLOW_JUMP_LIMIT'
 } as const;
 
@@ -19,7 +20,7 @@ export class FlowJumpError extends Error {
 export type FlowJumpTargetSnapshot = {
   id: string;
   workspaceId: string;
-  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  status: 'DRAFT' | 'PUBLISHED' | 'PAUSED' | 'ARCHIVED';
   activeVersionId: string | null;
   name?: string;
 };
@@ -100,6 +101,9 @@ export function resolveFlowJumpTarget(input: {
   const target = input.target;
   if (!target || target.id !== targetPlaybookId || target.workspaceId !== input.workspaceId) {
     throw new FlowJumpError(FLOW_JUMP_ERRORS.targetNotFound, 'O fluxo de destino não existe neste workspace.');
+  }
+  if (target.status === 'PAUSED') {
+    throw new FlowJumpError(FLOW_JUMP_ERRORS.targetPaused, 'O fluxo de destino está pausado.');
   }
   if (target.status !== 'PUBLISHED' || !target.activeVersionId) {
     throw new FlowJumpError(FLOW_JUMP_ERRORS.targetUnpublished, 'O fluxo de destino precisa ter uma versão publicada.');

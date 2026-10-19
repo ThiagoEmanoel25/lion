@@ -5,6 +5,8 @@ import {
   AutomationDefinitionSchema,
   CreatePlaybookInput,
   ListExecutionsQuery,
+  MovePlaybookFolderInput,
+  PlaybookFolderInput,
   PublishPlaybookInput,
   SavePlaybookVersionInput,
   SimulatePlaybookInput,
@@ -44,6 +46,13 @@ const templates: Record<'qualification' | 'reactivation' | 'support', Automation
 
 const checksum = (definition: unknown) => createHash('sha256').update(JSON.stringify(definition)).digest('hex');
 const json = (value: unknown) => value as Prisma.InputJsonValue;
+const blockCount = (definition: unknown) => { const nodes = (definition as { nodes?: unknown } | null | undefined)?.nodes; return Array.isArray(nodes) ? nodes.length : 0; };
+async function uniqueFolderName<T>(write: () => Promise<T>) {
+  try { return await write(); } catch (error) {
+    if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') throw new DomainError('FOLDER_NAME_TAKEN', 'Já existe uma pasta com esse nome.', 409);
+    throw error;
+  }
+}
 
 async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unknown){
   const validation=validateAutomation(value);
@@ -61,7 +70,76 @@ async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unkn
 }
 
 export const playbookRoutes: FastifyPluginAsync = async app => {
-  app.get('/v1/playbooks', { preHandler: [app.requirePermission('playbook.read')] }, async request => app.prisma.playbook.findMany({ where: { workspaceId: request.auth.workspaceId }, include: { activeVersion: true, _count: { select: { versions: true } } }, orderBy: { updatedAt: 'desc' } }));
+  app.get('/v1/playbooks', { preHandler: [app.requirePermission('playbook.read')] }, async request => {
+    // ponytail: loads the latest definition to count nodes; switch to a jsonb_array_length raw query if lists get large.
+    const items = await app.prisma.playbook.findMany({ where: { workspaceId: request.auth.workspaceId }, include: { activeVersion: { select: { id: true, version: true, publishedAt: true } }, _count: { select: { versions: true } }, versions: { orderBy: { version: 'desc' }, take: 1, select: { definition: true } } }, orderBy: { updatedAt: 'desc' } });
+    return items.map(({ versions, ...item }) => ({ ...item, blocks: blockCount(versions[0]?.definition) }));
+  });
+
+  app.get('/v1/playbook-folders', { preHandler: [app.requirePermission('playbook.read')] }, async request => app.prisma.playbookFolder.findMany({ where: { workspaceId: request.auth.workspaceId }, orderBy: { position: 'asc' } }));
+
+  app.post('/v1/playbook-folders', { preHandler: [app.requirePermission('playbook.write')] }, async (request, reply) => {
+    const { name } = PlaybookFolderInput.parse(request.body);
+    const { workspaceId, userId } = request.auth;
+    const last = await app.prisma.playbookFolder.findFirst({ where: { workspaceId }, orderBy: { position: 'desc' } });
+    const folder = await uniqueFolderName(() => app.prisma.playbookFolder.create({ data: { workspaceId, name, position: (last?.position ?? -1) + 1 } }));
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook_folder.created', targetType: 'PlaybookFolder', targetId: folder.id, changes: { name } });
+    return reply.status(201).send(folder);
+  });
+
+  app.patch('/v1/playbook-folders/:id', { preHandler: [app.requirePermission('playbook.write')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { name } = PlaybookFolderInput.parse(request.body);
+    const { workspaceId, userId } = request.auth;
+    if (!await app.prisma.playbookFolder.count({ where: { id, workspaceId } })) throw new DomainError('FOLDER_NOT_FOUND', 'Pasta não encontrada.', 404);
+    const folder = await uniqueFolderName(() => app.prisma.playbookFolder.update({ where: { id }, data: { name } }));
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook_folder.renamed', targetType: 'PlaybookFolder', targetId: id, changes: { name } });
+    return folder;
+  });
+
+  app.delete('/v1/playbook-folders/:id', { preHandler: [app.requirePermission('playbook.write')] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { workspaceId, userId } = request.auth;
+    if (!await app.prisma.playbookFolder.count({ where: { id, workspaceId } })) throw new DomainError('FOLDER_NOT_FOUND', 'Pasta não encontrada.', 404);
+    await app.prisma.playbookFolder.delete({ where: { id } }); // FK SetNull moves its flows to "Sem pasta".
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook_folder.deleted', targetType: 'PlaybookFolder', targetId: id });
+    return reply.status(204).send();
+  });
+
+  app.patch('/v1/playbooks/:id/folder', { preHandler: [app.requirePermission('playbook.write')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { folderId } = MovePlaybookFolderInput.parse(request.body);
+    const { workspaceId, userId } = request.auth;
+    if (folderId && !await app.prisma.playbookFolder.count({ where: { id: folderId, workspaceId } })) throw new DomainError('FOLDER_NOT_FOUND', 'Pasta não encontrada.', 404);
+    const moved = await app.prisma.playbook.updateMany({ where: { id, workspaceId }, data: { folderId } });
+    if (!moved.count) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook.folder_changed', targetType: 'Playbook', targetId: id, changes: { folderId } });
+    return { id, folderId };
+  });
+
+  app.post('/v1/playbooks/:id/pause', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { workspaceId, userId } = request.auth;
+    const paused = await app.prisma.playbook.updateMany({ where: { id, workspaceId, status: 'PUBLISHED' }, data: { status: 'PAUSED' } });
+    if (!paused.count) {
+      if (!await app.prisma.playbook.count({ where: { id, workspaceId } })) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+      throw new DomainError('PLAYBOOK_NOT_ACTIVE', 'Somente fluxos ativos podem ser pausados.', 409);
+    }
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook.paused', targetType: 'Playbook', targetId: id });
+    return { id, status: 'PAUSED' };
+  });
+
+  app.post('/v1/playbooks/:id/resume', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { workspaceId, userId } = request.auth;
+    const resumed = await app.prisma.playbook.updateMany({ where: { id, workspaceId, status: 'PAUSED', activeVersionId: { not: null } }, data: { status: 'PUBLISHED' } });
+    if (!resumed.count) {
+      if (!await app.prisma.playbook.count({ where: { id, workspaceId } })) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+      throw new DomainError('PLAYBOOK_NOT_PAUSED', 'Somente fluxos pausados com versão publicada podem ser ativados.', 409);
+    }
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook.resumed', targetType: 'Playbook', targetId: id });
+    return { id, status: 'PUBLISHED' };
+  });
 
   app.get('/v1/playbooks/:id', { preHandler: [app.requirePermission('playbook.read')] }, async request => {
     const { id } = request.params as { id: string };
@@ -155,8 +233,8 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       const validation = await validateForWorkspace(tx,request.auth.workspaceId,latest.definition);
       if (!validation.valid) throw new DomainError('INVALID_AUTOMATION', 'A versão possui erros e não pode ser publicada.', 422, validation.issues);
       if (latest.checksum !== checksum(validation.definition)) throw new DomainError('CHECKSUM_MISMATCH', 'A integridade da versão não pôde ser confirmada.', 409);
-      if (playbook.activeVersionId === latest.id) return playbook;
-      await tx.playbookVersion.update({ where: { id: latest.id }, data: { publishedAt: new Date() } });
+      if (playbook.activeVersionId === latest.id && playbook.status === 'PUBLISHED') return playbook;
+      if (playbook.activeVersionId !== latest.id) await tx.playbookVersion.update({ where: { id: latest.id }, data: { publishedAt: new Date() } });
       const published = await tx.playbook.update({ where: { id }, data: { activeVersionId: latest.id, status: 'PUBLISHED' }, include: { activeVersion: true } });
       await audit(tx, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'playbook.published', targetType: 'Playbook', targetId: id, changes: { version: input.expectedVersion, testCaseIds: input.testCaseIds } });
       return published;
@@ -171,6 +249,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { activeVersion: true } });
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
       if (!playbook.activeVersion) throw new DomainError('PLAYBOOK_NOT_PUBLISHED', 'Publique a automação antes de executá-la.', 409);
+      if (playbook.status === 'PAUSED') throw new DomainError('PLAYBOOK_NOT_PUBLISHED', 'A automação está pausada.', 409);
       const conversation = await tx.conversation.findFirst({ where: { id: input.conversationId, workspaceId: request.auth.workspaceId } });
       if (!conversation) throw new DomainError('CONVERSATION_NOT_FOUND', 'Conversa não encontrada.', 404);
       const running = await tx.execution.findFirst({ where: { workspaceId: request.auth.workspaceId, conversationId: input.conversationId, playbookVersionId: playbook.activeVersion.id, status: { in: ['RUNNING', 'WAITING'] } } });

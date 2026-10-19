@@ -13,7 +13,7 @@ import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.j
 import { interactivePayload, outboundPresence,regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
 import { firstName } from './automation/live-context.js';
 import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
-import { isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
+import { acceptsNewEntrants, isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
 import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js';
 import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js';
 
@@ -270,7 +270,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       ? await this.prisma.conversation.findUnique({ where: { id: input.conversationId }, include })
       : await this.prisma.conversation.findFirst({ where: { contactId: input.contactId!, status: { not: 'RESOLVED' }, channel: { activePlaybookId: { not: null } } }, include, orderBy: { updatedAt: 'desc' } });
     const version = conversation?.channel.activePlaybook?.activeVersion;
-    if (!conversation || !version) return;
+    if (!conversation || !version || !acceptsNewEntrants(conversation.channel.activePlaybook!.status)) return;
     if (!matchesAutomationTrigger(version.definition, input.triggerEvent, input.tagId)) return;
     const active = await this.prisma.execution.findFirst({ where: { conversationId: conversation.id, playbookVersionId: version.id, status: { in: ['RUNNING', 'WAITING'] } } });
     if (active) return;

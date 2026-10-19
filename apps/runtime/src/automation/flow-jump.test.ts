@@ -102,6 +102,14 @@ describe('flow jump target', () => {
       );
     }
   });
+
+  it('não entra em um destino pausado, mesmo com versão ativa', () => {
+    expectCode(
+      () => resolveFlowJumpTarget({ workspaceId: 'workspace-1', targetPlaybookId: 'playbook-target', target: target({ status: 'PAUSED' }) }),
+      FLOW_JUMP_ERRORS.targetPaused
+    );
+    expect(() => resolveFlowJumpTarget({ workspaceId: 'workspace-1', targetPlaybookId: 'playbook-target', target: target({ status: 'PAUSED' }) })).toThrow('O fluxo de destino está pausado.');
+  });
 });
 
 describe('flow jump plan', () => {

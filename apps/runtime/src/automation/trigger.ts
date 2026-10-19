@@ -15,3 +15,6 @@ export function isOncePerContact(definition: unknown) {
 }
 
 export const shouldStartForContact = (oncePerContact: boolean, hasPriorExecution: boolean) => !(oncePerContact && hasPriorExecution);
+
+// A paused playbook keeps its active version (running executions continue) but takes no new entrants.
+export const acceptsNewEntrants = (status: string) => status !== 'PAUSED';

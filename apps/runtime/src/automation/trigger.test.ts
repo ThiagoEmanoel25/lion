@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './trigger.js';
+import { acceptsNewEntrants, isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './trigger.js';
 
 const definition = (event: string, tagId?: string) => ({
   start: 'start',
@@ -36,5 +36,12 @@ describe('run once per contact', () => {
     expect(shouldStartForContact(true, true)).toBe(false);
     expect(shouldStartForContact(true, false)).toBe(true);
     expect(shouldStartForContact(false, true)).toBe(true);
+  });
+});
+
+describe('pause', () => {
+  it('fluxo pausado não recebe novas entradas', () => {
+    expect(acceptsNewEntrants('PAUSED')).toBe(false);
+    expect(acceptsNewEntrants('PUBLISHED')).toBe(true);
   });
 });
