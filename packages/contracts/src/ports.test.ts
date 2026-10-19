@@ -23,7 +23,7 @@ describe('ports', () => {
 describe('AutomationAiConfigSchema', () => {
   it('aplica os padrões da Leona', () => {
     const parsed = AutomationAiConfigSchema.parse({ systemPrompt: 'Analise o comprovante.' });
-    expect(parsed).toEqual({ provider: 'openai', authMode: 'workspace', model: 'gpt-5.4-mini', systemPrompt: 'Analise o comprovante.', userMessage: '{{last_message}}', understandAudio: false, understandImage: false, understandPdf: false, identifyReceipt: false, smartConditionals: [], responseVariable: 'resposta.gpt', failReasonVariable: 'ai.fail.reason', autoSendResponse: false, contextInteractions: 1 });
+    expect(parsed).toEqual({ provider: 'openai', authMode: 'workspace', model: 'gpt-5.4-mini', systemPrompt: 'Analise o comprovante.', userMessage: '{{last_message}}', understandAudio: false, understandImage: false, understandPdf: false, identifyReceipt: false, smartConditionals: [], responseVariable: 'ai.response', failReasonVariable: 'ai.fail.reason', autoSendResponse: false, contextInteractions: 1 });
   });
 
   it('exige prompt e limita o contexto', () => {

@@ -83,6 +83,11 @@ export function setContextPath<T extends Record<string, unknown>>(context: T, pa
   return next as T;
 }
 
+export function setAiResponseContext<T extends Record<string, unknown>>(context: T, responseVariable: string, response: string): T {
+  const canonical = setContextPath(context, 'ai.response', response);
+  return responseVariable === 'ai.response' ? canonical : setContextPath(canonical, responseVariable, response);
+}
+
 export function selectPortEdge(edges: AutomationEdge[], nodeId: string, port: EdgePort): AutomationEdge | undefined {
   return edges.find(edge => edge.source === nodeId && edge.condition?.field !== AI_ROUTE_FIELD && edgePort(edge) === port);
 }
