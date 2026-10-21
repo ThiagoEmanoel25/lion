@@ -7,7 +7,7 @@ import {ApiError} from '../../shared/api/client';
 import type {ImportReport,AutomationDefinition,AutomationEdge,AutomationIssue,AutomationNodeKind,AutomationValidation,KanbanBoard,Playbook,PlaybookVersion} from '../../shared/types/api';
 import {uploadPlaybookAsset,useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
-import {useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
+import {useChannelFlowSettings,useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
 import {useKanbanBoards} from '../kanban/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
@@ -18,6 +18,7 @@ type FlowNodeData={kind:AutomationNodeKind;name:string;config:Record<string,unkn
 type FlowNode=Node<FlowNodeData,'automation'>;
 type FlowEdgeData={condition?:AutomationEdge['condition'];isDefault?:boolean;priority?:number;port?:AutomationEdge['port']};
 type FlowEdge=Edge<FlowEdgeData>;
+type TriggerAssociation={channelId:string;channelName:string;slot:'WELCOME'|'DEFAULT_RESPONSE'|'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'};
 
 const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;description:string;rule:string}>=[
   {kind:'trigger',icon:Zap,label:'Gatilho',description:'Inicia o fluxo',rule:'Aceita apenas o evento (mensagem recebida, etiqueta adicionada ou conversa criada) e, para etiqueta, o id dela. Só um gatilho pode ser o nó inicial.'},
@@ -164,7 +165,7 @@ function toFlow(definition:AutomationDefinition){
 function toDefinition(nodes:FlowNode[],edges:FlowEdge[],start:string,settings:AutomationDefinition['settings']):AutomationDefinition{return {start:nodes.some(node=>node.id===start)?start:(nodes.find(node=>node.data.kind==='trigger')?.id??nodes[0]?.id??''),nodes:nodes.map(node=>({id:node.id,kind:node.data.kind,name:node.data.name,config:node.data.config,position:node.position})),edges:edges.map(edge=>({id:edge.id,source:edge.source,target:edge.target,...(edge.label?{label:String(edge.label)}:{}),...(edge.data?.condition?{condition:edge.data.condition}:{}),...(edge.data?.port?{port:edge.data.port}:{}),isDefault:edge.data?.isDefault??false,priority:edge.data?.priority??0})),settings}}
 
 export function PlaybookEditorPage(){
-  const {id=''}=useParams();const playbook=usePlaybook(id);const playbooks=usePlaybooks();const distributorCounts=useDistributorCounts(id);const agents=useAgents();const aiKey=useWorkspaceAiKey();const contactMeta=useContactMeta();const kanbanBoards=useKanbanBoards();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
+  const {id=''}=useParams();const playbook=usePlaybook(id);const playbooks=usePlaybooks();const distributorCounts=useDistributorCounts(id);const agents=useAgents();const aiKey=useWorkspaceAiKey();const channelFlows=useChannelFlowSettings();const contactMeta=useContactMeta();const kanbanBoards=useKanbanBoards();const save=useSavePlaybookVersion();const validate=useValidatePlaybook();const simulate=useSimulatePlaybook();const publish=usePublishPlaybook();
   const [nodes,setNodes]=useState<FlowNode[]>([]);const [edges,setEdges]=useState<FlowEdge[]>([]);const [start,setStart]=useState('');const [settings,setSettings]=useState(emptyDefinition.settings);
   const [selectedNodeId,setSelectedNodeId]=useState<string|null>(null);const [selectedEdgeId,setSelectedEdgeId]=useState<string|null>(null);const [version,setVersion]=useState(0);const [loadedKey,setLoadedKey]=useState('');
   const [dirty,setDirty]=useState(false);const [result,setResult]=useState<AutomationValidation|null>(null);const [notice,setNotice]=useState<{tone:'success'|'error'|'info';text:string}|null>(null);const [simulationVariables,setSimulationVariables]=useState('{}');const [restoredVersion,setRestoredVersion]=useState<number|null>(null);const [toolsOpen,setToolsOpen]=useState(()=>window.innerWidth>1100);const [toolsQuery,setToolsQuery]=useState('');const [inspectorOpen,setInspectorOpen]=useState(false);const flowRef=useRef<ReactFlowInstance<FlowNode,FlowEdge>|null>(null);
@@ -173,6 +174,7 @@ export function PlaybookEditorPage(){
   const definition=useMemo(()=>toDefinition(nodes,edges,start,settings),[nodes,edges,start,settings]);
   const shownNodes=useMemo(()=>{const counts=new Map<string,number>();for(const issue of result?.issues??[])if(issue.level==='error'&&issue.nodeId)counts.set(issue.nodeId,(counts.get(issue.nodeId)??0)+1);return counts.size?nodes.map(node=>counts.has(node.id)?{...node,className:'has-issue',data:{...node.data,issueCount:counts.get(node.id)}}:node):nodes},[nodes,result]);
   const countsByNode=useMemo(()=>new Map((distributorCounts.data?.items??[]).map(item=>[item.nodeId,Object.fromEntries(item.outputs.map(output=>[output.outputId,output.count]))])),[distributorCounts.data]);
+  const triggerAssociations=useMemo<TriggerAssociation[]>(()=>channelFlows.data?.channels.flatMap(channel=>channel.flowConfigs.filter(config=>config.playbookId===id).map(config=>({channelId:channel.id,channelName:channel.displayName,slot:config.slot})))??[],[channelFlows.data,id]);
   useEffect(()=>{setNodes(current=>current.map(node=>node.data.kind==='distributor'?{...node,data:{...node.data,distributorCounts:countsByNode.get(node.id)??{}}}:node))},[countsByNode]);
   const selectedNode=nodes.find(node=>node.id===selectedNodeId)??null;const selectedEdge=edges.find(edge=>edge.id===selectedEdgeId)??null;
   const busy=save.isPending||validate.isPending||simulate.isPending||publish.isPending;
@@ -268,7 +270,7 @@ export function PlaybookEditorPage(){
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
               ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} boards={kanbanBoards.data??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
-            : <NodeInspector node={selectedNode} playbooks={(playbooks.data??[]).filter(item=>item.id!==id)} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} boards={kanbanBoards.data??[]} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
+            : <NodeInspector node={selectedNode} playbooks={(playbooks.data??[]).filter(item=>item.id!==id)} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} boards={kanbanBoards.data??[]} triggerAssociations={triggerAssociations} isStart={selectedNode.id===start} onName={name=>updateSelected({name})} onConfig={updateConfig} onConfigs={updateConfigs} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
           : selectedEdge
             ? <EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>
             : <FlowInspector definition={definition} result={result} importReport={playbook.data.importSource?.report} version={version} restoredVersion={restoredVersion} versions={playbook.data.versions??[]} simulationVariables={simulationVariables} onSimulationVariables={setSimulationVariables} onRestore={restoreLocal} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);setInspectorOpen(false);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>
@@ -350,7 +352,12 @@ function DistributorFields({config,counts,onConfigs}:{config:Record<string,unkno
     <label className="check-field"><input type="checkbox" checked={config.preventRepeat!==false} onChange={event=>onConfigs({preventRepeat:event.target.checked})}/> Manter o contato sempre na mesma saída</label>
     <p className="field-help">O menor total proporcional ao peso recebe o próximo contato. Os contadores são atualizados após cada execução.</p></>
 }
-function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags,boards,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;playbooks:Playbook[];agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];boards:KanbanBoard[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
+function TriggerAssociations({items}:{items:TriggerAssociation[]}){
+  const labels:Record<TriggerAssociation['slot'],string>={WELCOME:'Boas-vindas',DEFAULT_RESPONSE:'Resposta padrão',CONVERSATION_RESOLVED:'Conversa finalizada',HANDOFF_CLOSED:'Atendimento finalizado'};
+  return <div className="trigger-associations"><b>Iniciado por</b>{items.length?<ul>{items.map(item=><li key={`${item.channelId}:${item.slot}`}><span>{labels[item.slot]} em <strong>{item.channelName}</strong></span></li>)}</ul>:<p>Este fluxo ainda não está associado a um slot de conexão.</p>}<Link to="/settings?tab=default-flows">Configurar fluxos padrão →</Link></div>
+}
+
+function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags,boards,triggerAssociations,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;playbooks:Playbook[];agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];boards:KanbanBoard[];triggerAssociations:TriggerAssociation[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
   const customTags=Array.isArray(config.tags)?config.tags.filter((value):value is string=>typeof value==='string'):[];
@@ -358,6 +365,7 @@ function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags
   return <><header><span className={`palette-icon ${kind}`}><KindIcon size={16} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>{kindMeta[kind].label}</b></div></header><div className="inspector-form">
     <div className="config-callout"><b>Regra deste bloco</b><p>{kindMeta[kind].rule}{connectionRule(kind)?` ${connectionRule(kind)}`:''}</p></div>
     <label>Nome<input value={node.data.name} onChange={event=>onName(event.target.value)} /></label>
+    {kind==='trigger'&&<TriggerAssociations items={triggerAssociations}/>}
     {kind==='trigger'&&<label>Evento<select value={String(config.event??'message.received')} onChange={event=>onConfig('event',event.target.value)}><option value="message.received">Mensagem recebida</option><option value="tag.added">Etiqueta adicionada</option><option value="conversation.created">Conversa criada</option></select></label>}
     {kind==='trigger'&&<><label className="check-field"><input type="checkbox" checked={config.oncePerContact===true} onChange={event=>onConfig('oncePerContact',event.target.checked)}/>Executar só uma vez por contato</label><p className="field-help">Se marcado, quem já passou por este fluxo não recomeça ao mandar nova mensagem.</p></>}
     {kind==='image'&&<><MediaUploadField label="Imagem" value={String(config.url??'')} accept="image/jpeg,image/png,image/webp" onChange={value=>onConfig('url',value)}/><label>Legenda opcional<textarea rows={3} value={String(config.caption??'')} onChange={event=>onConfig('caption',event.target.value)} placeholder="Use {{variavel}} para personalizar." /></label></>}

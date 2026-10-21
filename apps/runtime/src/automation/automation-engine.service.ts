@@ -450,12 +450,12 @@ export class AutomationEngineService implements OnModuleDestroy {
       case 'outcome': {
         const type = node.config.type;
         if (typeof type !== 'string' || !outcomeTypes.has(type)) throw new NodeExecutionError('OUTCOME_TYPE_REQUIRED', 'Configure um tipo de desfecho válido.');
-        const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
+        const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true, status: true } });
         if (!conversation) throw new NodeExecutionError('CONVERSATION_NOT_FOUND', 'A conversa da execução não existe.');
         const valueCents = typeof node.config.valueCents === 'number' && Number.isInteger(node.config.valueCents) ? node.config.valueCents : undefined;
         await this.prisma.$transaction(async tx => {
           await tx.outcome.create({ data: { workspaceId, conversationId, contactId: conversation.contactId, type: type as never, valueCents, metadata: asJson({ executionId, nodeId: node.id }) } });
-          if (type === 'RESOLVED') await tx.conversation.update({ where: { id: conversationId }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+          if (type === 'RESOLVED') {await tx.conversation.update({ where: { id: conversationId }, data: { status: 'RESOLVED', resolvedAt: new Date() } });if(conversation.status!=='RESOLVED')await tx.outboxEvent.create({data:{workspaceId,aggregate:'Conversation',aggregateId:conversationId,type:'automation.channel_slot.requested',payload:{conversationId,slot:'CONVERSATION_RESOLVED'}}})}
           await tx.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { type, valueCents }, finishedAt: new Date() } });
           await tx.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: node.id, context: asJson(context), finishedAt: new Date() } });
         });
