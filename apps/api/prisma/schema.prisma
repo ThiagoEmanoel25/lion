@@ -101,6 +101,18 @@ enum OutcomeType {
   DISQUALIFIED
 }
 
+enum ChannelFlowSlot {
+  WELCOME
+  DEFAULT_RESPONSE
+  CONVERSATION_RESOLVED
+  HANDOFF_CLOSED
+}
+
+enum ChannelKeywordMatch {
+  EXACT
+  CONTAINS
+}
+
 model Workspace {
   id                      String                   @id @default(cuid())
   name                    String
@@ -132,6 +144,38 @@ model Workspace {
   metaPixels              MetaPixel[]
   playbookFolders         PlaybookFolder[]
   playbookAssets          PlaybookAsset[]
+}
+
+model ChannelFlowConfig {
+  id          String          @id @default(cuid())
+  channelId   String
+  slot        ChannelFlowSlot
+  playbookId  String
+  windowHours Int             @default(24)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  channel     Channel         @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  playbook    Playbook        @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, slot])
+  @@index([playbookId])
+}
+
+model ChannelKeyword {
+  id                String              @id @default(cuid())
+  channelId         String
+  keyword           String
+  normalizedKeyword String
+  match             ChannelKeywordMatch
+  playbookId        String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  channel           Channel             @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  playbook          Playbook            @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, normalizedKeyword, match])
+  @@index([channelId, createdAt])
+  @@index([playbookId])
 }
 
 model User {
@@ -243,6 +287,8 @@ model Channel {
   whatsappAuth            WhatsAppAuthState?
   whatsappKeys            WhatsAppAuthKey[]
   inboundWebhookEndpoints InboundWebhookEndpoint[]
+  flowConfigs             ChannelFlowConfig[]
+  keywords                ChannelKeyword[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, activePlaybookId])
@@ -421,6 +467,8 @@ model Playbook {
   distributorCounts       FlowDistributorCount[]
   distributorAssignments  FlowDistributorAssignment[]
   folder                  PlaybookFolder?             @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  channelFlowConfigs      ChannelFlowConfig[]
+  channelKeywords         ChannelKeyword[]
 
   @@index([workspaceId, status])
   @@index([folderId])
