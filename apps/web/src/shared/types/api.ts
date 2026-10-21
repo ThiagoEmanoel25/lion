@@ -28,6 +28,14 @@ export type BillingQuota={used:number;limit:number|null;percentage:number|null;p
 export type BillingOverview={subscription:{id:string|null;provider:string;plan:string;status:string;currentPeriodStart:string;currentPeriodEnd:string};resources:{contacts:BillingQuota;members:BillingQuota;channels:BillingQuota;executionsMonthly:BillingQuota};usage:Array<{kind:string;quantity:number;unit:string;costCents:number;occurredAt:string}>;totals:{costCents:number};history:{subscriptions:Array<{id:string;provider:string;plan:string;status:string;currentPeriodStart:string;currentPeriodEnd:string}>;executions:Array<{month:string;count:number}>};billingProvider:{name:string|null;configured:boolean;checkoutAvailable:boolean;portalAvailable:boolean;message:string}};
 export type Channel={id:string;provider:string;displayName:string;phoneNumber:string;status:string;lastInboundAt:string|null;createdAt:string;activePlaybook?:{id:string;name:string;status:string}|null};
 export type WhatsAppSession=Pick<Channel,'id'|'status'|'displayName'|'phoneNumber'>&{updatedAt:string;runtime:null|{status:string;qr?:string;pairingCode?:string;phoneJid?:string;updatedAt:string}};
+export type ChannelFlowSlot='WELCOME'|'DEFAULT_RESPONSE'|'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED';
+export type ChannelKeywordMatch='EXACT'|'CONTAINS';
+export type ChannelFlowPlaybook={id:string;name:string;status:PlaybookStatus};
+export type ChannelFlowConfig={id:string;slot:ChannelFlowSlot;playbookId:string;windowHours:number;playbook:ChannelFlowPlaybook};
+export type ChannelKeywordRule={id:string;keyword:string;normalizedKeyword:string;match:ChannelKeywordMatch;playbookId:string;playbook:ChannelFlowPlaybook};
+export type ChannelFlowSettingsChannel={id:string;displayName:string;phoneNumber:string;status:string;flowConfigs:ChannelFlowConfig[];keywords:ChannelKeywordRule[]};
+export type ChannelFlowSettingsData={channels:ChannelFlowSettingsChannel[];playbooks:ChannelFlowPlaybook[]};
+export type ChannelFlowSettingsInput={slots:Record<ChannelFlowSlot,string|null>;defaultResponseWindowHours:number;keywords:Array<{keyword:string;match:ChannelKeywordMatch;playbookId:string}>};
 export type AnalyticsOverview={
   period:{from:string;to:string;days:7|30|90};
   summary:{
