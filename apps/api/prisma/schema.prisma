@@ -62,6 +62,14 @@ enum MessageStatus {
   FAILED
 }
 
+enum ScheduledMessageStatus {
+  PENDING
+  PROCESSING
+  SENT
+  CANCELLED
+  FAILED
+}
+
 enum PlaybookStatus {
   DRAFT
   PUBLISHED
@@ -144,6 +152,9 @@ model Workspace {
   metaPixels              MetaPixel[]
   playbookFolders         PlaybookFolder[]
   playbookAssets          PlaybookAsset[]
+  quickReplies            QuickReply[]
+  globalVariables         GlobalVariable[]
+  scheduledMessages       ScheduledMessage[]
 }
 
 model ChannelFlowConfig {
@@ -375,6 +386,9 @@ model Conversation {
   summary         String?
   metadata        Json               @default("{}")
   firstResponseAt DateTime?
+  lastInboundAt   DateTime?
+  lastOutboundAt  DateTime?
+  needsReply      Boolean            @default(false)
   resolvedAt      DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -386,9 +400,13 @@ model Conversation {
   executions      Execution[]
   outcomes        Outcome[]
   kanbanCards     KanbanCard[]
+  scheduledMessages ScheduledMessage[]
 
   @@index([workspaceId, status, updatedAt])
   @@index([workspaceId, assigneeId, status])
+  @@index([workspaceId, lastInboundAt])
+  @@index([workspaceId, lastOutboundAt])
+  @@index([workspaceId, needsReply, status])
 }
 
 model MessageMedia {
@@ -414,8 +432,62 @@ model PlaybookAsset {
   data        Bytes
   createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  quickReplies QuickReply[]
 
   @@index([workspaceId, createdAt])
+}
+
+model QuickReply {
+  id                 String         @id @default(cuid())
+  workspaceId        String
+  shortcut           String
+  shortcutNormalized String
+  body               String
+  assetId            String?
+  createdById        String
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  workspace          Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  asset              PlaybookAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, shortcutNormalized])
+  @@index([workspaceId, updatedAt])
+}
+
+model GlobalVariable {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  name           String
+  normalizedName String
+  valueEncrypted String
+  valueLast4     String?
+  sensitive      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, normalizedName])
+  @@index([workspaceId, updatedAt])
+}
+
+model ScheduledMessage {
+  id             String                 @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  authorId       String
+  body           String
+  scheduledFor   DateTime
+  status         ScheduledMessageStatus @default(PENDING)
+  sentMessageId  String?                @unique
+  error          String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sentMessage    Message?               @relation(fields: [sentMessageId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status, scheduledFor])
+  @@index([conversationId, status, scheduledFor])
 }
 
 model Message {
@@ -440,6 +512,7 @@ model Message {
   createdAt       DateTime         @default(now())
   conversation    Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   media           MessageMedia?
+  scheduledSource ScheduledMessage?
 
   @@unique([workspaceId, externalId])
   @@unique([workspaceId, clientRequestId])
