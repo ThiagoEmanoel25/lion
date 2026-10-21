@@ -6,10 +6,13 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 
 ## Andamento
 
-| Item | Estado | Entregue em 20/10/2026 |
+| Item | Estado | Entrega |
 |---|---|---|
 | 1.1 Fluxos padrão + palavras-chave | Em validação funcional | Spec H, migration aplicada, API transacional, roteamento do runtime, eventos de encerramento, tela por conexão, ação em massa e associação visível no Gatilho. Compilação e testes automatizados passaram; falta validar as três rotas de entrada com um canal WhatsApp conectado. |
-| 1.2 em diante | Não iniciado | — |
+| 1.2 Chats ao vivo | Implementado em 21/10/2026; validação funcional pendente | Filas Aguardando/Atendendo/Resolvidos, contadores, filtros, transições pela lista, novo chat, canal visível, não respondidas e mensagens agendadas canceláveis. |
+| 1.3 Respostas rápidas | Implementado em 21/10/2026; validação funcional pendente | CRUD com mídia, busca por `/atalho` no composer e inserção sem envio automático. |
+| 1.4 Variáveis globais | Implementado em 21/10/2026; validação funcional pendente | CRUD cifrado, mascaramento, seletor no editor e resolução no runtime sem persistir segredos no contexto. |
+| 2.1 em diante | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
 
 ---
 
