@@ -16,6 +16,7 @@ import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { acceptsNewEntrants, isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
 import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js';
 import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js';
+import {selectInboundRoute} from './automation/channel-routing.js';
 
 @Injectable()
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
@@ -186,18 +187,19 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
+      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
         : event.type==='notification.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.text)
         : event.type==='reaction.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.messageExternalId&&payload.emoji)
         : event.type === 'automation.sequence.continue.requested' ? Boolean(payload.executionId && payload.resumeStepId && Number.isInteger(payload.sequenceIndex) && payload.sequenceIndex! >= 1)
         : event.type === 'automation.inbound.received' ? Boolean(payload.conversationId)
         : event.type === 'automation.trigger.requested' ? Boolean(payload.event && (payload.conversationId || payload.contactId))
+        : event.type === 'automation.channel_slot.requested' ? Boolean(payload.slot&&payload.conversationId)
         : event.type === 'knowledge.index.requested'?Boolean(payload.sourceId):Boolean(payload.executionId);
       if (!valid) {
         await this.prisma.outboxEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } });
@@ -221,13 +223,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           await automationQueue.add('sequence_next', { executionId: payload.executionId!, action: 'sequence_next', resumeStepId: payload.resumeStepId!, sequenceIndex: payload.sequenceIndex! }, sequenceJobOptions(payload.resumeStepId!,payload.sequenceIndex!));
         } else if (event.type === 'automation.inbound.received' && await this.resumeWaitingExecution(automationQueue, payload.conversationId!, payload.messageId, commonOptions)) {
           // The message answered a pending wait; it must not also start a new execution.
-        } else if (event.type === 'automation.inbound.received' || event.type === 'automation.trigger.requested') {
+        } else if (event.type === 'automation.inbound.received' || event.type === 'automation.trigger.requested'||event.type==='automation.channel_slot.requested') {
           await this.startTriggeredExecution(automationQueue, {
-            triggerEvent: event.type === 'automation.inbound.received' ? 'message.received' : payload.event!,
+            triggerEvent: event.type === 'automation.inbound.received' ? 'message.received' : payload.event??payload.slot!,
             conversationId: payload.conversationId,
             contactId: payload.contactId,
             messageId: payload.messageId,
             tagId: payload.tagId,
+            slot:payload.slot,
             jobOptions: commonOptions
           });
         } else if (event.type === 'automation.execution.requested') {
@@ -269,17 +272,29 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  private async startTriggeredExecution(automationQueue: Queue<AutomationJob>, input: {triggerEvent:string;conversationId?:string;contactId?:string;messageId?:string;tagId?:string;jobOptions:Record<string,unknown>}) {
-    const include = { contact: { include: { tags: { include: { tag: true } } } }, channel: { include: { activePlaybook: { include: { activeVersion: true } } } } } as const;
+  private async startTriggeredExecution(automationQueue: Queue<AutomationJob>, input: {triggerEvent:string;conversationId?:string;contactId?:string;messageId?:string;tagId?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED';jobOptions:Record<string,unknown>}) {
+    const include = { contact: { include: { tags: { include: { tag: true } } } }, channel: { include: { activePlaybook: { include: { activeVersion: true } },flowConfigs:{include:{playbook:{include:{activeVersion:true}}}},keywords:{include:{playbook:{include:{activeVersion:true}}}} } } } as const;
     const conversation = input.conversationId
       ? await this.prisma.conversation.findUnique({ where: { id: input.conversationId }, include })
-      : await this.prisma.conversation.findFirst({ where: { contactId: input.contactId!, status: { not: 'RESOLVED' }, channel: { activePlaybookId: { not: null } } }, include, orderBy: { updatedAt: 'desc' } });
-    const version = conversation?.channel.activePlaybook?.activeVersion;
-    if (!conversation || !version || !acceptsNewEntrants(conversation.channel.activePlaybook!.status)) return;
-    if (!matchesAutomationTrigger(version.definition, input.triggerEvent, input.tagId)) return;
+      : await this.prisma.conversation.findFirst({ where: { contactId: input.contactId!, status: { not: 'RESOLVED' } }, include, orderBy: { updatedAt: 'desc' } });
+    if(!conversation)return;
+    let selected=conversation.channel.activePlaybook;let routeReason='legacy';
+    if(input.slot){selected=conversation.channel.flowConfigs.find(item=>item.slot===input.slot)?.playbook??null;routeReason=input.slot.toLocaleLowerCase()}
+    else if(input.triggerEvent==='message.received'){
+      const body=input.messageId?(await this.prisma.message.findUnique({where:{id:input.messageId},select:{body:true}}))?.body??'':'';
+      const firstMessage=await this.prisma.message.count({where:{direction:'INBOUND',conversation:{contactId:conversation.contactId,channelId:conversation.channelId}}})<=1;
+      const configs=new Map(conversation.channel.flowConfigs.map(item=>[item.slot,item]));const fallback=configs.get('DEFAULT_RESPONSE');
+      const hasRecentExecution=fallback?Boolean(await this.prisma.execution.findFirst({where:{conversation:{contactId:conversation.contactId,channelId:conversation.channelId},startedAt:{gte:new Date(Date.now()-fallback.windowHours*3_600_000)}},select:{id:true}})):false;
+      const route=selectInboundRoute({body,keywords:conversation.channel.keywords.filter(item=>acceptsNewEntrants(item.playbook.status)).map(item=>({id:item.id,keyword:item.keyword,normalizedKeyword:item.normalizedKeyword,match:item.match,playbookId:item.playbookId})),welcomePlaybookId:configs.get('WELCOME')?.playbookId,defaultPlaybookId:fallback?.playbookId,firstMessage,hasRecentExecution});
+      if(!route)return;routeReason=route.reason;selected=route.reason==='keyword'?conversation.channel.keywords.find(item=>item.id===route.keywordId)?.playbook??null:configs.get(route.reason==='welcome'?'WELCOME':'DEFAULT_RESPONSE')?.playbook??null;
+    }
+    const version = selected?.activeVersion;
+    if (!version || !selected||!acceptsNewEntrants(selected.status)) return;
+    const directRoute=input.slot||input.triggerEvent==='message.received';
+    if (!directRoute&&!matchesAutomationTrigger(version.definition, input.triggerEvent, input.tagId)) return;
     const active = await this.prisma.execution.findFirst({ where: { conversationId: conversation.id, playbookVersionId: version.id, status: { in: ['RUNNING', 'WAITING'] } } });
     if (active) return;
-    const once = isOncePerContact(version.definition);
+    const once = !directRoute&&isOncePerContact(version.definition);
     const prior = once && !!await this.prisma.execution.findFirst({ where: { playbookVersion: { playbookId: version.playbookId }, conversation: { contactId: conversation.contactId } }, select: { id: true } });
     if (!shouldStartForContact(once, prior)) return;
     if (!await this.canStartExecution(conversation.workspaceId)) {
@@ -295,7 +310,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       conversationId: conversation.id,
       playbookVersionId: version.id,
       context: {
-        trigger: { event: input.triggerEvent, messageId: input.messageId ?? null, tagId: input.tagId ?? null },
+        trigger: { event: input.triggerEvent, route:routeReason,messageId: input.messageId ?? null, tagId: input.tagId ?? null },
         contact: { id: conversation.contact.id, name: conversation.contact.name, firstName: firstName(conversation.contact.name), phone: conversation.contact.phone, email: conversation.contact.email, stage: conversation.contact.stage, customFields: conversation.contact.customFields, tags: conversation.contact.tags.map(item => ({ id: item.tag.id, name: item.tag.name })), tagIds: conversation.contact.tags.map(item => item.tag.id) },
         conversation: { id: conversation.id, status: conversation.status, mode: conversation.mode },
         channel: { id: conversation.channel.id, phone: conversation.channel.phoneNumber },

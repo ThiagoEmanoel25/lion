@@ -83,8 +83,9 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
   app.post('/v1/conversations/:id/mode', { preHandler: [app.requirePermission('conversation.reply')] }, async request => {
     const { id } = request.params as { id: string };
     const input = ChangeConversationModeInput.parse(request.body);
-    const updated = await app.prisma.conversation.updateMany({ where: { id, workspaceId: request.auth.workspaceId }, data: modeTransition(input.mode, request.auth.userId) });
-    if (!updated.count) throw new DomainError('NOT_FOUND', 'Conversa não encontrada.', 404);
+    const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,mode:true}});
+    if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);
+    await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data:modeTransition(input.mode,request.auth.userId)});if(current.mode==='HUMAN'&&input.mode!=='HUMAN')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'HANDOFF_CLOSED'}})});
     await audit(app.prisma, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'conversation.mode_changed', targetType: 'Conversation', targetId: id, changes: { mode: input.mode, reason: input.reason }, ip: request.ip });
     return { ok: true, mode: input.mode };
   });
@@ -99,8 +100,9 @@ export const inboxRoutes: FastifyPluginAsync = async app => {
   app.post('/v1/conversations/:id/status', { preHandler: [app.requirePermission('conversation.reply')] }, async request => {
     const { id } = request.params as { id: string };
     const input = ChangeConversationStatusInput.parse(request.body);
-    const result = await app.prisma.conversation.updateMany({ where: { id, workspaceId: request.auth.workspaceId }, data: statusTransition(input.status) });
-    if (!result.count) throw new DomainError('NOT_FOUND', 'Conversa não encontrada.', 404);
+    const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,status:true}});
+    if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);
+    await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data:statusTransition(input.status)});if(input.status==='RESOLVED'&&current.status!=='RESOLVED')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'CONVERSATION_RESOLVED'}})});
     await audit(app.prisma, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'conversation.status_changed', targetType: 'Conversation', targetId: id, changes: input, ip: request.ip });
     return { ok: true, status: input.status };
   });
