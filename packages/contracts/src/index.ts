@@ -43,7 +43,8 @@ export const ImportContactsInput = z.object({csv:z.string().min(1).max(2_000_000
 export const CreateContactTagInput = z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#17765b')});
 export const SendMessageInput = z.object({
   body:z.string().trim().min(1).max(4096),
-  clientRequestId:z.string().uuid()
+  clientRequestId:z.string().uuid(),
+  assetId:z.string().cuid().optional()
 });
 export const AssignConversationInput = z.object({assigneeId:z.string().cuid().nullable(),queue:z.string().max(80).optional()});
 export const ChangeConversationModeInput = z.object({mode:z.enum(['AI','HUMAN','PAUSED']),reason:z.string().max(240)});

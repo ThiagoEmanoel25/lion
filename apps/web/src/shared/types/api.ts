@@ -1,12 +1,14 @@
 export type Session={accessToken:string;refreshToken:string;user:{id:string;name:string;email:string};workspace:{id:string;name:string;role:string}};
 export type Page<T>={items:T[];nextCursor:string|null};
+export type ConversationPage=Page<Conversation>&{counts:{waiting:number;attending:number;resolved:number}};
 export type Contact={id:string;name:string|null;phone:string;email:string|null;source:string|null;stage:string;customFields:Record<string,unknown>;updatedAt:string;owner:{id:string;name:string;email:string}|null;tags:Array<{tag:{id:string;name:string;color:string}}>};
 export type ContactMeta={stageCounts:Array<{stage:string;count:number}>;tags:Array<{id:string;name:string;color:string}>;members:Array<{id:string;name:string;email:string;role:string}>};
 export type ContactWriteInput={name?:string|null;phone?:string;email?:string|null;source?:string|null;stage?:string;ownerId?:string|null;customFields?:Record<string,unknown>;tagIds?:string[]};
 export type ContactImportReport={total:number;created:number;updated:number;failed:number;errors:Array<{row:number;message:string}>};
 export type ConversationStatus='NEW'|'AUTOMATED'|'WAITING_CUSTOMER'|'QUEUED'|'ASSIGNED'|'RESOLVED';
 export type Message={id:string;direction:'INBOUND'|'OUTBOUND';body:string|null;status:string;type?:string;authorType:string;createdAt:string;sentAt?:string|null;deliveredAt?:string|null;readAt?:string|null;errorCode?:string|null};
-export type Conversation={id:string;status:ConversationStatus;mode:'AI'|'HUMAN'|'PAUSED';queue?:string|null;summary?:string|null;unreadCount:number;updatedAt:string;resolvedAt?:string|null;contact:Contact;assignee?:{id:string;name:string}|null;messages:Message[];executions?:Execution[]};
+export type ScheduledMessage={id:string;body:string;scheduledFor:string;status:'PENDING'|'PROCESSING'|'SENT'|'CANCELLED'|'FAILED';error?:string|null};
+export type Conversation={id:string;status:ConversationStatus;mode:'AI'|'HUMAN'|'PAUSED';queue?:string|null;summary?:string|null;unreadCount:number;needsReply:boolean;lastInboundAt?:string|null;lastOutboundAt?:string|null;updatedAt:string;resolvedAt?:string|null;channel?:{id:string;displayName:string;phoneNumber:string};contact:Contact;assignee?:{id:string;name:string}|null;messages:Message[];scheduledMessages?:ScheduledMessage[];executions?:Execution[]};
 export type Execution={id:string;status:string;currentNode:string|null;startedAt:string;finishedAt?:string|null;playbookVersion?:{version:number;playbook:{id:string;name:string}};steps:Array<{id:string;nodeId:string;kind:string;status:string;reason:string|null;durationMs:number|null;costCents:number;startedAt:string;finishedAt?:string|null;input?:unknown;output?:unknown}>};
 export type AutomationNodeKind='trigger'|'message'|'image'|'audio'|'sticker'|'buttons'|'agent'|'condition'|'delay'|'webhook'|'assign'|'tag'|'handoff'|'outcome'|'ai'|'wait_response'|'kanban'|'pixel'|'flow_jump'|'distributor'|'notification';
 export type AutomationNode={id:string;kind:AutomationNodeKind;name:string;config:Record<string,unknown>;position:{x:number;y:number}};
@@ -61,5 +63,7 @@ export type KanbanBoard={id:string;name:string;position:number;columns:KanbanCol
 
 export type MetaPixel={id:string;name:string;pixelId:string;pageId:string|null;testEventCode:string|null;tokenLast4:string};
 export type PixelTestResult={ok:boolean;status:number;eventsReceived:number;message:string};
+export type QuickReply={id:string;shortcut:string;shortcutNormalized:string;body:string;asset:{id:string;fileName:string;contentType:string;size:number;url:string}|null;createdAt:string;updatedAt:string};
+export type GlobalVariable={id:string;name:string;normalizedName:string;sensitive:boolean;value?:string;valueLast4:string|null;createdAt:string;updatedAt:string};
 
 export type ImportReport={source:'leona'|'nexo';items:Array<{sourceId?:string;sourceType?:string;status:'converted'|'adjusted'|'pending';message:string}>;totals:{converted:number;adjusted:number;pending:number}};

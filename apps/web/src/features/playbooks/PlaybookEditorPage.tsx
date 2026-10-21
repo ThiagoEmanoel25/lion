@@ -7,7 +7,7 @@ import {ApiError} from '../../shared/api/client';
 import type {ImportReport,AutomationDefinition,AutomationEdge,AutomationIssue,AutomationNodeKind,AutomationValidation,KanbanBoard,Playbook,PlaybookVersion} from '../../shared/types/api';
 import {uploadPlaybookAsset,useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
-import {useChannelFlowSettings,useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
+import {useChannelFlowSettings,useGlobalVariables,useMetaPixels,useTestMetaPixel,useWorkspaceAiKey} from '../settings/api/queries';
 import {useContactMeta} from '../contacts/api/queries';
 import {useKanbanBoards} from '../kanban/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
@@ -412,6 +412,7 @@ function WhatsAppField({id,value,onChange,rows=5,maxLength,placeholder,invalid}:
       <button type="button" title="Tachado" aria-label="Tachado" onClick={()=>format('~')}><Strikethrough size={16}/></button>
       <button type="button" title="Emoji" aria-label="Inserir emoji" aria-expanded={emojiOpen} onClick={()=>setEmojiOpen(open=>!open)}><Smile size={16}/></button>
       <button type="button" title="Monoespaçado" aria-label="Monoespaçado" onClick={()=>format('```')}><Code size={16}/></button>
+      <select title="Inserir variável" aria-label="Inserir variável" value="" onChange={event=>{const path=event.target.value;if(!path)return;const el=ref.current;const at=el?.selectionStart??value.length;const token=`{{${path}}}`;onChange(value.slice(0,at)+token+value.slice(el?.selectionEnd??at));requestAnimationFrame(()=>{el?.focus();el?.setSelectionRange(at+token.length,at+token.length)})}}><option value="">{'{ }'}</option><option value="contact.name">Nome do contato</option><option value="contact.phone">Telefone</option><option value="last_message">Última mensagem</option><GlobalVariableOptions/></select>
       {emojiOpen&&<div className="menu-emoji" role="listbox" aria-label="Emojis">{MENU_EMOJIS.map(emoji=><button type="button" role="option" aria-selected="false" key={emoji} onClick={()=>insertEmoji(emoji)}>{emoji}</button>)}</div>}
     </div>
   </div>
@@ -487,8 +488,9 @@ function responsePaths(response:{status:number;body:unknown},limit=50):string[]{
 type IntegrationTab='headers'|'body'|'mapping';
 type IntegrationResponseField={path:string;variable:string};
 const INTEGRATION_METHODS=['GET','POST','PUT','PATCH','DELETE'] as const;
+function GlobalVariableOptions(){const variables=useGlobalVariables();return variables.data?.length?<optgroup label="Globais">{variables.data.map(item=><option key={item.id} value={`global.${item.name}`}>{item.name}{item.sensitive?' 🔒':''}</option>)}</optgroup>:null}
 function VariableInput({label,value,onChange,placeholder,invalid}:{label:string;value:string;onChange:(value:string)=>void;placeholder?:string;invalid?:boolean}){
-  return <div className="integration-url"><input aria-label={label} value={value} aria-invalid={invalid} onChange={event=>onChange(event.target.value)} placeholder={placeholder}/><select title="Inserir variável" aria-label={`Inserir variável em ${label}`} value="" onChange={event=>{if(event.target.value)onChange(value+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option></select></div>
+  return <div className="integration-url"><input aria-label={label} value={value} aria-invalid={invalid} onChange={event=>onChange(event.target.value)} placeholder={placeholder}/><select title="Inserir variável" aria-label={`Inserir variável em ${label}`} value="" onChange={event=>{if(event.target.value)onChange(value+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option><GlobalVariableOptions/></select></div>
 }
 function PixelEditor({playbookId:_playbookId,node,onSave,onCancel}:{playbookId:string;node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const initial={...defaultConfig('pixel'),...node.data.config};const pixels=useMetaPixels();const test=useTestMetaPixel();
@@ -537,7 +539,7 @@ function WebhookEditor({playbookId,node,variablesJson,onEditTestData,onSave,onCa
     <div className="inspector-form integration-editor">
       <label>Nome do bloco<input value={name} maxLength={120} onChange={event=>setName(event.target.value)}/></label>
       <section className="integration-basics"><div className="integration-grid"><label>Tipo de requisição<select value={method} onChange={event=>setMethod(event.target.value)}>{INTEGRATION_METHODS.map(item=><option value={item} key={item}>{item}</option>)}</select></label><label>Tempo limite<input value="30 segundos" disabled/></label></div>
-        <label>URL da requisição *<div className="integration-url"><input type="url" value={url} aria-invalid={Boolean(submitted&&urlError)} onChange={event=>setUrl(event.target.value)} placeholder="https://api.exemplo.com/recurso"/><select title="Inserir variável" aria-label="Inserir variável na URL" value="" onChange={event=>{if(event.target.value)setUrl(current=>current+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option></select></div>{submitted&&urlError?<small className="field-error">{urlError}</small>:<small>Use variáveis como {'{{contact.name}}'}, {'{{contact.phone}}'} ou {'{{contact.email}}'}.</small>}</label>
+        <label>URL da requisição *<div className="integration-url"><input type="url" value={url} aria-invalid={Boolean(submitted&&urlError)} onChange={event=>setUrl(event.target.value)} placeholder="https://api.exemplo.com/recurso"/><select title="Inserir variável" aria-label="Inserir variável na URL" value="" onChange={event=>{if(event.target.value)setUrl(current=>current+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option><GlobalVariableOptions/></select></div>{submitted&&urlError?<small className="field-error">{urlError}</small>:<small>Use variáveis como {'{{contact.name}}'}, {'{{contact.phone}}'} ou {'{{contact.email}}'}.</small>}</label>
       </section>
       <section className="integration-panel"><nav className="integration-tabs" aria-label="Configuração da integração">{([['headers','Header da requisição'],['body','Corpo da requisição'],['mapping','Mapear resposta']] as Array<[IntegrationTab,string]>).map(([id,label])=><button type="button" className={tab===id?'active':''} onClick={()=>setTab(id)} key={id}>{label}{id==='mapping'&&fields.length>0?<span>{fields.length}</span>:null}</button>)}</nav>
         <div className="integration-tab-body">
