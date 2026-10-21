@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {modeTransition,statusTransition} from './state.js';
+import {listTransition,modeTransition,statusTransition} from './state.js';
 
 describe('conversation transitions',()=>{
   it('atribui a conversa ao operador no handoff humano',()=>{
@@ -14,5 +14,13 @@ describe('conversation transitions',()=>{
     const now=new Date('2026-10-14T12:00:00Z');
     expect(statusTransition('RESOLVED',now)).toEqual({status:'RESOLVED',resolvedAt:now,unreadCount:0});
     expect(statusTransition('QUEUED',now)).toEqual({status:'QUEUED',resolvedAt:null,unreadCount:undefined});
+  });
+
+  it('move a conversa entre as três filas operacionais',()=>{
+    const now=new Date('2026-10-21T12:00:00Z');
+    expect(listTransition('QUEUED','forward','user-1',now)).toMatchObject({status:'ASSIGNED',assigneeId:'user-1'});
+    expect(listTransition('ASSIGNED','forward','user-1',now)).toMatchObject({status:'RESOLVED',resolvedAt:now});
+    expect(listTransition('RESOLVED','back','user-1',now)).toMatchObject({status:'ASSIGNED',resolvedAt:null});
+    expect(listTransition('QUEUED','back','user-1',now)).toBeNull();
   });
 });

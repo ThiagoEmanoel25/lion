@@ -1,109 +1,38 @@
-import type { FastifyPluginAsync } from 'fastify';
-import { AssignConversationInput, ChangeConversationModeInput, ChangeConversationStatusInput, SendMessageInput } from '@nexo/contracts';
-import { DomainError } from '@nexo/domain';
-import { enqueue } from '../../core/outbox.js';
-import { audit } from '../../core/audit.js';
-import { z } from 'zod';
-import { modeTransition, statusTransition } from './state.js';
+import type {FastifyPluginAsync} from 'fastify';
+import type {Prisma} from '@prisma/client';
+import {AssignConversationInput,ChangeConversationModeInput,ChangeConversationStatusInput,SendMessageInput} from '@nexo/contracts';
+import {DomainError} from '@nexo/domain';
+import {enqueue} from '../../core/outbox.js';
+import {audit} from '../../core/audit.js';
+import {z} from 'zod';
+import {listTransition,modeTransition,statusTransition} from './state.js';
 
-const ListConversationsQuery = z.object({
-  status: z.enum(['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED','ASSIGNED','RESOLVED']).optional(),
-  mode: z.enum(['AI','HUMAN','PAUSED']).optional(),
-  assigneeId: z.string().cuid().optional(),
-  search: z.string().trim().max(120).optional(),
-  cursor: z.string().cuid().optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(30)
-});
+const statuses=['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED','ASSIGNED','RESOLVED'] as const;
+const ListConversationsQuery=z.object({status:z.enum(statuses).optional(),bucket:z.enum(['waiting','attending','resolved']).optional(),attention:z.enum(['all','unread','unanswered']).default('all'),mode:z.enum(['AI','HUMAN','PAUSED']).optional(),assigneeId:z.string().cuid().optional(),channelId:z.string().cuid().optional(),search:z.string().trim().max(120).optional(),cursor:z.string().cuid().optional(),limit:z.coerce.number().int().min(1).max(50).default(30)});
+const CreateConversationInput=z.object({channelId:z.string().cuid(),phone:z.string().trim().min(8).max(30),name:z.string().trim().max(120).optional()});
+const ScheduleMessageInput=z.object({body:z.string().trim().min(1).max(4096),scheduledFor:z.string().datetime({offset:true}).transform(value=>new Date(value))});
+const TransitionInput=z.object({direction:z.enum(['back','forward'])});
+const bucketWhere=(bucket:'waiting'|'attending'|'resolved'|undefined):Prisma.ConversationWhereInput=>bucket==='attending'?{status:'ASSIGNED'}:bucket==='resolved'?{status:'RESOLVED'}:bucket==='waiting'?{status:{in:['NEW','AUTOMATED','WAITING_CUSTOMER','QUEUED']}}:{};
+const includeList={contact:true,channel:{select:{id:true,displayName:true,phoneNumber:true}},assignee:{select:{id:true,name:true}},messages:{take:1,orderBy:{createdAt:'desc' as const}}};
+function phoneOf(value:string){const digits=value.replace(/\D/g,'');if(digits.length<10||digits.length>15)throw new DomainError('INVALID_PHONE','Informe o telefone com DDI e DDD.',422);return digits}
 
-export const inboxRoutes: FastifyPluginAsync = async app => {
-  app.get('/v1/conversations', { preHandler: [app.requirePermission('conversation.read')] }, async request => {
-    const q = ListConversationsQuery.parse(request.query);
-    const items = await app.prisma.conversation.findMany({
-      where: {
-        workspaceId: request.auth.workspaceId,
-        status: q.status,
-        mode: q.mode,
-        assigneeId: q.assigneeId,
-        ...(q.search ? { contact: { is: { OR: [
-          { name: { contains: q.search, mode: 'insensitive' } },
-          { phone: { contains: q.search } },
-          { email: { contains: q.search, mode: 'insensitive' } }
-        ] } } } : {})
-      },
-      include: { contact: true, assignee: { select: { id: true, name: true } }, messages: { take: 1, orderBy: { createdAt: 'desc' } } },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: q.limit + 1,
-      ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {})
-    });
-    return { items: items.slice(0, q.limit), nextCursor: items.length > q.limit ? items[q.limit - 1]!.id : null };
-  });
+export const inboxRoutes:FastifyPluginAsync=async app=>{
+  app.get('/v1/conversations',{preHandler:[app.requirePermission('conversation.read')]},async request=>{const q=ListConversationsQuery.parse(request.query);const common:Prisma.ConversationWhereInput={workspaceId:request.auth.workspaceId,mode:q.mode,assigneeId:q.assigneeId,channelId:q.channelId,...(q.attention==='unread'?{unreadCount:{gt:0}}:q.attention==='unanswered'?{needsReply:true}:{}),...(q.search?{contact:{is:{OR:[{name:{contains:q.search,mode:'insensitive'}},{phone:{contains:q.search}},{email:{contains:q.search,mode:'insensitive'}}]}}}:{})};const where={...common,...(q.status?{status:q.status}:bucketWhere(q.bucket))};const [items,waiting,attending,resolved]=await Promise.all([app.prisma.conversation.findMany({where,include:includeList,orderBy:[{updatedAt:'desc'},{id:'desc'}],take:q.limit+1,...(q.cursor?{cursor:{id:q.cursor},skip:1}:{})}),app.prisma.conversation.count({where:{...common,...bucketWhere('waiting')}}),app.prisma.conversation.count({where:{...common,...bucketWhere('attending')}}),app.prisma.conversation.count({where:{...common,...bucketWhere('resolved')}})]);return {items:items.slice(0,q.limit),nextCursor:items.length>q.limit?items[q.limit-1]!.id:null,counts:{waiting,attending,resolved}}});
 
-  app.get('/v1/conversations/:id', { preHandler: [app.requirePermission('conversation.read')] }, async request => {
-    const { id } = request.params as { id: string };
-    const item = await app.prisma.conversation.findFirst({
-      where: { id, workspaceId: request.auth.workspaceId },
-      include: {
-        contact: { include: { tags: { include: { tag: true } } } },
-        assignee: { select: { id: true, name: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 200 },
-        executions: { take: 3, orderBy: { startedAt: 'desc' }, include: {
-          playbookVersion: { select: { version: true, playbook: { select: { id: true, name: true } } } },
-          steps: { orderBy: { startedAt: 'asc' } }
-        } }
-      }
-    });
-    if (!item) throw new DomainError('NOT_FOUND', 'Conversa não encontrada.', 404);
-    return { ...item, messages: [...item.messages].reverse() };
-  });
+  app.post('/v1/conversations',{preHandler:[app.requirePermission('conversation.reply')]},async(request,reply)=>{const input=CreateConversationInput.parse(request.body);const phone=phoneOf(input.phone);const channel=await app.prisma.channel.findFirst({where:{id:input.channelId,workspaceId:request.auth.workspaceId}});if(!channel)throw new DomainError('CHANNEL_NOT_FOUND','Canal não encontrado.',422);const conversation=await app.prisma.$transaction(async tx=>{const contact=await tx.contact.upsert({where:{workspaceId_phone:{workspaceId:request.auth.workspaceId,phone}},create:{workspaceId:request.auth.workspaceId,phone,name:input.name,source:'manual'},update:input.name?{name:input.name}:{}});const open=await tx.conversation.findFirst({where:{workspaceId:request.auth.workspaceId,channelId:channel.id,contactId:contact.id,status:{not:'RESOLVED'}},include:includeList});if(open)return open;return tx.conversation.create({data:{workspaceId:request.auth.workspaceId,channelId:channel.id,contactId:contact.id,status:'ASSIGNED',mode:'HUMAN',assigneeId:request.auth.userId},include:includeList})});return reply.status(201).send(conversation)});
 
-  app.post('/v1/conversations/:id/messages', { preHandler: [app.requirePermission('conversation.reply')] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const input = SendMessageInput.parse(request.body);
-    const conversation = await app.prisma.conversation.findFirst({ where: { id, workspaceId: request.auth.workspaceId } });
-    if (!conversation) throw new DomainError('NOT_FOUND', 'Conversa não encontrada.', 404);
-    if (conversation.mode !== 'HUMAN') throw new DomainError('AI_HAS_CONTROL', 'Assuma a conversa antes de responder.', 409);
-    const message = await app.prisma.$transaction(async tx => {
-      const existing = await tx.message.findFirst({ where: { workspaceId: request.auth.workspaceId, clientRequestId: input.clientRequestId } });
-      if (existing) return existing;
-      const created = await tx.message.create({ data: { workspaceId: request.auth.workspaceId, conversationId: id, clientRequestId: input.clientRequestId, direction: 'OUTBOUND', body: input.body, authorType: 'user', authorId: request.auth.userId, status: 'QUEUED' } });
-      await enqueue(tx, { workspaceId: request.auth.workspaceId, aggregate: 'Message', aggregateId: created.id, type: 'message.send.requested', payload: { messageId: created.id } });
-      return created;
-    });
-    return reply.status(202).send(message);
-  });
+  app.get('/v1/conversations/:id',{preHandler:[app.requirePermission('conversation.read')]},async request=>{const {id}=request.params as {id:string};const item=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},include:{contact:{include:{tags:{include:{tag:true}}}},channel:{select:{id:true,displayName:true,phoneNumber:true}},assignee:{select:{id:true,name:true}},messages:{orderBy:{createdAt:'desc'},take:200},scheduledMessages:{where:{status:{in:['PENDING','PROCESSING']}},orderBy:{scheduledFor:'asc'}},executions:{take:3,orderBy:{startedAt:'desc'},include:{playbookVersion:{select:{version:true,playbook:{select:{id:true,name:true}}}},steps:{orderBy:{startedAt:'asc'}}}}}});if(!item)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);return {...item,messages:[...item.messages].reverse()}});
 
-  app.post('/v1/conversations/:id/assign', { preHandler: [app.requirePermission('conversation.assign.self')] }, async request => {
-    const { id } = request.params as { id: string };
-    const input = AssignConversationInput.parse(request.body);
-    if (request.auth.role === 'AGENT' && input.assigneeId !== null && input.assigneeId !== request.auth.userId) throw new DomainError('FORBIDDEN', 'Agentes só podem atribuir conversas a si mesmos.', 403);
-    const result = await app.prisma.conversation.updateMany({ where: { id, workspaceId: request.auth.workspaceId }, data: { assigneeId: input.assigneeId, queue: input.queue, status: input.assigneeId ? 'ASSIGNED' : 'QUEUED' } });
-    if (!result.count) throw new DomainError('NOT_FOUND', 'Conversa não encontrada.', 404);
-    return { ok: true };
-  });
+  app.post('/v1/conversations/:id/messages',{preHandler:[app.requirePermission('conversation.reply')]},async(request,reply)=>{const {id}=request.params as {id:string};const input=SendMessageInput.parse(request.body);const [conversation,asset]=await Promise.all([app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId}}),input.assetId?app.prisma.playbookAsset.findFirst({where:{id:input.assetId,workspaceId:request.auth.workspaceId},select:{id:true,fileName:true,contentType:true}}):null]);if(!conversation)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);if(input.assetId&&!asset)throw new DomainError('ASSET_NOT_FOUND','Arquivo da resposta rápida não encontrado.',422);if(conversation.mode!=='HUMAN')throw new DomainError('AI_HAS_CONTROL','Assuma a conversa antes de responder.',409);const type=asset?.contentType.startsWith('image/')?'IMAGE':asset?.contentType.startsWith('audio/')?'AUDIO':asset?.contentType.startsWith('video/')?'VIDEO':asset?'DOCUMENT':'TEXT';const message=await app.prisma.$transaction(async tx=>{const existing=await tx.message.findFirst({where:{workspaceId:request.auth.workspaceId,clientRequestId:input.clientRequestId}});if(existing)return existing;const created=await tx.message.create({data:{workspaceId:request.auth.workspaceId,conversationId:id,clientRequestId:input.clientRequestId,direction:'OUTBOUND',type,body:input.body,mediaUrl:asset?`nexo-asset://${asset.id}`:null,providerPayload:asset?{fileName:asset.fileName}:undefined,authorType:'user',authorId:request.auth.userId,status:'QUEUED'}});await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Message',aggregateId:created.id,type:'message.send.requested',payload:{messageId:created.id}});return created});return reply.status(202).send(message)});
 
-  app.post('/v1/conversations/:id/mode', { preHandler: [app.requirePermission('conversation.reply')] }, async request => {
-    const { id } = request.params as { id: string };
-    const input = ChangeConversationModeInput.parse(request.body);
-    const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,mode:true}});
-    if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);
-    await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data:modeTransition(input.mode,request.auth.userId)});if(current.mode==='HUMAN'&&input.mode!=='HUMAN')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'HANDOFF_CLOSED'}})});
-    await audit(app.prisma, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'conversation.mode_changed', targetType: 'Conversation', targetId: id, changes: { mode: input.mode, reason: input.reason }, ip: request.ip });
-    return { ok: true, mode: input.mode };
-  });
+  app.get('/v1/conversations/:id/scheduled-messages',{preHandler:[app.requirePermission('conversation.read')]},async request=>{const {id}=request.params as {id:string};return app.prisma.scheduledMessage.findMany({where:{conversationId:id,workspaceId:request.auth.workspaceId},orderBy:{scheduledFor:'asc'},take:100})});
+  app.post('/v1/conversations/:id/scheduled-messages',{preHandler:[app.requirePermission('conversation.reply')]},async(request,reply)=>{const {id}=request.params as {id:string};const input=ScheduleMessageInput.parse(request.body);if(input.scheduledFor.getTime()<Date.now()+5_000||input.scheduledFor.getTime()>Date.now()+366*864e5)throw new DomainError('INVALID_SCHEDULE','Escolha um horário entre 5 segundos e 1 ano no futuro.',422);const conversation=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId}});if(!conversation)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);if(conversation.mode!=='HUMAN'||conversation.status==='RESOLVED')throw new DomainError('CONVERSATION_UNAVAILABLE','Assuma e reabra a conversa antes de agendar.',409);const scheduled=await app.prisma.$transaction(async tx=>{const row=await tx.scheduledMessage.create({data:{workspaceId:request.auth.workspaceId,conversationId:id,authorId:request.auth.userId,body:input.body,scheduledFor:input.scheduledFor}});await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'ScheduledMessage',aggregateId:row.id,type:'scheduled_message.send.requested',payload:{scheduledMessageId:row.id},availableAt:row.scheduledFor});return row});return reply.status(201).send(scheduled)});
+  app.delete('/v1/scheduled-messages/:id',{preHandler:[app.requirePermission('conversation.reply')]},async(request,reply)=>{const {id}=request.params as {id:string};const cancelled=await app.prisma.$transaction(async tx=>{const result=await tx.scheduledMessage.updateMany({where:{id,workspaceId:request.auth.workspaceId,status:'PENDING'},data:{status:'CANCELLED'}});if(result.count)await tx.outboxEvent.updateMany({where:{aggregate:'ScheduledMessage',aggregateId:id,type:'scheduled_message.send.requested',processedAt:null},data:{processedAt:new Date()}});return result.count});if(!cancelled)throw new DomainError('SCHEDULE_NOT_CANCELLABLE','O agendamento não existe ou já começou a ser enviado.',409);return reply.status(204).send()});
 
-  app.post('/v1/conversations/:id/read', { preHandler: [app.requirePermission('conversation.read')] }, async request => {
-    const { id } = request.params as { id: string };
-    const result = await app.prisma.conversation.updateMany({ where: { id, workspaceId: request.auth.workspaceId }, data: { unreadCount: 0 } });
-    if (!result.count) throw new DomainError('NOT_FOUND', 'Conversa não encontrada.', 404);
-    return { ok: true };
-  });
+  app.post('/v1/conversations/:id/transition',{preHandler:[app.requirePermission('conversation.reply')]},async request=>{const {id}=request.params as {id:string};const input=TransitionInput.parse(request.body);const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,status:true}});if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);const data=listTransition(current.status,input.direction,request.auth.userId);if(!data)throw new DomainError('INVALID_TRANSITION','Não existe uma próxima etapa nessa direção.',409);await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data});if(data.status==='RESOLVED'&&current.status!=='RESOLVED')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'CONVERSATION_RESOLVED'}})});await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'conversation.transitioned',targetType:'Conversation',targetId:id,changes:{from:current.status,to:data.status,direction:input.direction},ip:request.ip});return {ok:true,status:data.status}});
 
-  app.post('/v1/conversations/:id/status', { preHandler: [app.requirePermission('conversation.reply')] }, async request => {
-    const { id } = request.params as { id: string };
-    const input = ChangeConversationStatusInput.parse(request.body);
-    const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,status:true}});
-    if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);
-    await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data:statusTransition(input.status)});if(input.status==='RESOLVED'&&current.status!=='RESOLVED')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'CONVERSATION_RESOLVED'}})});
-    await audit(app.prisma, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'conversation.status_changed', targetType: 'Conversation', targetId: id, changes: input, ip: request.ip });
-    return { ok: true, status: input.status };
-  });
+  app.post('/v1/conversations/:id/assign',{preHandler:[app.requirePermission('conversation.assign.self')]},async request=>{const {id}=request.params as {id:string};const input=AssignConversationInput.parse(request.body);if(request.auth.role==='AGENT'&&input.assigneeId!==null&&input.assigneeId!==request.auth.userId)throw new DomainError('FORBIDDEN','Agentes só podem atribuir conversas a si mesmos.',403);const result=await app.prisma.conversation.updateMany({where:{id,workspaceId:request.auth.workspaceId},data:{assigneeId:input.assigneeId,queue:input.queue,status:input.assigneeId?'ASSIGNED':'QUEUED'}});if(!result.count)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);return {ok:true}});
+  app.post('/v1/conversations/:id/mode',{preHandler:[app.requirePermission('conversation.reply')]},async request=>{const {id}=request.params as {id:string};const input=ChangeConversationModeInput.parse(request.body);const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,mode:true}});if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data:modeTransition(input.mode,request.auth.userId)});if(current.mode==='HUMAN'&&input.mode!=='HUMAN')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'HANDOFF_CLOSED'}})});await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'conversation.mode_changed',targetType:'Conversation',targetId:id,changes:{mode:input.mode,reason:input.reason},ip:request.ip});return {ok:true,mode:input.mode}});
+  app.post('/v1/conversations/:id/read',{preHandler:[app.requirePermission('conversation.read')]},async request=>{const {id}=request.params as {id:string};const result=await app.prisma.conversation.updateMany({where:{id,workspaceId:request.auth.workspaceId},data:{unreadCount:0}});if(!result.count)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);return {ok:true}});
+  app.post('/v1/conversations/:id/status',{preHandler:[app.requirePermission('conversation.reply')]},async request=>{const {id}=request.params as {id:string};const input=ChangeConversationStatusInput.parse(request.body);const current=await app.prisma.conversation.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{id:true,status:true}});if(!current)throw new DomainError('NOT_FOUND','Conversa não encontrada.',404);await app.prisma.$transaction(async tx=>{await tx.conversation.update({where:{id},data:statusTransition(input.status)});if(input.status==='RESOLVED'&&current.status!=='RESOLVED')await enqueue(tx,{workspaceId:request.auth.workspaceId,aggregate:'Conversation',aggregateId:id,type:'automation.channel_slot.requested',payload:{conversationId:id,slot:'CONVERSATION_RESOLVED'}})});await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'conversation.status_changed',targetType:'Conversation',targetId:id,changes:input,ip:request.ip});return {ok:true,status:input.status}});
 };

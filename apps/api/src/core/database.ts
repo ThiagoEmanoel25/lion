@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import { PrismaClient } from '@prisma/client';
-export const prismaOmit={workspace:{openaiApiKeyEncrypted:true},metaPixel:{accessTokenEncrypted:true}} as const;
+export const prismaOmit={workspace:{openaiApiKeyEncrypted:true},metaPixel:{accessTokenEncrypted:true},globalVariable:{valueEncrypted:true}} as const;
 export default fp(async app=>{
   const prisma=new PrismaClient({log:app.log.level==='debug'?['query','warn','error']:['warn','error'],omit:prismaOmit});
   await prisma.$connect();
