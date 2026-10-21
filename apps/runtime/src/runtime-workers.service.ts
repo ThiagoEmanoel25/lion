@@ -171,12 +171,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         where: { id: message.id },
         data: { externalId: externalId ?? message.externalId, status: 'SENT', sentAt: new Date(), errorCode: null }
       });
+      await this.prisma.scheduledMessage.updateMany({where:{sentMessageId:message.id,status:{in:['PROCESSING','FAILED']}},data:{status:'SENT',error:null}});
       if (typingSeconds > 0) await socket.sendPresenceUpdate('paused', jid).catch(() => undefined);
     } catch (error) {
       await this.prisma.message.update({
         where: { id: message.id },
         data: { status: 'FAILED', errorCode: error instanceof Error ? error.message.slice(0, 200) : 'SEND_FAILED' }
       });
+      await this.prisma.scheduledMessage.updateMany({where:{sentMessageId:message.id,status:'PROCESSING'},data:{status:'FAILED',error:error instanceof Error?error.message.slice(0,500):'SEND_FAILED'}});
       throw error;
     }
     await continueSequence();
@@ -187,13 +189,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
+      const payload = event.payload as { messageId?: string; scheduledMessageId?:string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
+        : event.type === 'scheduled_message.send.requested' ? Boolean(payload.scheduledMessageId)
         : event.type==='notification.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.text)
         : event.type==='reaction.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.messageExternalId&&payload.emoji)
         : event.type === 'automation.sequence.continue.requested' ? Boolean(payload.executionId && payload.resumeStepId && Number.isInteger(payload.sequenceIndex) && payload.sequenceIndex! >= 1)
@@ -213,7 +216,9 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           removeOnComplete: { age: 86_400, count: 10_000 },
           removeOnFail: { age: 604_800, count: 10_000 }
         };
-        if(event.type==='knowledge.index.requested'){
+        if(event.type==='scheduled_message.send.requested'){
+          await this.dispatchScheduledMessage(payload.scheduledMessageId!);
+        } else if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
         } else if(event.type==='notification.send.requested'){
           await outboundQueue.add('notification',{notification:{channelId:payload.channelId!,phone:payload.phone!,text:payload.text!}},{...commonOptions,attempts:3});
@@ -250,6 +255,19 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.relayingOutbox = false;
     }
+  }
+
+  private async dispatchScheduledMessage(id:string){
+    await this.prisma.$transaction(async tx=>{
+      const scheduled=await tx.scheduledMessage.findUnique({where:{id},include:{conversation:true}});
+      if(!scheduled||['CANCELLED','SENT','FAILED'].includes(scheduled.status)||scheduled.sentMessageId)return;
+      if(scheduled.conversation.status==='RESOLVED'||scheduled.conversation.mode!=='HUMAN'){
+        await tx.scheduledMessage.update({where:{id},data:{status:'FAILED',error:'A conversa não está disponível para envio humano.'}});return;
+      }
+      const message=await tx.message.create({data:{workspaceId:scheduled.workspaceId,conversationId:scheduled.conversationId,direction:'OUTBOUND',type:'TEXT',status:'QUEUED',body:scheduled.body,authorType:'user',authorId:scheduled.authorId,clientRequestId:`scheduled:${scheduled.id}`}});
+      await tx.scheduledMessage.update({where:{id},data:{status:'PROCESSING',sentMessageId:message.id,error:null}});
+      await tx.outboxEvent.create({data:{workspaceId:scheduled.workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});
+    });
   }
 
   private async resumeWaitingExecution(automationQueue: Queue<AutomationJob>, conversationId: string, messageId: string | undefined, jobOptions: Record<string, unknown>) {

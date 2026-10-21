@@ -19,6 +19,7 @@ import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import {FlowJumpError,prepareFlowJump} from './flow-jump.js';
 import {decideDistributorAssignment,retryTx} from './distributor.js';
 import {decideNotificationLimit,normalizeE164,notificationWindowStart} from './notification.js';
+import {withRuntimeGlobals} from './global-context.js';
 
 const AUTOMATION_QUEUE = 'automation.execute';
 const RELEASE_LOCK = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`;
@@ -80,7 +81,8 @@ export class AutomationEngineService implements OnModuleDestroy {
   private async executeLocked(job: AutomationJob) {
     const execution = await this.loadExecution(job.executionId);
     if (!execution || ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(execution.status)) return;
-    let context = objectContext(execution.context);
+    const globals=await this.loadGlobals(execution.workspaceId);
+    let context = withRuntimeGlobals(objectContext(execution.context),globals);
     if (execution.status === 'WAITING') {
       const pending = context._runtime;
       const delayDue = job.action === 'resume' && Boolean(job.resumeStepId) && pending?.pendingDelayStepId === job.resumeStepId;
@@ -126,13 +128,13 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
       const latest = await this.prisma.execution.findUnique({ where: { id: execution.id }, select: { status: true, context: true } });
       if (!latest || latest.status === 'CANCELLED') return;
-      context = objectContext(latest.context);
+      context = withRuntimeGlobals(objectContext(latest.context),globals);
       const node = nodes.get(currentNodeId);
       if (!node) {
         await this.failExecution(execution.id, 'NODE_NOT_FOUND', `Nó ${currentNodeId} não encontrado.`);
         return;
       }
-      if (node.kind === 'condition') context = mergeLiveContext(context, await this.loadLiveContext(execution.workspaceId, execution.conversationId));
+      if (node.kind === 'condition') context = withRuntimeGlobals(mergeLiveContext(context, await this.loadLiveContext(execution.workspaceId, execution.conversationId)),globals);
       const edge = selectNextEdge(node, definition.edges, context);
       const nextNodeId = edge?.target;
       let routedNodeId: string | undefined = nextNodeId;
@@ -837,6 +839,11 @@ export class AutomationEngineService implements OnModuleDestroy {
 
   private loadExecution(executionId: string) {
     return this.prisma.execution.findUnique({ where: { id: executionId }, include: { playbookVersion: true } });
+  }
+
+  private async loadGlobals(workspaceId:string){
+    const rows=await this.prisma.globalVariable.findMany({where:{workspaceId},select:{normalizedName:true,valueEncrypted:true}});
+    return Object.fromEntries(rows.flatMap(row=>{try{return [[row.normalizedName,this.cipher.decrypt(row.valueEncrypted)] as const]}catch{return []}}));
   }
 
   async onModuleDestroy() { await this.queue.close(); }
