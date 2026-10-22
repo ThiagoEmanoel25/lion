@@ -33,6 +33,7 @@ export function delayConfigIssue(config:DelayConfig,now=new Date()):string|null{
     if(Number.isNaN(at)||!/(Z|[+-]\d\d:?\d\d)$/i.test(config.runAt))return 'Informe a data em ISO 8601 com fuso.';
     return at>now.getTime()+MAX_DATE_DAYS*DAY_MS?'A data deve estar a no máximo 365 dias.':null;
   }
+  if(config.timezone){try{new Intl.DateTimeFormat('en-US',{timeZone:config.timezone})}catch{return `Fuso horário inválido: ${config.timezone}.`}}
   if(!config.days.some(d=>d.enabled))return 'Ative ao menos um dia.';
   for(const d of config.days){
     if(!d.enabled)continue;

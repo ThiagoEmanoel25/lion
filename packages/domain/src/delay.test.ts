@@ -52,4 +52,9 @@ describe('delay', () => {
     expect(delayConfigIssue({ mode: 'schedule', days: [day(1, '09:00', '09:00')] })).toMatch(/antes do fim/);
     expect(() => nextDelayAt({ mode: 'schedule', days: [] }, new Date(), TZ)).toThrow();
   });
+  it('schedule timezone validation', () => {
+    expect(delayConfigIssue({ mode: 'schedule', timezone: 'Foo/Bar', days: [day(1)] })).toMatch(/Fuso horário inválido: Foo\/Bar/);
+    expect(() => nextDelayAt({ mode: 'schedule', timezone: 'Foo/Bar', days: [day(1)] }, new Date(), TZ)).toThrow(/Foo\/Bar/);
+    expect(delayConfigIssue({ mode: 'schedule', timezone: 'America/Sao_Paulo', days: [day(1)] })).toBeNull();
+  });
 });
