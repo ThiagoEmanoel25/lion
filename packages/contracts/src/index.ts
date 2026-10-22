@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { delayConfigIssue, normalizeDelayConfig, type DelayConfig } from '@nexo/domain';
 import { CONDITION_OPERATORS } from './conditions.js';
 export * from './conditions.js';
 import { EDGE_PORTS } from './ports.js';
@@ -121,7 +122,13 @@ export const AutomationButtonsConfigSchema=z.object({
     ids.add(button.id);labels.add(button.label);
   });
 });
-export const AutomationDelayConfigSchema=z.object({seconds:z.number().int().min(1).max(2_678_400),unit:z.enum(['seconds','minutes','hours','days']).optional()}).strict();
+const DelayDaySchema=z.object({day:z.number().int().min(0).max(6),enabled:z.boolean(),start:z.string(),end:z.string()}).strict();
+// Legacy {seconds} / {duration,unit} are normalized to mode:'duration' before validation; limits live in delayConfigIssue.
+export const AutomationDelayConfigSchema=z.preprocess(normalizeDelayConfig,z.discriminatedUnion('mode',[
+  z.object({mode:z.literal('duration'),duration:z.number(),unit:z.enum(['seconds','minutes','hours','days'])}).strict(),
+  z.object({mode:z.literal('date'),runAt:z.string()}).strict(),
+  z.object({mode:z.literal('schedule'),timezone:z.string().max(64).optional(),days:z.array(DelayDaySchema).max(7)}).strict()
+]).superRefine((value,ctx)=>{const message=delayConfigIssue(value as DelayConfig);if(message)ctx.addIssue({code:z.ZodIssueCode.custom,message})}));
 export const AutomationTagConfigSchema=z.object({
   mode:z.enum(['add','remove']).default('add'),
   tagIds:z.array(z.string().cuid()).max(30).default([]),

@@ -34,3 +34,5 @@ export function kanbanAction(mode:KanbanMode,existingColumnId:string|null,target
 export {assertPublicHttpsUrl,isPrivateAddress} from './outbound-http.js';
 
 export * from './pixel.js';
+
+export * from './delay.js';
