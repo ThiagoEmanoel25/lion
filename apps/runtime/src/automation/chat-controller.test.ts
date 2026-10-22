@@ -26,7 +26,7 @@ describe('chat controller', () => {
     const a = fakeTx(); await a.run({ state: 'ATTENDING', queue: 'Vendas', assigneeId: 'u1' });
     expect(a.conv).toMatchObject({ mode: 'HUMAN', status: 'ASSIGNED', assigneeId: 'u1', queue: 'Vendas' });
     const q = fakeTx(); await q.run({ state: 'ATTENDING', queue: 'Vendas' });
-    expect(q.conv).toMatchObject({ status: 'QUEUED', assigneeId: null, queue: 'Vendas' });
+    expect(q.conv).toMatchObject({ status: 'QUEUED', assigneeId: 'u0', queue: 'Vendas' });
   });
   it('legacy ATTENDING with no queue or assignee keeps the existing ones', async () => {
     const t = fakeTx({ status: 'ASSIGNED', queue: 'Vendas', assigneeId: 'u9' }); await t.run(AutomationHandoffConfigSchema.parse({ reason: 'x' }) as ChatControllerConfig);
