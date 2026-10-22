@@ -4,6 +4,7 @@ import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
 import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,AutomationWaitResponseConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
 import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
+import { planDelay } from './delay.js';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
@@ -253,20 +254,22 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'delay': {
-        const seconds = node.config.seconds;
-        if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1 || seconds > 2_678_400) throw new NodeExecutionError('INVALID_DELAY', 'A espera deve ter entre 1 segundo e 31 dias.');
+        const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { timezone: true } });
+        let plan: ReturnType<typeof planDelay>;
+        try { plan = planDelay(node.config, new Date(), workspace?.timezone ?? 'America/Bahia'); } catch (error) { throw new NodeExecutionError('INVALID_DELAY', error instanceof Error ? error.message : 'Intervalo inválido.'); }
+        const diagnostics = { mode: plan.mode, scheduledFor: plan.scheduledFor };
         if (!nextNodeId) {
-          await this.completeStep(executionId, step.id, undefined, context, { delaySeconds: seconds, endedFlow: true });
+          await this.completeStep(executionId, step.id, undefined, context, { ...diagnostics, endedFlow: true });
           await this.succeedExecution(executionId);
           return 'terminal';
         }
         const waitingContext: EngineContext = { ...context, _runtime: { ...stableRuntime(context),pendingDelayStepId: step.id } };
         await this.prisma.$transaction([
-          this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { delaySeconds: seconds, resumeAt: new Date(Date.now() + seconds * 1000).toISOString() }, finishedAt: new Date() } }),
+          this.prisma.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { ...diagnostics, resumeAt: plan.scheduledFor }, finishedAt: new Date() } }),
           this.prisma.execution.update({ where: { id: executionId }, data: { status: 'WAITING', currentNode: nextNodeId, context: asJson(waitingContext) } })
         ]);
         try {
-          await this.queue.add('resume', { executionId, action: 'resume', resumeStepId: step.id }, { jobId: `automation-resume-${executionId}-${step.id}`, delay: seconds * 1000, attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });
+          await this.queue.add('resume', { executionId, action: 'resume', resumeStepId: step.id }, { jobId: `automation-resume-${executionId}-${step.id}`, delay: Math.max(0, plan.at.getTime() - Date.now()), attempts: 5, backoff: { type: 'exponential', delay: 1_000 }, removeOnComplete: 1_000, removeOnFail: 5_000 });
         } catch (error) {
           await this.failExecution(executionId, 'DELAY_SCHEDULING_FAILED', error instanceof Error ? error.message : 'Não foi possível agendar a retomada.');
           throw error;

@@ -133,7 +133,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const {code:raw}=request.params as {code:string};const importCode=raw.trim().toUpperCase();await rateLimit(app,request.ip,importCode);const input=parseLeonaImportRequest(request.body);
     const existing=await app.prisma.flowImportSession.findUnique({where:{code:importCode}});
     if(!existing||existing.status!=='WAITING'||existing.usedAt||existing.expiresAt<=new Date())throw new DomainError('IMPORT_CODE_INVALID','Código inválido, expirado ou já utilizado.',410);
-    const converted=convertLeonaFlow(input);
+    const workspace=await app.prisma.workspace.findUnique({where:{id:existing.workspaceId},select:{timezone:true}});const converted=convertLeonaFlow(input,workspace?.timezone);
     await app.prisma.$transaction(async tx=>{
       const claimed=await tx.flowImportSession.updateMany({where:{id:existing.id,status:'WAITING',usedAt:null,expiresAt:{gt:new Date()}},data:{status:'PROCESSING',usedAt:new Date()}});
       if(claimed.count!==1)throw new DomainError('IMPORT_CODE_INVALID','Código inválido, expirado ou já utilizado.',410);

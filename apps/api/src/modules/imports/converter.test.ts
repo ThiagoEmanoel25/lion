@@ -201,4 +201,27 @@ describe('conversor Leona',()=>{
     expect(persistedRules).toEqual(expect.arrayContaining([expect.objectContaining({field:'contact.customFields.resposta-lead'})]));
     expect([...first.nodes,...second.nodes,...third.nodes].filter(node=>node.kind==='flow_jump').every(node=>node.config.leonaFlowId!==undefined&&typeof node.config.targetName==='string')).toBe(true);
   });
+
+  describe('intervalo inteligente',()=>{
+    const flow=(config:Record<string,unknown>)=>convertLeonaFlow({nodes:[{id:'1',type:'start',data:{}},{id:'2',type:'smart_interval',data:{config}},{id:'3',type:'tags',data:{config:{tags:['x']}}}],edges:[{id:'a',source:'1',target:'2'},{id:'b',source:'2',target:'3'}]},'America/Bahia');
+    const delay=(result:ReturnType<typeof flow>)=>result.definition.nodes.find(node=>node.kind==='delay');
+    it('mapeia duração, data e horários',()=>{
+      expect(delay(flow({interval_type:'duration',value:5,unit:'minutes'}))?.config).toEqual({mode:'duration',duration:5,unit:'minutes'});
+      expect(delay(flow({interval_type:'date',run_at:'2026-10-25T14:00:00-03:00'}))?.config).toEqual({mode:'date',runAt:'2026-10-25T14:00:00-03:00'});
+      const days=[0,1,2,3,4,5,6].map(day=>({day,enabled:day>=1&&day<=5,start:'09:00',end:'18:00'}));
+      expect(delay(flow({interval_type:'schedule',days}))?.config).toMatchObject({mode:'schedule',days});
+    });
+    it('data sem fuso usa o timezone do workspace e gera ajuste',()=>{
+      const result=flow({interval_type:'date',date:'2026-10-25 14:00'});
+      expect(delay(result)?.config).toEqual({mode:'date',runAt:'2026-10-25T14:00:00-03:00'});
+      expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'2',status:'adjusted'})]));
+    });
+    it('configuração ilegível vira pendência e não vira duração',()=>{
+      for(const config of [{interval_type:'duration',value:'abc',unit:'minutes'},{interval_type:'mystery'},{interval_type:'schedule',days:[]},{interval_type:'duration',value:99,unit:'days'}]){
+        const result=flow(config);
+        expect(delay(result)).toBeUndefined();
+        expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'2',status:'pending'})]));
+      }
+    });
+  });
 });

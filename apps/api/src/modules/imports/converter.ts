@@ -1,4 +1,4 @@
-import {AutomationDefinitionSchema,PIXEL_EVENTS,type ImportReportSchema} from '@nexo/contracts';
+import {AutomationDefinitionSchema,AutomationDelayConfigSchema,PIXEL_EVENTS,type ImportReportSchema} from '@nexo/contracts';
 import type {z} from 'zod';
 
 type JsonObject=Record<string,unknown>;
@@ -125,7 +125,41 @@ function normalizeNotificationPhone(countryCode:unknown,phone:unknown){
   return /^\d{8,15}$/.test(joined)&&joined[0]!=='0'?`+${joined}`:undefined;
 }
 
-function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVariables:Set<string>){
+
+const offsetMinutes=(ms:number,timeZone:string)=>{const p=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(ms).map(x=>[x.type,x.value]));return Math.round((Date.UTC(+p.year!,+p.month!-1,+p.day!,+p.hour!,+p.minute!)-Math.floor(ms/60000)*60000)/60000)};
+/** Wall time without offset read in `timeZone`, as ISO 8601 with offset. */
+function wallToIso(value:string,timeZone:string){
+  const m=/^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)/.exec(value);if(!m)return undefined;
+  const base=Date.UTC(+m[1]!,+m[2]!-1,+m[3]!,+m[4]!,+m[5]!);let off=offsetMinutes(base,timeZone);off=offsetMinutes(base-off*60000,timeZone);
+  const pad=(n:number)=>String(n).padStart(2,'0');return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00${off<0?'-':'+'}${pad(Math.floor(Math.abs(off)/60))}:${pad(Math.abs(off)%60)}`;
+}
+const SMART_UNITS:Record<string,string>={second:'seconds',seconds:'seconds',minute:'minutes',minutes:'minutes',hour:'hours',hours:'hours',day:'days',days:'days'};
+/** Leona `smart_interval` by subtype. Unreadable settings return null (reported as pending) — never a silent duration. */
+function smartInterval(c:JsonObject,items:ImportReport['items'],originalId:string,type:string,timezone:string){
+  const pend=(message:string)=>{items.push({sourceId:originalId,sourceType:type,status:'pending',message});return null};
+  const subtype=String(text(c.interval_type,c.subtype,c.mode,c.type)??'').toLowerCase();
+  let candidate:unknown;
+  if(['duration','interval','delay','fixed','wait'].includes(subtype)){
+    const unit=SMART_UNITS[String(text(c.unit,c.time_unit)??'').toLowerCase()];const value=num(c.duration??c.value??c.amount,NaN);
+    if(!unit||!Number.isFinite(value))return pend('Intervalo inteligente de duração ilegível (valor/unidade); configure o bloco manualmente.');
+    candidate={mode:'duration',duration:value,unit};
+  }else if(['date','datetime','specific_date'].includes(subtype)){
+    const raw=text(c.run_at,c.runAt,c.datetime,c.date,c.scheduled_at);if(!raw)return pend('Intervalo inteligente por data sem a data; configure o bloco manualmente.');
+    if(/(Z|[+-]\d\d:?\d\d)$/i.test(raw))candidate={mode:'date',runAt:raw};
+    else{const iso=wallToIso(raw,text(c.timezone)??timezone);if(!iso)return pend(`Data “${raw}” do intervalo inteligente ilegível; configure o bloco manualmente.`);
+      items.push({sourceId:originalId,sourceType:type,status:'adjusted',message:`Data sem fuso interpretada em ${text(c.timezone)??timezone} (${iso}); confira.`});candidate={mode:'date',runAt:iso}}
+  }else if(['schedule','business_hours','hours','time_window'].includes(subtype)){
+    const list=[c.days,c.schedule,c.hours].find(Array.isArray) as unknown[]|undefined;
+    const days=(list??[]).map(object).map(d=>({day:num(d.day??d.weekday,NaN),enabled:(d.enabled??d.active)===true,start:text(d.start,d.open,d.from)??'',end:text(d.end,d.close,d.to)??''}));
+    if(!days.length)return pend('Intervalo inteligente por horários sem dias; configure o bloco manualmente.');
+    candidate={mode:'schedule',...(text(c.timezone)?{timezone:text(c.timezone)}:{}),days};
+  }else return pend(`Subtipo “${subtype||'desconhecido'}” do intervalo inteligente não reconhecido; configure o bloco manualmente.`);
+  const parsed=AutomationDelayConfigSchema.safeParse(candidate);
+  if(!parsed.success)return pend('Configuração do intervalo inteligente inválida; configure o bloco manualmente.');
+  return parsed.data as JsonObject;
+}
+
+function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVariables:Set<string>,timezone:string){
   const originalId=sourceId(raw,index);const id=cleanId('leona',originalId);const type=nodeType(raw);const config=configOf(raw);
   const positionRaw=object(raw.position);const position={x:num(positionRaw.x,num(raw.x,index*260)),y:num(positionRaw.y,num(raw.y,160))};
   const name=text(raw.name,object(raw.data).label,object(raw.data).name)??type;
@@ -133,7 +167,7 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
   const acts=actionsOf(raw);
   if(acts.length){
     const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message});
-    const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags',pixel:'send_pixel_event',connection_flow:'execute_flow',distributor:'distribute_contacts',notification:'send_notification'};
+    const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags',pixel:'send_pixel_event',connection_flow:'execute_flow',distributor:'distribute_contacts',notification:'send_notification',smart_interval:'smart_interval'};
     const first=acts.find(action=>action.action_type===expected[type]);
     if(type==='message')return {...base,kind:'message' as const,config:{items:realMessageItems(acts,items,originalId,type)}};
     if(expected[type]){
@@ -186,6 +220,7 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
           if((Array.isArray(c.outputs)?c.outputs:[]).some(output=>num(object(output).quantity)>0))items.push({sourceId:originalId,sourceType:type,status:'adjusted',message:'Contadores do distribuidor recomeçam do zero.'});
           return {...base,kind:'distributor' as const,config:{outputs,preventRepeat:c.prevent_repeat!==false}};
         }
+        if(type==='smart_interval'){const delayConfig=smartInterval(c,items,originalId,type,timezone);if(!delayConfig)return null;return {...base,kind:'delay' as const,config:delayConfig}}
         if(type==='notification'){
           const phone=normalizeNotificationPhone(c.country_code,c.phone);const message=text(c.message);
           if(!phone)pend('Telefone da notificação ausente ou inválido; preencha o campo Telefone em E.164 antes de publicar.');
@@ -222,6 +257,7 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
     const phone=normalizeNotificationPhone(config.country_code,config.phone);if(!phone)items.push({sourceId:originalId,sourceType:type,status:'pending',message:'Telefone da notificação ausente ou inválido; preencha o campo Telefone em E.164 antes de publicar.'});
     return {...base,kind:'notification' as const,config:{phone:phone??'',message:replaceVariables(text(config.message)??'Notificação importada — revise o conteúdo.',items,originalId),...(text(config.name)?{name:text(config.name)}:{})}};
   }
+  if(type==='smart_interval'){const delayConfig=smartInterval(config,items,originalId,type,timezone);return delayConfig?{...base,kind:'delay' as const,config:delayConfig}:null}
   if(type==='kanban'){
     const board=object(config.board);const column=object(config.column);const action=object(config.action);
     const boardName=text(config.boardName,config.board_name,config.board,board.name,board.label,action.boardName,action.board_name,object(action.board).name);
@@ -241,10 +277,10 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
 
 function edgePort(handle:unknown){const value=String(handle??'').toLowerCase();if(value==='client-response'||value==='reply')return 'reply';if(value==='timeout')return 'timeout';if(value==='success')return 'success';if(value==='failure'||value==='error')return 'failure';return undefined}
 
-export function convertLeonaFlow(payload:{nodes:JsonObject[];edges:JsonObject[];label?:string}):ConversionResult {
+export function convertLeonaFlow(payload:{nodes:JsonObject[];edges:JsonObject[];label?:string},workspaceTimezone='America/Bahia'):ConversionResult {
   const items:ImportReport['items']=[];const flowVariables=new Set<string>();
   for(const raw of payload.nodes){const type=nodeType(raw);const config=configOf(raw);const acts=actionsOf(raw);if(type==='ai'){const c=object(acts.find(action=>action.action_type==='ai_call')?.config??config);for(const value of [c.response_variable,c.fail_reason_variable,c.responseVariable,c.failReasonVariable]){const field=cleanFieldName(value);if(field)flowVariables.add(field)}}if(type==='integration'){const c=object(acts.find(action=>action.action_type==='make_http_request')?.config??config);for(const value of Object.values(object(c.response_mapping))){const field=cleanFieldName(value);if(field)flowVariables.add(field)}for(const rawField of Array.isArray(c.response_fields)?c.response_fields:[]){const field=object(rawField);const value=cleanFieldName(object(c.response_mapping)[String(field.name)]??field.variable??field.name);if(value)flowVariables.add(value)}}}
-  const mapped=payload.nodes.map((node,index)=>{const id=sourceId(node,index);const mappedNode=mapNode(node,index,items,flowVariables);const acts=actionsOf(node);const waitIndex=acts.findIndex(action=>action.action_type==='wait_for_response');const embedded=waitIndex<0?[]:acts.slice(0,waitIndex).filter(action=>['send_message','send_file','send_multi_media'].includes(String(action.action_type)));const beforeWait=mappedNode?.kind==='wait_response'&&embedded.length?{id:cleanId('leona',`${id}_message`),kind:'message' as const,name:`${mappedNode.name} — mensagem`,config:{items:realMessageItems(embedded,items,id,'wait_response')},position:{x:mappedNode.position.x,y:mappedNode.position.y}}:undefined;if(beforeWait&&mappedNode){mappedNode.position={x:mappedNode.position.x+40,y:mappedNode.position.y+40};items.push({sourceId:id,sourceType:'wait_response',status:'adjusted',message:'Mensagem embutida separada em um bloco Mensagem antes do Aguarda Resposta.'})}return {raw:node,id,node:mappedNode,beforeWait}});
+  const mapped=payload.nodes.map((node,index)=>{const id=sourceId(node,index);const mappedNode=mapNode(node,index,items,flowVariables,workspaceTimezone);const acts=actionsOf(node);const waitIndex=acts.findIndex(action=>action.action_type==='wait_for_response');const embedded=waitIndex<0?[]:acts.slice(0,waitIndex).filter(action=>['send_message','send_file','send_multi_media'].includes(String(action.action_type)));const beforeWait=mappedNode?.kind==='wait_response'&&embedded.length?{id:cleanId('leona',`${id}_message`),kind:'message' as const,name:`${mappedNode.name} — mensagem`,config:{items:realMessageItems(embedded,items,id,'wait_response')},position:{x:mappedNode.position.x,y:mappedNode.position.y}}:undefined;if(beforeWait&&mappedNode){mappedNode.position={x:mappedNode.position.x+40,y:mappedNode.position.y+40};items.push({sourceId:id,sourceType:'wait_response',status:'adjusted',message:'Mensagem embutida separada em um bloco Mensagem antes do Aguarda Resposta.'})}return {raw:node,id,node:mappedNode,beforeWait}});
   const kept=new Map(mapped.filter(entry=>entry.node).map(entry=>[entry.id,entry.node!]));const removed=new Set(mapped.filter(entry=>!entry.node).map(entry=>entry.id));
   const rawEdges=payload.edges.map((edge,index)=>({edge,index,source:text(edge.source)??'',target:text(edge.target)??''})).filter(edge=>edge.source&&edge.target);
   const outgoing=new Map<string,typeof rawEdges>();for(const edge of rawEdges)outgoing.set(edge.source,[...(outgoing.get(edge.source)??[]),edge]);
