@@ -40,9 +40,9 @@ describe('chat controller', () => {
   it('an already resolved conversation emits nothing', async () => {
     const t = fakeTx({ status: 'RESOLVED' }); expect(await t.run({ state: 'RESOLVED' })).toEqual([]); expect(t.outbox).toHaveLength(0);
   });
-  it('resolving a HUMAN conversation also closes the handoff, once', async () => {
-    const t = fakeTx({ mode: 'HUMAN', status: 'ASSIGNED' }); expect(await t.run({ state: 'RESOLVED' })).toEqual(['CONVERSATION_RESOLVED', 'HANDOFF_CLOSED']);
-    await t.run({ state: 'RESOLVED' }); expect(t.outbox).toHaveLength(2);
+  it('resolving a HUMAN conversation emits only CONVERSATION_RESOLVED, once', async () => {
+    const t = fakeTx({ mode: 'HUMAN', status: 'ASSIGNED' }); expect(await t.run({ state: 'RESOLVED' })).toEqual(['CONVERSATION_RESOLVED']);
+    await t.run({ state: 'RESOLVED' }); expect(t.outbox.map(e => e.payload.slot)).toEqual(['CONVERSATION_RESOLVED']);
   });
 });
 
