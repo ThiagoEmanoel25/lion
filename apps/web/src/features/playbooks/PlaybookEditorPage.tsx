@@ -2,13 +2,14 @@ import {useCallback,useEffect,useMemo,useRef,useState,type DragEvent,type ReactN
 import {Link,useParams} from 'react-router-dom';
 import {Background,Controls,Handle,MarkerType,MiniMap,Position,ReactFlow,addEdge,useEdges,applyEdgeChanges,applyNodeChanges,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type NodeProps,type ReactFlowInstance} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {BellRing,Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,Copy,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,LoaderCircle,Pencil,MessageSquare,Mic,Play,Plus,Search,Share2,ShieldCheck,Shuffle,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,UploadCloud,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
+import {BellRing,SlidersHorizontal,Blocks,Bold,Bot,Building2,ChevronDown,ChevronLeft,ChevronUp,CircleCheck,Clock,Code,Columns3,Copy,GitBranch,Globe2,Headset,Hourglass,Image,Info,Italic,List,LoaderCircle,Pencil,MessageSquare,Mic,Play,Plus,Search,Share2,ShieldCheck,Shuffle,Smile,Sparkles,Square,Sticker,Strikethrough,Tag,Target,Trash2,UploadCloud,Webhook,X,Zap,type LucideIcon} from 'lucide-react';
 import {ApiError} from '../../shared/api/client';
 import type {ImportReport,AutomationDefinition,AutomationEdge,AutomationIssue,AutomationNodeKind,AutomationValidation,KanbanBoard,Playbook,PlaybookVersion} from '../../shared/types/api';
 import {uploadPlaybookAsset,useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
 import {useBusinessHours,useChannelFlowSettings,useGlobalVariables,useMetaPixels,useTestMetaPixel,useWorkspace,useWorkspaceAiKey} from '../settings/api/queries';
 import {DAY_NAMES,DELAY_UNIT_LABELS,DISPLAY_DAY_ORDER,defaultScheduleDays,delayCfgError,delayConfigOf,delaySummary,isoToLocal,localToIso,type DelayCfg,type DelayUnit} from './delay-config';
+import {MANIPULATOR_OPERATION_LABELS,CONTACT_FIELD_PREFIX,FLOW_PREFIX,manipulatorError,manipulatorSummary,splitTarget,type ManipulatorOperation} from './manipulator-config';
 import {useContactMeta} from '../contacts/api/queries';
 import {useKanbanBoards} from '../kanban/api/queries';
 import type {AiAgent,ContactMeta} from '../../shared/types/api';
@@ -40,13 +41,14 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'kanban',icon:Columns3,label:'Kanban',description:'Cria ou move o card do contato',rule:'Exige um quadro e uma coluna existentes. Pode criar ou mover, somente criar ou somente mover.'},
   {kind:'flow_jump',icon:Share2,label:'Conexão de Fluxo',description:'Continua em outro fluxo',rule:'Exige um fluxo publicado do mesmo workspace. É um bloco final e não possui saída.'},
   {kind:'distributor',icon:Shuffle,label:'Distribuidor',description:'Divide contatos entre saídas',rule:'Exige de 2 a 10 saídas, cada uma com nome, peso e uma conexão própria.'},
+  {kind:'manipulator',icon:SlidersHorizontal,label:'Manipulador',description:'Define ou calcula campos e variáveis',rule:'Exige destino (campo do contato ou variável do fluxo) e operação. Saídas de sucesso (obrigatória) e erro (opcional); divisão por zero e valor não numérico seguem o erro.'},
   {kind:'notification',icon:BellRing,label:'Notificação interna',description:'Avisa a equipe pelo WhatsApp',rule:'Envia para um número E.164 sem criar conversa no inbox. A falha não interrompe o fluxo.'},
   {kind:'handoff',icon:Headset,label:'Handoff',description:'Transfere para humano',rule:'Bloco final da jornada.'},
   {kind:'outcome',icon:CircleCheck,label:'Resultado',description:'Encerra com sucesso',rule:'Tipo obrigatório entre lead qualificado, agendamento, venda, resolvido, transferência e desqualificado. Bloco final da jornada.'}
 ];
 const kindMeta=Object.fromEntries(catalog.map(item=>[item.kind,item])) as Record<AutomationNodeKind,(typeof catalog)[number]>;
 // Mirrors packages/contracts/src/ports.ts (NODE_PORTS).
-const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'|'reply'|'timeout'>>>={webhook:['success','failure'],ai:['success','failure'],pixel:['success','failure'],wait_response:['reply','timeout']};
+const NODE_PORTS:Partial<Record<AutomationNodeKind,Array<'success'|'failure'|'reply'|'timeout'>>>={webhook:['success','failure'],ai:['success','failure'],pixel:['success','failure'],manipulator:['success','failure'],wait_response:['reply','timeout']};
 // Mirrors PIXEL_EVENTS in packages/contracts/src/index.ts.
 const PIXEL_EVENT_OPTIONS:Array<[string,string]>=[['Purchase','Compra'],['LeadSubmitted','Lead'],['QualifiedLead','Lead qualificado'],['InitiateCheckout','Iniciar checkout'],['AddToCart','Adicionar ao carrinho'],['ViewContent','Ver conteúdo']];
 const PORT_LABELS={success:'sucesso',failure:'erro',reply:'respondeu',timeout:'não respondeu'} as const;
@@ -115,6 +117,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='wait_response'){const n=Number(config.bufferSeconds??0);return `${waitIndefinite(config)?'Indefinidamente':`Até ${Number(config.timeoutValue??1)} ${WAIT_UNIT_LABELS[waitUnitOf(config)]}`}${n>0?` · junta ${n} s`:''}`}
   if(kind==='flow_jump')return String(config.targetName||config.targetPlaybookId||'Escolha o fluxo de destino');
   if(kind==='distributor'){const outputs=distributorOutputsOf(config);return `${outputs.length} saídas · ${config.preventRepeat===false?'redistribui contatos':'mantém a distribuição'}`}
+  if(kind==='manipulator')return manipulatorSummary(config);
   if(kind==='notification')return `${String(config.name||'Aviso interno')} · ${String(config.phone||'número não definido')}`;
   if(kind==='ai')return `${String(config.model||'gpt-5.4-mini')} · resposta em ${String(config.responseVariable||'ai.response')}`;
   if(kind==='agent')return config.agentId?'Agente configurado':'Selecione um agente';
@@ -123,7 +126,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:',flow_jump:'Ir para:',distributor:'Distribuição:',notification:'Destino:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:',flow_jump:'Ir para:',distributor:'Distribuição:',notification:'Destino:',manipulator:'Operação:'};
   return labels[kind];
 }
 // Imported tag nodes carry both ids and names; ids picked in the editor resolve through the workspace tags.
@@ -267,6 +270,8 @@ export function PlaybookEditorPage(){
             ? <WebhookEditor key={selectedNode.id} playbookId={id} node={selectedNode} variablesJson={simulationVariables} onEditTestData={(name,config)=>{updateSelected({name,config});setSelectedNodeId(null);setSelectedEdgeId(null)}} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='wait_response'
             ? <WaitEditor key={selectedNode.id} node={selectedNode} onSave={saveWait} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='manipulator'
+            ? <ManipulatorEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='delay'
             ? <DelayEditor key={selectedNode.id} node={selectedNode} onSave={config=>{updateSelected({config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
@@ -301,6 +306,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'kanban':return {boardId:'',columnId:'',mode:'create_or_move'};
     case 'flow_jump':return {};
     case 'distributor':return {outputs:[{id:'output_1',name:'Saída 1',weight:1},{id:'output_2',name:'Saída 2',weight:1}],preventRepeat:true};
+    case 'manipulator':return {target:'',operation:'set',value:'',failureVariable:'manipulator.error'};
     case 'notification':return {phone:'',message:'',name:''};
     case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
@@ -516,6 +522,22 @@ const INTEGRATION_METHODS=['GET','POST','PUT','PATCH','DELETE'] as const;
 function GlobalVariableOptions(){const variables=useGlobalVariables();return variables.data?.length?<optgroup label="Globais">{variables.data.map(item=><option key={item.id} value={`global.${item.name}`}>{item.name}{item.sensitive?' 🔒':''}</option>)}</optgroup>:null}
 function VariableInput({label,value,onChange,placeholder,invalid}:{label:string;value:string;onChange:(value:string)=>void;placeholder?:string;invalid?:boolean}){
   return <div className="integration-url"><input aria-label={label} value={value} aria-invalid={invalid} onChange={event=>onChange(event.target.value)} placeholder={placeholder}/><select title="Inserir variável" aria-label={`Inserir variável em ${label}`} value="" onChange={event=>{if(event.target.value)onChange(value+`{{${event.target.value}}}`)}}><option value="">{'{ }'}</option><option value="contact.name">Nome</option><option value="contact.phone">Telefone</option><option value="contact.email">E-mail</option><option value="last_message">Última mensagem</option><GlobalVariableOptions/></select></div>
+}
+function ManipulatorEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const initial={...defaultConfig('manipulator'),...node.data.config};const start=splitTarget(String(initial.target??''));
+  const [name,setName]=useState(node.data.name);const [scope,setScope]=useState(start.scope);const [field,setField]=useState(start.name);const [operation,setOperation]=useState(String(initial.operation||'set') as ManipulatorOperation);const [value,setValue]=useState(String(initial.value??''));const [submitted,setSubmitted]=useState(false);
+  const error=manipulatorError(field,value);
+  return <><header><span className="palette-icon manipulator"><SlidersHorizontal size={17} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Manipulador</b></div></header>
+    <div className="inspector-form">
+      <label>Nome do bloco<input value={name} maxLength={120} onChange={event=>setName(event.target.value)}/></label>
+      <label>Destino *<select value={scope} onChange={event=>setScope(event.target.value as 'contact'|'flow')}><optgroup label="Campos do contato"><option value="contact">Campo personalizado do contato</option></optgroup><optgroup label="Variáveis do fluxo"><option value="flow">Variável da execução</option></optgroup></select></label>
+      <label>{scope==='contact'?'Nome do campo *':'Nome da variável *'}<input value={field} maxLength={60} aria-invalid={Boolean(submitted&&error)} onChange={event=>setField(event.target.value.trim())} placeholder={scope==='contact'?'Ex.: tentativas':'Ex.: contador'}/></label>
+      <label>Operação<select value={operation} onChange={event=>setOperation(event.target.value as ManipulatorOperation)}>{(Object.keys(MANIPULATOR_OPERATION_LABELS) as ManipulatorOperation[]).map(key=><option key={key} value={key}>{MANIPULATOR_OPERATION_LABELS[key]}</option>)}</select></label>
+      <label>Valor<VariableInput label="Valor" value={value} onChange={setValue} placeholder={operation==='set'?'Texto, número, verdadeiro/falso ou JSON':'Número'}/></label>
+      {submitted&&error&&<small className="field-error">{error}</small>}
+      <small className="field-help">Campo ausente começa em zero para Somar e Subtrair. Em caso de erro, o motivo fica em {String(initial.failureVariable||'manipulator.error')}.</small>
+    </div>
+    <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={()=>{setSubmitted(true);if(error)return;onSave(name.trim()||'Manipulador',{...initial,target:(scope==='contact'?CONTACT_FIELD_PREFIX:FLOW_PREFIX)+field,operation,value})}}>Salvar</button></footer></>
 }
 function PixelEditor({playbookId:_playbookId,node,onSave,onCancel}:{playbookId:string;node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const initial={...defaultConfig('pixel'),...node.data.config};const pixels=useMetaPixels();const test=useTestMetaPixel();

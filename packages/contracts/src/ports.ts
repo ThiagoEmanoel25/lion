@@ -7,7 +7,8 @@ export const NODE_PORTS: Readonly<Partial<Record<string, readonly EdgePort[]>>> 
   webhook: ['success', 'failure'],
   ai: ['success', 'failure'],
   wait_response: ['reply', 'timeout'],
-  pixel: ['success', 'failure']
+  pixel: ['success', 'failure'],
+  manipulator: ['success', 'failure']
 };
 
 export function nodePorts(kind: string): readonly EdgePort[] {

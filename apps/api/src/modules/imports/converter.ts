@@ -159,12 +159,30 @@ function smartInterval(c:JsonObject,items:ImportReport['items'],originalId:strin
   return parsed.data as JsonObject;
 }
 
+const MANIPULATOR_OPS:Record<string,string>={set:'set',define:'set',set_value:'set',assign:'set',add:'add',sum:'add',increment:'add',somar:'add',subtract:'subtract',sub:'subtract',decrement:'subtract',subtrair:'subtract',multiply:'multiply',mul:'multiply',multiplicar:'multiply',divide:'divide',div:'divide',dividir:'divide'};
+const withoutSecrets=(value:unknown):JsonObject=>JSON.parse(JSON.stringify(value,(key,item)=>sensitiveKey.test(key)?undefined:item));
+/** Leona `manipulator` / isolated `save_user_data`. An unknown operation stays blank (blocks publish) and the original config is kept in the report. */
+function manipulatorNode(c:JsonObject,items:ImportReport['items'],originalId:string,type:string){
+  const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message,original:withoutSecrets(c)});
+  const raw=cleanFieldName(text(c.field_name,c.variable_name,c.variable,c.field,c.target,c.name))??'';
+  const target=/^(contact\.customFields|flow)\./.test(raw)?raw:raw?`contact.customFields.${raw}`:'';
+  const opRaw=String(text(c.operation,c.operator,c.action)??(type==='save_user_data'?'set':'')).toLowerCase();const operation=MANIPULATOR_OPS[opRaw]??'';
+  if(!target)pend('Campo do Manipulador ausente; escolha o destino após importar.');
+  if(!operation)pend(`Operação “${opRaw||'desconhecida'}” do Manipulador não reconhecida; escolha a operação após importar.`);
+  const value=c.value===undefined||c.value===null?'':typeof c.value==='string'?replaceVariables(c.value,items,originalId):JSON.stringify(c.value);
+  return {target,operation,value};
+}
+
 function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVariables:Set<string>,timezone:string){
   const originalId=sourceId(raw,index);const id=cleanId('leona',originalId);const type=nodeType(raw);const config=configOf(raw);
   const positionRaw=object(raw.position);const position={x:num(positionRaw.x,num(raw.x,index*260)),y:num(positionRaw.y,num(raw.y,160))};
   const name=text(raw.name,object(raw.data).label,object(raw.data).name)??type;
   const base={id,name,position};
   const acts=actionsOf(raw);
+  if(type==='manipulator'||type==='save_user_data'){
+    const first=acts.find(action=>action.action_type==='manipulator'||action.action_type==='save_user_data');
+    return {...base,kind:'manipulator' as const,config:manipulatorNode(first?object(first.config):config,items,originalId,type)};
+  }
   if(acts.length){
     const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message});
     const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags',pixel:'send_pixel_event',connection_flow:'execute_flow',distributor:'distribute_contacts',notification:'send_notification',smart_interval:'smart_interval'};

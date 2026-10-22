@@ -231,3 +231,17 @@ describe('conversor Leona',()=>{
     });
   });
 });
+describe('manipulador',()=>{
+  const flow=(type:string,config:Record<string,unknown>)=>convertLeonaFlow({nodes:[{id:'1',type:'start',data:{}},{id:'2',type,data:{config}},{id:'3',type:'tags',data:{config:{tags:['x']}}}],edges:[{id:'a',source:'1',target:'2'},{id:'b',source:'2',target:'3'}]},'America/Bahia');
+  const node=(result:ReturnType<typeof flow>)=>result.definition.nodes.find(item=>item.kind==='manipulator');
+  it('manipulator e save_user_data isolado viram o bloco',()=>{
+    expect(node(flow('manipulator',{field_name:'{tentativas}',operation:'sum',value:'1'}))?.config).toEqual({target:'contact.customFields.tentativas',operation:'add',value:'1'});
+    expect(node(flow('save_user_data',{field_name:'cidade',value:'{first_name}'}))?.config).toEqual({target:'contact.customFields.cidade',operation:'set',value:'{{contact.firstName}}'});
+  });
+  it('operação desconhecida vira pendência com a config original preservada, sem segredos',()=>{
+    const result=flow('manipulator',{field_name:'x',operation:'power',value:'2',api_key:'s3cret'});
+    expect(node(result)?.config).toMatchObject({operation:''});
+    const item=result.report.items.find(entry=>entry.sourceId==='2'&&entry.status==='pending');
+    expect(item?.original).toEqual({field_name:'x',operation:'power',value:'2'});
+  });
+});

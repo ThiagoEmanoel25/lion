@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { delayConfigIssue, normalizeDelayConfig, type DelayConfig } from '@nexo/domain';
+import { delayConfigIssue, MANIPULATOR_OPERATIONS, normalizeDelayConfig, parseTarget, type DelayConfig } from '@nexo/domain';
 import { CONDITION_OPERATORS } from './conditions.js';
 export * from './conditions.js';
 import { EDGE_PORTS } from './ports.js';
@@ -63,7 +63,7 @@ export const LeonaImportPayloadSchema=z.object({
 }).strict();
 export const ImportReportItemSchema=z.object({
   sourceId:z.string().max(120).optional(),sourceType:z.string().max(80).optional(),
-  status:z.enum(['converted','adjusted','pending']),message:z.string().max(500)
+  status:z.enum(['converted','adjusted','pending']),message:z.string().max(500),original:z.record(z.string(),z.unknown()).optional()
 });
 export const ImportReportSchema=z.object({
   source:z.enum(['leona','nexo']),items:z.array(ImportReportItemSchema),
@@ -73,7 +73,7 @@ export const ImportNexoShareInput=z.object({code:z.string().trim().length(10).tr
 export const PlaybookFolderInput = z.object({name:z.string().trim().min(1).max(60)});
 export const MovePlaybookFolderInput = z.object({folderId:z.string().min(1).max(64).nullable()});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
-export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel','flow_jump','distributor','notification']);
+export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel','flow_jump','distributor','notification','manipulator']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
 const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(value).protocol==='https:',{message:'Use uma URL HTTPS.'});
 export const PlaybookAssetUrlSchema=z.union([HttpsUrlSchema,z.string().trim().regex(/^nexo-asset:\/\/[a-z0-9]{20,32}$/i,'Use um arquivo enviado ou uma URL HTTPS.')]);
@@ -129,6 +129,8 @@ export const AutomationDelayConfigSchema=z.preprocess(normalizeDelayConfig,z.dis
   z.object({mode:z.literal('date'),runAt:z.string()}).strict(),
   z.object({mode:z.literal('schedule'),timezone:z.string().max(64).optional(),days:z.array(DelayDaySchema).max(7)}).strict()
 ]).superRefine((value,ctx)=>{const message=delayConfigIssue(value as DelayConfig);if(message)ctx.addIssue({code:z.ZodIssueCode.custom,message})}));
+// Global variables hold secrets, so a manipulator value may not template them into a persisted field or step output.
+export const AutomationManipulatorConfigSchema=z.object({target:z.string().trim().max(120).refine(value=>parseTarget(value)!==null,'Escolha um campo do contato ou variável do fluxo válido.'),operation:z.enum(MANIPULATOR_OPERATIONS),value:z.string().max(2000).refine(value=>!/\{\{\s*global[.\s}]/i.test(value),'Variáveis globais não podem ser gravadas pelo Manipulador.'),failureVariable:z.string().trim().max(120).regex(/^[A-Za-z_][\w.-]*$/).default('manipulator.error')}).strict();
 export const AutomationTagConfigSchema=z.object({
   mode:z.enum(['add','remove']).default('add'),
   tagIds:z.array(z.string().cuid()).max(30).default([]),

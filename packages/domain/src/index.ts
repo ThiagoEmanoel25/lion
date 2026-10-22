@@ -36,3 +36,5 @@ export {assertPublicHttpsUrl,isPrivateAddress} from './outbound-http.js';
 export * from './pixel.js';
 
 export * from './delay.js';
+
+export * from './manipulator.js';

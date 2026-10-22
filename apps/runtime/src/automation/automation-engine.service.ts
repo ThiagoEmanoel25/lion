@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { Inject,Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
-import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,AutomationWaitResponseConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
-import {assertPublicHttpsUrl,kanbanAction} from '@nexo/domain';
+import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationManipulatorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,AutomationWaitResponseConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
+import {applyManipulation,assertPublicHttpsUrl,kanbanAction,parseTarget} from '@nexo/domain';
 import { planDelay } from './delay.js';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
-import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, type AutomationDefinition, type AutomationNode } from './routing.js';
+import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, getPathValue, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
 import { buildAiMessages, callOpenAi, resolveOpenAiKey, transcribeOpenAiAudio } from './ai-call.js';
@@ -19,6 +19,7 @@ import { loadConfig } from '../config.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import {FlowJumpError,prepareFlowJump} from './flow-jump.js';
 import {decideDistributorAssignment,retryTx} from './distributor.js';
+import {manipulateContactField} from './manipulator.js';
 import {decideNotificationLimit,normalizeE164,notificationWindowStart} from './notification.js';
 import {withRuntimeGlobals} from './global-context.js';
 
@@ -411,6 +412,41 @@ export class AutomationEngineService implements OnModuleDestroy {
           const nextContext=setContextPath(context,DISTRIBUTOR_ROUTE_FIELD,decision.outputId);await this.finishInTransaction(tx,executionId,step.id,edge.target,nextContext,{outputId:decision.outputId,reused:decision.source==='existing'});return {edge,nextContext};
         },{isolationLevel:'Serializable'}));
         return {next:selected.edge.target};
+      }
+
+      case 'manipulator': {
+        const parsed=AutomationManipulatorConfigSchema.safeParse(node.config);const target=parsed.success?parseTarget(parsed.data.target):null;
+        if(!parsed.success||!target)throw new NodeExecutionError('INVALID_MANIPULATOR_CONFIG','Configure o destino, a operação e o valor do Manipulador.');
+        const {operation,failureVariable}=parsed.data;const operand=renderTemplate(parsed.data.value,context);
+        const base={target:parsed.data.target,operation};
+        const finish=async(port:'success'|'failure',nextContext:EngineContext,output:Record<string,unknown>)=>{
+          const edge=selectPortEdge(input.definition.edges,node.id,port);
+          if(!edge){
+            if(port==='failure')throw new NodeExecutionError('MANIPULATOR_FAILED',String(output.reason));
+            await this.completeStep(executionId,step.id,undefined,nextContext,asJson({...output,endedFlow:true}));await this.succeedExecution(executionId);return 'terminal' as const;
+          }
+          await this.completeStep(executionId,step.id,edge.target,nextContext,asJson(output));return {next:edge.target};
+        };
+        const fail=(reason:string)=>finish('failure',setContextPath(context,failureVariable,reason),{...base,reason});
+        if(target.scope==='flow'){
+          const result=applyManipulation(getPathValue(context,target.path),operation,operand);if(!result.ok)return fail(result.reason);
+          return finish('success',setContextPath(context,target.path,result.value),{...base,previous:getPathValue(context,target.path)??null,value:result.value});
+        }
+        const conversation=await this.prisma.conversation.findFirst({where:{id:conversationId,workspaceId},select:{contactId:true}});if(!conversation)throw new NodeExecutionError('CONVERSATION_NOT_FOUND','A conversa da execução não existe.');
+        const {contactId}=conversation;const successEdge=selectPortEdge(input.definition.edges,node.id,'success');
+        let nextContext=context;
+        const result=await manipulateContactField(this.prisma,tx=>({
+          get:async()=>(await tx.$queryRaw<Array<{v:unknown}>>(Prisma.sql`SELECT "customFields"->${target.path}::text AS "v" FROM "Contact" WHERE "id" = ${contactId} AND "workspaceId" = ${workspaceId} FOR UPDATE`))[0]?.v,
+          set:async value=>{await tx.$executeRaw`UPDATE "Contact" SET "customFields" = jsonb_set(CASE WHEN jsonb_typeof("customFields") = 'object' THEN "customFields" ELSE '{}'::jsonb END, ARRAY[${target.path}]::text[], ${JSON.stringify(value)}::jsonb, true), "updatedAt" = now() WHERE "id" = ${contactId} AND "workspaceId" = ${workspaceId}`}
+        }),{operation,operand},async(tx,{previous,value})=>{
+          const next=structuredClone(context) as Record<string,any>;const contact=next.contact&&typeof next.contact==='object'?next.contact:(next.contact={});
+          contact.customFields={...(contact.customFields&&typeof contact.customFields==='object'?contact.customFields:{}),[target.path]:value};nextContext=next as EngineContext;
+          // The step is only closed here when it continues on success, in the same transaction as the field write.
+          if(successEdge)await this.finishInTransaction(tx,executionId,step.id,successEdge.target,nextContext,asJson({...base,previous:previous??null,value}));
+        });
+        if(!result.ok)return fail(result.reason);
+        if(successEdge)return {next:successEdge.target};
+        await this.completeStep(executionId,step.id,undefined,nextContext,asJson({...base,previous:result.previous??null,value:result.value,endedFlow:true}));await this.succeedExecution(executionId);return 'terminal';
       }
 
       case 'notification': {

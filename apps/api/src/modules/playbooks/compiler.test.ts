@@ -452,3 +452,29 @@ describe('pixel', () => {
     expect(result.definition?.nodes[2]?.config.message).toBe('Qual é o seu nome?');
   });
 });
+describe('manipulator', () => {
+  const make = (config: Record<string, unknown>, edges: any[] = [{ id: 'm1', source: 'mn', target: 'done' }]) => ({
+    start: 'start',
+    nodes: [
+      { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+      { id: 'mn', kind: 'manipulator', name: 'Manipulador', config, position: { x: 100, y: 0 } },
+      { id: 'done', kind: 'outcome', name: 'Fim', config: { type: 'RESOLVED' }, position: { x: 200, y: 0 } }
+    ],
+    edges: [{ id: 'e1', source: 'start', target: 'mn' }, ...edges],
+    settings: { maxSteps: 10, timeoutSeconds: 60 }
+  });
+  const ok = { target: 'contact.customFields.tentativas', operation: 'add', value: '1' };
+  it('aceita config válida, com ou sem saída de erro', () => {
+    expect(validateAutomation(make(ok)).valid).toBe(true);
+    expect(validateAutomation(make(ok, [{ id: 'm1', source: 'mn', target: 'done' }, { id: 'm2', source: 'mn', target: 'done', port: 'failure' }])).valid).toBe(true);
+  });
+  it('rejeita alvo reservado, operação inválida e valor com segredo global', () => {
+    for (const bad of [{ ...ok, target: '_runtime.x' }, { ...ok, target: 'contact.id' }, { ...ok, target: '' }, { ...ok, operation: '' }, { ...ok, value: '{{global.token}}' }])
+      expect(validateAutomation(make(bad)).issues.map(i => i.code)).toContain('INVALID_MANIPULATOR_CONFIG');
+  });
+  it('sem saída de sucesso é aviso e encerra o fluxo, não erro', () => {
+    const result = validateAutomation(make(ok, [{ id: 'm2', source: 'mn', target: 'done', port: 'failure' }]));
+    expect(result.valid).toBe(true);
+    expect(result.issues).toContainEqual(expect.objectContaining({ level: 'warning', code: 'SUCCESS_ROUTE_REQUIRED', nodeId: 'mn' }));
+  });
+});

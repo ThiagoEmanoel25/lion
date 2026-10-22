@@ -13,6 +13,7 @@ import {
   AutomationPixelConfigSchema,
   AutomationMessageConfigSchema,
   AutomationNotificationConfigSchema,
+  AutomationManipulatorConfigSchema,
   AutomationStickerConfigSchema,
   AutomationTagConfigSchema,
   AutomationTriggerConfigSchema,
@@ -85,6 +86,8 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
     }
     case 'distributor':
       return validateConfig(AutomationDistributorConfigSchema,'INVALID_DISTRIBUTOR_CONFIG','Distribuidor inválido');
+    case 'manipulator':
+      return validateConfig(AutomationManipulatorConfigSchema,'INVALID_MANIPULATOR_CONFIG','Manipulador inválido');
     case 'notification':
       return validateConfig(AutomationNotificationConfigSchema,'INVALID_NOTIFICATION_CONFIG','Notificação inválida');
     default:
