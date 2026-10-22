@@ -145,8 +145,8 @@ function smartInterval(c:JsonObject,items:ImportReport['items'],originalId:strin
     candidate={mode:'duration',duration:value,unit};
   }else if(['date','datetime','specific_date'].includes(subtype)){
     const raw=text(c.run_at,c.runAt,c.datetime,c.date,c.scheduled_at);if(!raw)return pend('Intervalo inteligente por data sem a data; configure o bloco manualmente.');
-    if(/(Z|[+-]\d\d:?\d\d)$/i.test(raw))candidate={mode:'date',runAt:raw};
-    else{const iso=wallToIso(raw,text(c.timezone)??timezone);if(!iso)return pend(`Data “${raw}” do intervalo inteligente ilegível; configure o bloco manualmente.`);
+    if(/(Z|[+-]\d\d(:?\d\d)?)$/i.test(raw))candidate={mode:'date',runAt:raw.replace(' ','T').replace(/([+-]\d\d)$/,'$1:00')};
+    else{const zone=text(c.timezone)??timezone;try{new Intl.DateTimeFormat('en-US',{timeZone:zone})}catch{return pend(`Fuso horário “${zone}” do intervalo inteligente inválido; use um fuso IANA (ex.: America/Sao_Paulo) e configure o bloco manualmente.`)}const iso=wallToIso(raw,zone);if(!iso)return pend(`Data “${raw}” do intervalo inteligente ilegível; configure o bloco manualmente.`);
       items.push({sourceId:originalId,sourceType:type,status:'adjusted',message:`Data sem fuso interpretada em ${text(c.timezone)??timezone} (${iso}); confira.`});candidate={mode:'date',runAt:iso}}
   }else if(['schedule','business_hours','hours','time_window'].includes(subtype)){
     const list=[c.days,c.schedule,c.hours].find(Array.isArray) as unknown[]|undefined;

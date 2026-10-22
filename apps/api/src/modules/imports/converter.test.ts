@@ -216,6 +216,12 @@ describe('conversor Leona',()=>{
       expect(delay(result)?.config).toEqual({mode:'date',runAt:'2026-10-25T14:00:00-03:00'});
       expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'2',status:'adjusted'})]));
     });
+    it('fuso inválido vira pendência sem derrubar a importação; offset curto é aceito',()=>{
+      const result=flow({interval_type:'date',run_at:'2026-10-25T14:00',timezone:'BRT'});
+      expect(delay(result)).toBeUndefined();expect(result.definition.nodes.some(node=>node.kind==='tag')).toBe(true);
+      expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'2',status:'pending',message:expect.stringContaining('BRT')})]));
+      expect(delay(flow({interval_type:'date',run_at:'2026-10-25 14:00:00-03'}))?.config).toEqual({mode:'date',runAt:'2026-10-25T14:00:00-03:00'});
+    });
     it('configuração ilegível vira pendência e não vira duração',()=>{
       for(const config of [{interval_type:'duration',value:'abc',unit:'minutes'},{interval_type:'mystery'},{interval_type:'schedule',days:[]},{interval_type:'duration',value:99,unit:'days'}]){
         const result=flow(config);
