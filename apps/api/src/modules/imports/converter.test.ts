@@ -251,3 +251,16 @@ describe('manipulador',()=>{
     expect(item?.original).toEqual({field_name:'x',operation:'power',value:'2'});
   });
 });
+describe('controlador de chat',()=>{
+  const flow=(config:Record<string,unknown>)=>convertLeonaFlow({nodes:[{id:'1',type:'start',data:{}},{id:'2',type:'chat_controller',data:{config}}],edges:[{id:'a',source:'1',target:'2'}]},'America/Bahia');
+  const node=(result:ReturnType<typeof flow>)=>result.definition.nodes.find(item=>item.kind==='handoff');
+  it('mapeia os três estados para o bloco handoff',()=>{
+    expect(node(flow({status:'resolved'}))?.config).toEqual({state:'RESOLVED'});
+    expect(node(flow({state:'Aguardando'}))?.config).toEqual({state:'AWAITING'});
+    expect(node(flow({chat_status:'attending'}))?.config).toEqual({state:'ATTENDING'});
+  });
+  it('estado desconhecido vira Atendimento com pendência',()=>{
+    const result=flow({});expect(node(result)?.config).toEqual({state:'ATTENDING'});
+    expect(result.report.items.some(item=>item.sourceId==='2'&&item.status==='pending')).toBe(true);
+  });
+});

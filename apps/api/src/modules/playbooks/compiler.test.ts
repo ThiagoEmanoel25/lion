@@ -478,3 +478,27 @@ describe('manipulator', () => {
     expect(result.issues).toContainEqual(expect.objectContaining({ level: 'warning', code: 'SUCCESS_ROUTE_REQUIRED', nodeId: 'mn' }));
   });
 });
+
+describe('Controlador de Chat', () => {
+  const flow = (config: Record<string, unknown>, withEdge: boolean) => ({
+    start: 'start',
+    nodes: [
+      { id: 'start', kind: 'trigger', name: 'Início', config: {}, position: { x: 0, y: 0 } },
+      { id: 'chat', kind: 'handoff', name: 'Controlador', config, position: { x: 100, y: 0 } },
+      { id: 'msg', kind: 'message', name: 'Depois', config: { text: 'Oi' }, position: { x: 200, y: 0 } }
+    ],
+    edges: [{ id: 'e0', source: 'start', target: 'chat' }, ...(withEdge ? [{ id: 'e1', source: 'chat', target: 'msg' }] : [])],
+    settings: { maxSteps: 10, timeoutSeconds: 60 }
+  });
+  const codes = (config: Record<string, unknown>, withEdge: boolean) => validateAutomation(flow(config, withEdge)).issues.map(issue => issue.code);
+
+  it('mantém aberta a config antiga e é terminal por padrão', () => {
+    expect(validateAutomation(flow({ queue: 'Suporte', reason: 'x' }, false)).valid).toBe(true);
+    expect(codes({ state: 'RESOLVED' }, true)).toContain('TERMINAL_HAS_OUTPUT');
+  });
+  it('returnToAi só em Aguardando; a saída é opcional', () => {
+    expect(codes({ state: 'AWAITING', returnToAi: true }, true)).not.toContain('TERMINAL_HAS_OUTPUT');
+    expect(validateAutomation(flow({ state: 'AWAITING', returnToAi: true }, false)).issues.some(issue => issue.level === 'error')).toBe(false);
+    expect(codes({ state: 'ATTENDING', returnToAi: true }, false)).toContain('INVALID_HANDOFF_CONFIG');
+  });
+});

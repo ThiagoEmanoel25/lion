@@ -43,7 +43,7 @@ const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;descri
   {kind:'distributor',icon:Shuffle,label:'Distribuidor',description:'Divide contatos entre saídas',rule:'Exige de 2 a 10 saídas, cada uma com nome, peso e uma conexão própria.'},
   {kind:'manipulator',icon:SlidersHorizontal,label:'Manipulador',description:'Define ou calcula campos e variáveis',rule:'Exige destino (campo do contato ou variável do fluxo) e operação. Saídas de sucesso (obrigatória) e erro (opcional); divisão por zero e valor não numérico seguem o erro.'},
   {kind:'notification',icon:BellRing,label:'Notificação interna',description:'Avisa a equipe pelo WhatsApp',rule:'Envia para um número E.164 sem criar conversa no inbox. A falha não interrompe o fluxo.'},
-  {kind:'handoff',icon:Headset,label:'Handoff',description:'Transfere para humano',rule:'Bloco final da jornada.'},
+  {kind:'handoff',icon:Headset,label:'Controlador de Chat',description:'Move o chat para Aguardando, Atendimento ou Resolvido',rule:'Bloco final da jornada, exceto em Aguardando com a opção de continuar o fluxo.'},
   {kind:'outcome',icon:CircleCheck,label:'Resultado',description:'Encerra com sucesso',rule:'Tipo obrigatório entre lead qualificado, agendamento, venda, resolvido, transferência e desqualificado. Bloco final da jornada.'}
 ];
 const kindMeta=Object.fromEntries(catalog.map(item=>[item.kind,item])) as Record<AutomationNodeKind,(typeof catalog)[number]>;
@@ -61,7 +61,10 @@ type WaitUnit=keyof typeof WAIT_UNIT_SECONDS;
 const waitUnitOf=(config:Record<string,unknown>):WaitUnit=>config.timeoutUnit==='minutes'||config.timeoutUnit==='days'?config.timeoutUnit:'hours';
 const waitIndefinite=(config:Record<string,unknown>)=>config.waitIndefinitely===true;
 const terminalKinds=new Set<AutomationNodeKind>(['outcome','handoff','flow_jump']);
-function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':kind==='distributor'?'Cada saída precisa de uma conexão.':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
+// Mirrors packages/contracts (CHAT_CONTROLLER_STATES); duplicated so the web bundle does not pull zod in.
+const CHAT_STATES=[['AWAITING','Aguardando','O chat entra na fila de espera para a equipe humana, sem responsável.'],['ATTENDING','Atendimento','O chat vai para a equipe humana, com fila e responsável opcionais.'],['RESOLVED','Resolvido','O chat é fechado e o fluxo de Conversa finalizada começa uma única vez.']] as const;
+const chatStateOf=(config:Record<string,unknown>)=>CHAT_STATES.find(item=>item[0]===config.state)??CHAT_STATES[1];
+function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':kind==='distributor'?'Cada saída precisa de uma conexão.':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':kind==='handoff'?'Sem saída, a menos que continuar o fluxo esteja ativo.':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
 // Mirrors packages/contracts (MESSAGE_*); duplicated so the web bundle does not pull zod in.
 const MESSAGE_MAX_ITEMS=30;
 const MESSAGE_MAX_TYPING_SECONDS=30;
@@ -110,7 +113,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='delay')return delaySummary(config);
   if(kind==='webhook')return `${String(config.method??'POST')} · ${String(config.url||'URL não definida')}`;
   if(kind==='assign')return `Atribuir para ${String(config.queue||config.assigneeId||'destino não definido')}`;
-  if(kind==='handoff')return `Transferir para ${String(config.queue||'atendimento humano')}`;
+  if(kind==='handoff')return `Mover chat para ${chatStateOf(config)[1]}`;
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
   if(kind==='pixel'){const label=PIXEL_EVENT_OPTIONS.find(item=>item[0]===config.eventName)?.[1]??'Evento não definido';const value=String(config.value??'').trim();const currency=String(config.currency??'BRL');return value?`${label} · ${/^[\d.,]+$/.test(value)?(currency==='BRL'?`R$ ${value}`:`${value} ${currency}`):value}`:label}
   if(kind==='kanban')return config.boardId&&config.columnId?'Criar ou mover card na coluna selecionada':'Selecione quadro e coluna';
@@ -126,7 +129,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   return 'Configure as rotas nas conexões';
 }
 function nodePreviewLabel(kind:AutomationNodeKind){
-  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Transferir para:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:',flow_jump:'Ir para:',distributor:'Distribuição:',notification:'Destino:',manipulator:'Operação:'};
+  const labels:Record<AutomationNodeKind,string>={trigger:'Evento:',message:'Mensagem:',image:'Imagem:',audio:'Áudio:',sticker:'Figurinha:',buttons:'Texto do menu:',agent:'Agente:',condition:'Regras:',delay:'Aguardar por:',webhook:'Requisição:',assign:'Encaminhar para:',tag:'Ação:',handoff:'Ação:',outcome:'Resultado:',ai:'Modelo:',wait_response:'Aguardar:',kanban:'Destino:',pixel:'Evento:',flow_jump:'Ir para:',distributor:'Distribuição:',notification:'Destino:',manipulator:'Operação:'};
   return labels[kind];
 }
 // Imported tag nodes carry both ids and names; ids picked in the editor resolve through the workspace tags.
@@ -142,7 +145,7 @@ function WaitNodeBody({config}:{config:Record<string,unknown>}){return <div clas
   <div className="wait-node-box">Aguardar pela resposta do cliente.<Handle id="reply" type="source" position={Position.Right}/></div>
   {!waitIndefinite(config)&&<><p>Ou<span>caso não responda</span></p><div className="wait-node-box">Após {Number(config.timeoutValue??1)} {WAIT_UNIT_LABELS[waitUnitOf(config)]}<Handle id="timeout" type="source" position={Position.Right}/></div></>}
 </div>}
-function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const contactMeta=useContactMeta();const tagNames=data.kind==='tag'?tagNamesOf(data.config,contactMeta.data?.tags):[];const meta=kindMeta[data.kind];const Icon=meta.icon;const terminal=terminalKinds.has(data.kind);const buttonItems=data.kind==='buttons'&&Array.isArray(data.config.buttons)?data.config.buttons as Array<{id?:string;label?:string}>:[];const aiRoutes=data.kind==='ai'?[...(data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(data.config)]:[];const distributorOutputs=data.kind==='distributor'?distributorOutputsOf(data.config):[];return <div className={`automation-node automation-node-${data.kind} ${selected?'selected':''}`}>
+function AutomationNodeCard({id,data,selected}:NodeProps<FlowNode>){const contactMeta=useContactMeta();const tagNames=data.kind==='tag'?tagNamesOf(data.config,contactMeta.data?.tags):[];const meta=kindMeta[data.kind];const Icon=meta.icon;const terminal=terminalKinds.has(data.kind)&&!(data.kind==='handoff'&&data.config.returnToAi===true);const buttonItems=data.kind==='buttons'&&Array.isArray(data.config.buttons)?data.config.buttons as Array<{id?:string;label?:string}>:[];const aiRoutes=data.kind==='ai'?[...(data.config.identifyReceipt===true?[{id:'receipt_valid',label:'Comprovante válido'}]:[]),...aiConditionalsOf(data.config)]:[];const distributorOutputs=data.kind==='distributor'?distributorOutputsOf(data.config):[];return <div className={`automation-node automation-node-${data.kind} ${selected?'selected':''}`}>
   {data.kind!=='trigger'&&<Handle type="target" position={Position.Left} />}
   <div className="automation-node-head"><span className="automation-node-icon"><Icon size={16} aria-hidden="true"/></span><span><small>{meta.label}</small><b>{data.name}</b></span>{data.issueCount?<span className="node-issue-badge" title={`${data.issueCount} pendência(s) neste bloco`} aria-label={`${data.issueCount} pendência(s)`}>{data.issueCount}</span>:null}<span className="node-quick-actions nodrag"><button title="Editar bloco" aria-label={`Editar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('edit',id)}}><Pencil size={14} aria-hidden="true"/></button><button title="Duplicar bloco" aria-label={`Duplicar ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('duplicate',id)}}><Copy size={14} aria-hidden="true"/></button><button className="node-delete-action" title="Excluir bloco" aria-label={`Excluir ${data.name}`} onClick={event=>{event.stopPropagation();flowAction('remove',id)}}><Trash2 size={14} aria-hidden="true"/></button></span></div>
   {data.kind==='condition'?<ConditionNodeBody id={id} config={data.config}/>:data.kind==='wait_response'?<WaitNodeBody config={data.config}/>:data.kind==='tag'
@@ -272,6 +275,8 @@ export function PlaybookEditorPage(){
             ? <WaitEditor key={selectedNode.id} node={selectedNode} onSave={saveWait} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='manipulator'
             ? <ManipulatorEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
+            : selectedNode.data.kind==='handoff'
+            ? <ChatControllerEditor key={selectedNode.id} node={selectedNode} onSave={config=>{updateSelected({config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='delay'
             ? <DelayEditor key={selectedNode.id} node={selectedNode} onSave={config=>{updateSelected({config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
@@ -308,7 +313,7 @@ function defaultConfig(kind:AutomationNodeKind):Record<string,unknown>{
     case 'distributor':return {outputs:[{id:'output_1',name:'Saída 1',weight:1},{id:'output_2',name:'Saída 2',weight:1}],preventRepeat:true};
     case 'manipulator':return {target:'',operation:'set',value:'',failureVariable:'manipulator.error'};
     case 'notification':return {phone:'',message:'',name:''};
-    case 'handoff':return {queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
+    case 'handoff':return {state:'ATTENDING',queue:'Atendimento',reason:'Transferência solicitada pela automação.'};
     case 'outcome':return {type:'RESOLVED'};
     case 'wait_response':return {timeoutValue:1,timeoutUnit:'hours',waitIndefinitely:false,bufferSeconds:0};
     case 'ai':return {provider:'openai',authMode:'workspace',model:'gpt-5.4-mini',systemPrompt:'',userMessage:'{{last_message}}',understandAudio:false,understandImage:false,understandPdf:false,identifyReceipt:false,smartConditionals:[],responseVariable:'ai.response',failReasonVariable:'ai.fail.reason',autoSendResponse:false,contextInteractions:1};
@@ -329,6 +334,7 @@ function normalizeNodeConfig(kind:AutomationNodeKind,value:Record<string,unknown
   if(kind==='tag'&&config.tagId==='')delete config.tagId;
   if(kind==='tag'&&config.tag==='')delete config.tag;
   if(kind==='handoff'&&typeof config.queue!=='string'&&typeof config.team==='string'){config.queue=config.team;delete config.team}
+  if(kind==='handoff'&&!CHAT_STATES.some(item=>item[0]===config.state))config.state='ATTENDING';
   if(kind==='outcome'&&typeof config.type!=='string'){config.type=typeof config.outcome==='string'&&['QUALIFIED','APPOINTMENT','SALE','RESOLVED','HANDOFF','DISQUALIFIED'].includes(config.outcome.toUpperCase())?config.outcome.toUpperCase():'RESOLVED';delete config.outcome}
   return config
 }
@@ -389,7 +395,6 @@ function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags
     {kind==='flow_jump'&&<><label>Fluxo de destino<select value={String(config.targetPlaybookId??'')} onChange={event=>{const target=playbooks.find(item=>item.id===event.target.value);onConfigs({targetPlaybookId:event.target.value||undefined,...(target?{targetName:target.name}:{})})}}><option value="">Selecione o fluxo</option>{playbooks.map(item=><option value={item.id} key={item.id}>{item.name}{item.status==='PAUSED'?' · pausado':item.status!=='PUBLISHED'?' · não publicado':''}</option>)}</select></label>{!config.targetPlaybookId&&config.targetName&&<div className="config-callout warning"><b>Destino importado não resolvido</b><p>Na Leona: {String(config.targetName)} — escolha o fluxo correspondente.</p></div>}<p className="field-help">O fluxo atual termina e a conversa continua na versão publicada do destino.</p></>}
     {kind==='distributor'&&<DistributorFields config={config} counts={node.data.distributorCounts??{}} onConfigs={onConfigs}/>}
     {kind==='notification'&&<><label>Rótulo <span className="optional">(opcional)</span><input value={String(config.name??'')} maxLength={80} onChange={event=>onConfig('name',event.target.value)} placeholder="Ex.: Erro da IA"/></label><label>Número da equipe<input type="tel" value={String(config.phone??'')} onChange={event=>onConfig('phone',event.target.value)} placeholder="+5571999999999"/><small>Use E.164: +, DDI, DDD e número, sem espaços.</small></label><label>Mensagem<WhatsAppField value={String(config.message??'')} onChange={value=>onConfig('message',value)} rows={5} maxLength={1024} placeholder="Falha no atendimento de {{contact.name}}."/><small>Variáveis do fluxo são substituídas antes do envio.</small></label><div className="ai-how"><Info size={18}/><div><b>Sem impacto no cliente</b><p>O aviso usa o canal da conversa, não cria contato no inbox e uma falha de envio não interrompe o fluxo.</p></div></div></>}
-    {kind==='handoff'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Atendimento" /></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>onConfig('reason',event.target.value)} placeholder="Explique por que a conversa será transferida." /></label></>}
     {kind==='outcome'&&<><label>Tipo de resultado<select value={String(config.type??'RESOLVED')} onChange={event=>onConfig('type',event.target.value)}><option value="QUALIFIED">Lead qualificado</option><option value="APPOINTMENT">Agendamento</option><option value="SALE">Venda</option><option value="RESOLVED">Atendimento resolvido</option><option value="HANDOFF">Transferência humana</option><option value="DISQUALIFIED">Lead desqualificado</option></select></label><label>Valor em centavos (opcional)<input type="number" min="0" step="1" value={typeof config.valueCents==='number'?config.valueCents:''} onChange={event=>onConfig('valueCents',event.target.value===''?undefined:Number(event.target.value))} placeholder="Ex.: 15000" /></label></>}
     <button className={isStart?'start active':'start'} onClick={onStart} disabled={isStart||kind!=='trigger'}>{isStart?'✓ Nó inicial do fluxo':kind==='trigger'?'Definir como nó inicial':'Somente um gatilho pode iniciar'}</button><button className="danger-link" onClick={onRemove}>Excluir bloco</button>
   </div></>
@@ -441,6 +446,18 @@ function WaitEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(config:Record<
       <label>Campo para salvar a informação no usuário<input value={saveReplyTo} maxLength={60} placeholder="Nome" aria-invalid={Boolean(fieldError)} onChange={event=>patch({saveReplyTo:event.target.value})}/>{fieldError&&<small className="field-error">{fieldError}</small>}</label>
       {saveReplyTo&&<label className="check-field"><input type="checkbox" checked={config.saveEmpty!==false} onChange={event=>patch({saveEmpty:event.target.checked})}/> Salvar mesmo quando a resposta contiver somente mídia</label>}
       <label>Mensagem antes de aguardar a resposta<WhatsAppField value={String(config.message??'')} onChange={message=>patch({message})} rows={4} maxLength={4096} placeholder="Ex.: Qual é o seu nome?"/></label>
+    </div>
+    <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer></>
+}
+function ChatControllerEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(config:Record<string,unknown>)=>void;onCancel:()=>void}){
+  const [config,setConfig]=useState<Record<string,unknown>>({...node.data.config});const patch=(change:Record<string,unknown>)=>setConfig(current=>({...current,...change}));
+  const [state,,effect]=chatStateOf(config);
+  function save(){const next:Record<string,unknown>={...config,state};if(state!=='ATTENDING'){delete next.queue;delete next.assigneeId;delete next.reason}if(state!=='AWAITING')delete next.returnToAi;onSave(next)}
+  return <><header><span className="palette-icon handoff"><Headset size={17} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Controlador de Chat</b></div></header>
+    <div className="inspector-form ai-editor chat-controller-editor">
+      <label>Mover o chat para<select value={state} onChange={event=>patch({state:event.target.value})}>{CHAT_STATES.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><small>{effect}</small></label>
+      {state==='ATTENDING'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>patch({queue:event.target.value})} placeholder="Ex.: Atendimento"/></label><label>Responsável (ID do usuário, opcional)<input value={String(config.assigneeId??'')} onChange={event=>patch({assigneeId:event.target.value})}/></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>patch({reason:event.target.value})} placeholder="Explique por que a conversa será transferida."/></label></>}
+      {state==='AWAITING'&&<ToggleCard title="Continuar o fluxo depois" description="Avançado: o bloco ganha uma saída e o fluxo segue após colocar o chat em Aguardando." checked={config.returnToAi===true} onChange={checked=>patch({returnToAi:checked})}/>}
     </div>
     <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer></>
 }

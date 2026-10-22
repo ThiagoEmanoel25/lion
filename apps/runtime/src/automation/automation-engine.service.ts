@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { Inject,Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Prisma, type ExecutionStep } from '@prisma/client';
 import { Queue } from 'bullmq';
-import {AutomationDefinitionSchema,AutomationDistributorConfigSchema,AutomationManipulatorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,AutomationWaitResponseConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
+import {AutomationDefinitionSchema,AutomationHandoffConfigSchema,AutomationDistributorConfigSchema,AutomationManipulatorConfigSchema,AutomationNotificationConfigSchema,AutomationPixelConfigSchema,AutomationWaitResponseConfigSchema,DISTRIBUTOR_ROUTE_FIELD,renderUrlTemplate} from '@nexo/contracts';
 import {applyManipulation,assertPublicHttpsUrl,kanbanAction,parseTarget} from '@nexo/domain';
 import { planDelay } from './delay.js';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
+import { applyChatController } from './chat-controller.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, getPathValue, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
 import { liveConditionContext, mergeLiveContext } from './live-context.js';
@@ -478,14 +479,20 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'handoff': {
-        const reason = typeof node.config.reason === 'string' ? renderTemplate(node.config.reason, context) : 'Handoff solicitado pela automação.';
-        const queue = typeof node.config.queue === 'string' ? node.config.queue : undefined;
+        const parsed = AutomationHandoffConfigSchema.safeParse(node.config);
+        if (!parsed.success) throw new NodeExecutionError('INVALID_HANDOFF_CONFIG', 'Configure o estado do Controlador de Chat.');
+        const config = parsed.data;
+        const reason = config.reason ? renderTemplate(config.reason, context) : 'Handoff solicitado pela automação.';
+        if (config.state === 'ATTENDING' && config.assigneeId && !await this.prisma.membership.count({ where: { workspaceId, userId: config.assigneeId } })) throw new NodeExecutionError('INVALID_ASSIGNEE', 'O responsável não pertence ao workspace.');
+        const continues = config.returnToAi && Boolean(nextNodeId);
         await this.prisma.$transaction(async tx => {
-          await tx.conversation.update({ where: { id: conversationId }, data: { mode: 'HUMAN', status: 'QUEUED', queue } });
-          await tx.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: { handoff: true, reason, queue }, finishedAt: new Date() } });
+          const events = await applyChatController(tx, { workspaceId, conversationId, config });
+          const output = { handoff: true, state: config.state, reason, queue: config.queue, events };
+          if (continues) return this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, asJson(output));
+          await tx.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: asJson(output), finishedAt: new Date() } });
           await tx.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: node.id, context: asJson(context), finishedAt: new Date() } });
         });
-        return 'terminal';
+        return continues ? 'continue' : 'terminal';
       }
 
       case 'outcome': {

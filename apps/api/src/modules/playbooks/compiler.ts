@@ -12,6 +12,7 @@ import {
   AutomationKanbanConfigSchema,
   AutomationPixelConfigSchema,
   AutomationMessageConfigSchema,
+  AutomationHandoffConfigSchema,
   AutomationNotificationConfigSchema,
   AutomationManipulatorConfigSchema,
   AutomationStickerConfigSchema,
@@ -34,6 +35,8 @@ export type AutomationIssue = { level: 'error' | 'warning'; code: string; messag
 export type SimulationStep = { index: number; nodeId: string; kind: AutomationDefinition['nodes'][number]['kind']; selectedEdgeId: string | null };
 
 const terminalKinds = new Set(['handoff', 'outcome', 'flow_jump']);
+// A Chat Controller in AWAITING with returnToAi keeps the flow going; a missing edge still just ends it.
+const isTerminal = (node: { kind: string; config?: unknown }) => terminalKinds.has(node.kind) && !(node.kind === 'handoff' && (node.config as { returnToAi?: unknown } | undefined)?.returnToAi === true);
 const outcomeKinds = new Set(['QUALIFIED', 'APPOINTMENT', 'SALE', 'RESOLVED', 'HANDOFF', 'DISQUALIFIED']);
 
 function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): AutomationIssue[] {
@@ -88,6 +91,8 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationDistributorConfigSchema,'INVALID_DISTRIBUTOR_CONFIG','Distribuidor inválido');
     case 'manipulator':
       return validateConfig(AutomationManipulatorConfigSchema,'INVALID_MANIPULATOR_CONFIG','Manipulador inválido');
+    case 'handoff':
+      return validateConfig(AutomationHandoffConfigSchema,'INVALID_HANDOFF_CONFIG','Controlador de Chat inválido');
     case 'notification':
       return validateConfig(AutomationNotificationConfigSchema,'INVALID_NOTIFICATION_CONFIG','Notificação inválida');
     default:
@@ -196,8 +201,8 @@ export function validateAutomation(value: unknown) {
 
   for (const node of definition.nodes) {
     const edges = outgoing.get(node.id) ?? [];
-    if (terminalKinds.has(node.kind) && edges.length) issues.push({ level: 'error', code: 'TERMINAL_HAS_OUTPUT', message: 'Nós finais não podem ter conexões de saída.', nodeId: node.id });
-    if (!terminalKinds.has(node.kind) && edges.length === 0) issues.push({ level: 'warning', code: 'MISSING_OUTPUT', message: 'Sem saída: o fluxo é encerrado depois deste bloco.', nodeId: node.id });
+    if (isTerminal(node) && edges.length) issues.push({ level: 'error', code: 'TERMINAL_HAS_OUTPUT', message: 'Nós finais não podem ter conexões de saída.', nodeId: node.id });
+    if (!isTerminal(node) && edges.length === 0) issues.push({ level: 'warning', code: 'MISSING_OUTPUT', message: 'Sem saída: o fluxo é encerrado depois deste bloco.', nodeId: node.id });
     const ports = nodePorts(node.kind);
     const menuRouted = node.kind === 'buttons' && edges.some(edge => edge.condition !== undefined || edge.isDefault);
     if (node.kind !== 'condition' && node.kind !== 'distributor' && !menuRouted && !ports.length && edges.length > 1) issues.push({ level: 'error', code: 'AMBIGUOUS_OUTPUT', message: 'Somente condições, menus, distribuidores e blocos com sucesso/erro podem ter mais de uma saída.', nodeId: node.id });
@@ -278,7 +283,7 @@ export function simulateAutomation(definition: AutomationDefinition, variables: 
         : nodeMatch ? candidates.find(edge => !edge.isDefault) : candidates.find(edge => edge.isDefault);
     }
     steps.push({ index: steps.length, nodeId: current, kind: node.kind, selectedEdgeId: selected?.id ?? null });
-    if (terminalKinds.has(node.kind) || !selected) { current = undefined; break; }
+    if (isTerminal(node) || !selected) { current = undefined; break; }
     current = selected.target;
   }
   if (current && steps.length >= definition.settings.maxSteps) stoppedBecause = 'max_steps';

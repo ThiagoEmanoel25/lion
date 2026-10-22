@@ -168,3 +168,4 @@
 .delay-editor small{font-size:8px;line-height:1.5;color:#89958f}.delay-editor small.field-error{color:#a14e44;font-size:10px;font-weight:700}
 
 .palette-icon.manipulator,.tools-dropdown .palette-icon.manipulator{color:#0e9f8e}.automation-node-manipulator{border-color:#0e9f8e}.automation-node-manipulator .automation-node-head{background:#0b8577}.automation-node-manipulator .node-config-preview>strong{border-color:#2c7a72;background:#1e3b38}
+.chat-controller-editor{display:grid;gap:10px}.chat-controller-editor small{font-size:8px;line-height:1.5;color:#89958f}

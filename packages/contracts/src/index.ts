@@ -207,6 +207,10 @@ export const AutomationDistributorOutputSchema=z.object({id:z.string().trim().mi
 export const AutomationDistributorConfigSchema=z.object({outputs:z.array(AutomationDistributorOutputSchema).min(2).max(10),preventRepeat:z.boolean().default(true)}).strict().superRefine((value,ctx)=>{
   const ids=new Set<string>();value.outputs.forEach((output,index)=>{if(ids.has(output.id))ctx.addIssue({code:z.ZodIssueCode.custom,path:['outputs',index,'id'],message:'O identificador da saída deve ser único.'});ids.add(output.id)});
 });
+// Legacy {queue, reason} (and {team}) configs have no state: they were always "attending", so they normalize on read and are never rewritten.
+export const CHAT_CONTROLLER_STATES=['AWAITING','ATTENDING','RESOLVED'] as const;
+const normalizeHandoffConfig=(value:unknown)=>{if(!value||typeof value!=='object'||Array.isArray(value))return value;const config={...value} as Record<string,unknown>;if(config.state===undefined)config.state='ATTENDING';if(typeof config.queue!=='string'&&typeof config.team==='string'){config.queue=config.team;delete config.team}return config};
+export const AutomationHandoffConfigSchema=z.preprocess(normalizeHandoffConfig,z.object({state:z.enum(CHAT_CONTROLLER_STATES),queue:z.string().optional(),assigneeId:z.string().optional(),reason:z.string().optional(),returnToAi:z.boolean().default(false)}).refine(value=>!value.returnToAi||value.state==='AWAITING',{path:['returnToAi'],message:'Voltar para a automação só é permitido em Aguardando.'}));
 export const AutomationNotificationConfigSchema=z.object({phone:z.string().trim().regex(/^\+[1-9]\d{7,14}$/,'Use E.164 com DDI, por exemplo +5571999999999.'),message:z.string().trim().min(1).max(1024),name:z.string().trim().max(80).optional()}).strict();
 export const AutomationKanbanConfigSchema=z.object({
   boardId:z.string().cuid(),

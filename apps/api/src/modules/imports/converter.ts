@@ -184,6 +184,13 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
     const first=acts.find(action=>action.action_type==='manipulator'||action.action_type==='save_user_data');
     return {...base,kind:'manipulator' as const,config:manipulatorNode(first?object(first.config):config,items,originalId,type)};
   }
+  if(type==='chat_controller'){
+    // The Leona state field name was never observed, so several spellings are accepted; an unrecognized value stays ATTENDING and is flagged.
+    const c=acts.length?object(acts[0]!.config):config;const raw=String(text(c.state,c.status,c.chat_status,c.target_state,c.new_status,c.action)??'').toLowerCase();
+    const state=/resolv|closed|finaliz/.test(raw)?'RESOLVED':/aguard|await|wait|pending/.test(raw)?'AWAITING':/atend|attend|progress|open/.test(raw)?'ATTENDING':undefined;
+    if(!state)items.push({sourceId:originalId,sourceType:type,status:'pending',message:'Estado do chat não reconhecido; o bloco foi importado como Atendimento. Revise o Controlador de Chat.'});
+    return {...base,kind:'handoff' as const,config:{state:state??'ATTENDING'}};
+  }
   if(acts.length){
     const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message});
     const expected:Record<string,string>={wait_response:'wait_for_response',condition:'evaluate_condition',ai:'ai_call',integration:'make_http_request',tags:'add_tags',pixel:'send_pixel_event',connection_flow:'execute_flow',distributor:'distribute_contacts',notification:'send_notification',smart_interval:'smart_interval'};
