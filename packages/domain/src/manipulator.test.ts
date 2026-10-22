@@ -20,6 +20,6 @@ describe('manipulator', () => {
   it('parses and guards targets', () => {
     expect(parseTarget('contact.customFields.tentativas')).toEqual({ scope: 'contact', path: 'tentativas' });
     expect(parseTarget('flow.a.b')).toEqual({ scope: 'flow', path: 'a.b' });
-    for (const t of ['_runtime.x', 'contact.id', 'contact.customFields.', 'flow._runtime.x', 'flow.workspace', 'flow.api.token', 'flow.a b', 'contact.customFields.' + 'x'.repeat(61), 'flow.a..b']) expect(parseTarget(t)).toBeNull();
+    for (const t of ['_runtime.x', 'contact.id', 'contact.customFields.', 'flow._runtime.x', 'flow.workspace', 'flow.global.x', 'flow.__proto__.polluted', 'flow.a.constructor.b', 'contact.customFields.prototype', 'flow.api.token', 'flow.a b', 'contact.customFields.' + 'x'.repeat(61), 'flow.a..b']) expect(parseTarget(t)).toBeNull();
   });
 });

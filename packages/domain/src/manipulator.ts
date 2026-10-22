@@ -2,7 +2,7 @@ export const MANIPULATOR_OPERATIONS = ['set', 'add', 'subtract', 'multiply', 'di
 export type Operation = typeof MANIPULATOR_OPERATIONS[number];
 
 const NAME = /^[A-Za-z0-9_.-]{1,60}$/;
-const RESERVED = /^(_runtime|workspace|contact\.id)(\.|$)|(^|\.)(password|secret|token|apikey|api_key|credential|credentials|authorization)(\.|$)/i;
+const RESERVED = /^(_runtime|workspace|global|contact\.id)(\.|$)|(^|\.)(__proto__|constructor|prototype)(\.|$)|(^|\.)(password|secret|token|apikey|api_key|credential|credentials|authorization)(\.|$)/i;
 
 // Targets: `contact.customFields.<name>` (persisted) or `flow.<path>` (execution context only).
 export function parseTarget(target: string): { scope: 'contact' | 'flow'; path: string } | null {

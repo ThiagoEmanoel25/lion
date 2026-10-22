@@ -11,7 +11,7 @@ describe('manipulator-config', () => {
     expect(splitTarget('flow.a.b')).toEqual({ scope: 'flow', name: 'a.b' });
     expect(splitTarget('contact.customFields.x')).toEqual({ scope: 'contact', name: 'x' });
     expect(manipulatorError('tentativas', '1')).toBe('');
-    expect(manipulatorError('_runtime.x', '1')).not.toBe('');
+    expect(manipulatorError('_runtime.x', '1')).not.toBe('');expect(manipulatorError('__proto__.p', '1')).not.toBe('');expect(manipulatorError('global.x', '1')).not.toBe('');
     expect(manipulatorError('x', '{{global.token}}')).not.toBe('');
   });
 });

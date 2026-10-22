@@ -71,6 +71,8 @@ export function menuTimeoutSeconds(node: AutomationNode): number {
 export function setContextPath<T extends Record<string, unknown>>(context: T, path: string, value: unknown): T {
   const next = structuredClone(context) as Record<string, unknown>;
   const parts = path.split('.');
+  // Shared sink (webhook, AI, manipulator): never walk into Object.prototype.
+  if (parts.some(part => part === '__proto__' || part === 'constructor' || part === 'prototype')) return next as T;
   let current = next;
   parts.forEach((part, index) => {
     if (index === parts.length - 1) current[part] = value;

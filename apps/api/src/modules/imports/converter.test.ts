@@ -238,6 +238,12 @@ describe('manipulador',()=>{
     expect(node(flow('manipulator',{field_name:'{tentativas}',operation:'sum',value:'1'}))?.config).toEqual({target:'contact.customFields.tentativas',operation:'add',value:'1'});
     expect(node(flow('save_user_data',{field_name:'cidade',value:'{first_name}'}))?.config).toEqual({target:'contact.customFields.cidade',operation:'set',value:'{{contact.firstName}}'});
   });
+  it('valor ausente vira pendência em vez de limpar o campo',()=>{
+    for(const type of ['manipulator','save_user_data']){
+      const result=flow(type,{field_name:'x',operation:'set',field_value:'a'});
+      expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'2',status:'pending',message:expect.stringContaining('Valor')})]));
+    }
+  });
   it('operação desconhecida vira pendência com a config original preservada, sem segredos',()=>{
     const result=flow('manipulator',{field_name:'x',operation:'power',value:'2',api_key:'s3cret'});
     expect(node(result)?.config).toMatchObject({operation:''});

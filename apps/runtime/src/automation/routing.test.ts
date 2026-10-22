@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conditionMatches, getPathValue, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, setAiResponseContext, type AutomationNode, type AutomationEdge } from './routing.js';
+import { conditionMatches, getPathValue, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectNextEdge, setAiResponseContext, setContextPath, type AutomationNode, type AutomationEdge } from './routing.js';
 
 describe('automation routing', () => {
   it('resolve caminhos aninhados e operadores', () => {
@@ -82,5 +82,13 @@ describe('automation routing', () => {
       expect(menuTimeoutSeconds({ ...menu, config: { ...menu.config, timeoutSeconds: 3_600 } })).toBe(3_600);
       expect(menuTimeoutSeconds({ ...menu, config: { ...menu.config, timeoutSeconds: 99_999_999 } })).toBe(2_678_400);
     });
+  });
+});
+
+describe('setContextPath prototype safety', () => {
+  it('ignores __proto__, constructor and prototype segments', () => {
+    for (const path of ['__proto__.polluted', 'a.__proto__.polluted', 'constructor.prototype.polluted']) expect(setContextPath({}, path, 'yes')).toEqual({});
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(setContextPath({}, 'a.b', 1)).toEqual({ a: { b: 1 } });
   });
 });

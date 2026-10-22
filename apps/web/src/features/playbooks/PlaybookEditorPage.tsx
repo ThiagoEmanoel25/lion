@@ -535,7 +535,7 @@ function ManipulatorEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:st
       <label>Operação<select value={operation} onChange={event=>setOperation(event.target.value as ManipulatorOperation)}>{(Object.keys(MANIPULATOR_OPERATION_LABELS) as ManipulatorOperation[]).map(key=><option key={key} value={key}>{MANIPULATOR_OPERATION_LABELS[key]}</option>)}</select></label>
       <label>Valor<VariableInput label="Valor" value={value} onChange={setValue} placeholder={operation==='set'?'Texto, número, verdadeiro/falso ou JSON':'Número'}/></label>
       {submitted&&error&&<small className="field-error">{error}</small>}
-      <small className="field-help">Campo ausente começa em zero para Somar e Subtrair. Em caso de erro, o motivo fica em {String(initial.failureVariable||'manipulator.error')}.</small>
+      <small className="field-help">Texto simples vira texto; números, verdadeiro/falso e JSON são interpretados (use aspas, como "5", para gravar o texto 5). Campo ausente começa em zero para Somar e Subtrair. Em caso de erro, o motivo fica em {String(initial.failureVariable||'manipulator.error')}.</small>
     </div>
     <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={()=>{setSubmitted(true);if(error)return;onSave(name.trim()||'Manipulador',{...initial,target:(scope==='contact'?CONTACT_FIELD_PREFIX:FLOW_PREFIX)+field,operation,value})}}>Salvar</button></footer></>
 }

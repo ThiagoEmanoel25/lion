@@ -169,6 +169,7 @@ function manipulatorNode(c:JsonObject,items:ImportReport['items'],originalId:str
   const opRaw=String(text(c.operation,c.operator,c.action)??(type==='save_user_data'?'set':'')).toLowerCase();const operation=MANIPULATOR_OPS[opRaw]??'';
   if(!target)pend('Campo do Manipulador ausente; escolha o destino após importar.');
   if(!operation)pend(`Operação “${opRaw||'desconhecida'}” do Manipulador não reconhecida; escolha a operação após importar.`);
+  if(c.value===undefined||c.value===null)pend('Valor do Manipulador não encontrado na configuração original; informe o valor após importar.');
   const value=c.value===undefined||c.value===null?'':typeof c.value==='string'?replaceVariables(c.value,items,originalId):JSON.stringify(c.value);
   return {target,operation,value};
 }

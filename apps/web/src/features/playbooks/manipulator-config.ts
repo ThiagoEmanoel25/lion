@@ -5,7 +5,7 @@ export const CONTACT_FIELD_PREFIX = 'contact.customFields.';
 export const FLOW_PREFIX = 'flow.';
 
 const NAME = /^[A-Za-z0-9_.-]{1,60}$/;
-const RESERVED = /^(_runtime|workspace|contact\.id)(\.|$)|(^|\.)(password|secret|token|apikey|api_key|credential|credentials|authorization)(\.|$)/i;
+const RESERVED = /^(_runtime|workspace|global|contact\.id)(\.|$)|(^|\.)(__proto__|constructor|prototype)(\.|$)|(^|\.)(password|secret|token|apikey|api_key|credential|credentials|authorization)(\.|$)/i;
 
 export function splitTarget(target: string): { scope: 'contact' | 'flow'; name: string } {
   return target.startsWith(FLOW_PREFIX) ? { scope: 'flow', name: target.slice(FLOW_PREFIX.length) } : { scope: 'contact', name: target.startsWith(CONTACT_FIELD_PREFIX) ? target.slice(CONTACT_FIELD_PREFIX.length) : '' };
