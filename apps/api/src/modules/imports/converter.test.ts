@@ -259,6 +259,10 @@ describe('controlador de chat',()=>{
     expect(node(flow({state:'Aguardando'}))?.config).toEqual({state:'AWAITING'});
     expect(node(flow({chat_status:'attending'}))?.config).toEqual({state:'ATTENDING'});
   });
+  it('unresolved não vira Resolvido e fila/motivo são mantidos',()=>{
+    for(const status of ['unresolved','not_resolved','reopen']){const result=flow({status});expect(node(result)?.config).toEqual({state:'ATTENDING'});expect(result.report.items.some(item=>item.sourceId==='2'&&item.status==='pending')).toBe(true)}
+    expect(node(flow({status:'awaiting',queue:'Vendas',reason:'x'}))?.config).toEqual({state:'AWAITING',queue:'Vendas',reason:'x'});
+  });
   it('estado desconhecido vira Atendimento com pendência',()=>{
     const result=flow({});expect(node(result)?.config).toEqual({state:'ATTENDING'});
     expect(result.report.items.some(item=>item.sourceId==='2'&&item.status==='pending')).toBe(true);

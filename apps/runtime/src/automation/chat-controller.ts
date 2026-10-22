@@ -14,7 +14,8 @@ export async function applyChatController(tx: Prisma.TransactionClient, input: {
     await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Conversation', aggregateId: conversationId, type: 'automation.channel_slot.requested', payload: { conversationId, slot: 'CONVERSATION_RESOLVED' } } });
     return ['CONVERSATION_RESOLVED'];
   }
-  const assigneeId = config.state === 'ATTENDING' && config.assigneeId ? config.assigneeId : null;
-  await tx.conversation.update({ where: { id: conversationId }, data: { mode: 'HUMAN', status: assigneeId ? 'ASSIGNED' : 'QUEUED', assigneeId, ...(config.state === 'ATTENDING' ? { queue: queue ?? null } : {}) } });
+  // Legacy configs (no queue/assignee) must leave the conversation's existing queue and assignee alone; only AWAITING clears the assignee.
+  const assigneeId = config.state === 'ATTENDING' && config.assigneeId ? config.assigneeId : undefined;
+  await tx.conversation.update({ where: { id: conversationId }, data: { mode: 'HUMAN', status: assigneeId ? 'ASSIGNED' : 'QUEUED', ...(config.state === 'AWAITING' ? { assigneeId: null } : assigneeId ? { assigneeId } : {}), ...(config.state === 'ATTENDING' && queue ? { queue } : {}) } });
   return [];
 }

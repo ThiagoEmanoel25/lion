@@ -28,6 +28,10 @@ describe('chat controller', () => {
     const q = fakeTx(); await q.run({ state: 'ATTENDING', queue: 'Vendas' });
     expect(q.conv).toMatchObject({ status: 'QUEUED', assigneeId: null, queue: 'Vendas' });
   });
+  it('legacy ATTENDING with no queue or assignee keeps the existing ones', async () => {
+    const t = fakeTx({ status: 'ASSIGNED', queue: 'Vendas', assigneeId: 'u9' }); await t.run(AutomationHandoffConfigSchema.parse({ reason: 'x' }) as ChatControllerConfig);
+    expect(t.conv).toMatchObject({ mode: 'HUMAN', status: 'QUEUED', queue: 'Vendas', assigneeId: 'u9' });
+  });
   it('RESOLVED resolves, zeroes unread and emits CONVERSATION_RESOLVED once', async () => {
     const t = fakeTx(); expect(await t.run({ state: 'RESOLVED' })).toEqual(['CONVERSATION_RESOLVED']);
     expect(t.conv).toMatchObject({ status: 'RESOLVED', unreadCount: 0 }); expect(t.conv.resolvedAt).toBeInstanceOf(Date);

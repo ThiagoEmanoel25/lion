@@ -187,9 +187,9 @@ function mapNode(raw:JsonObject,index:number,items:ImportReport['items'],flowVar
   if(type==='chat_controller'){
     // The Leona state field name was never observed, so several spellings are accepted; an unrecognized value stays ATTENDING and is flagged.
     const c=acts.length?object(acts[0]!.config):config;const raw=String(text(c.state,c.status,c.chat_status,c.target_state,c.new_status,c.action)??'').toLowerCase();
-    const state=/resolv|closed|finaliz/.test(raw)?'RESOLVED':/aguard|await|wait|pending/.test(raw)?'AWAITING':/atend|attend|progress|open/.test(raw)?'ATTENDING':undefined;
+    const state=({resolved:'RESOLVED',resolvido:'RESOLVED',resolvidos:'RESOLVED',closed:'RESOLVED',awaiting:'AWAITING',aguardando:'AWAITING',waiting:'AWAITING',pending:'AWAITING',attending:'ATTENDING',atendimento:'ATTENDING',in_progress:'ATTENDING',open:'ATTENDING'} as Record<string,'RESOLVED'|'AWAITING'|'ATTENDING'>)[raw.trim().replace(/[\s-]+/g,'_')];
     if(!state)items.push({sourceId:originalId,sourceType:type,status:'pending',message:'Estado do chat não reconhecido; o bloco foi importado como Atendimento. Revise o Controlador de Chat.'});
-    return {...base,kind:'handoff' as const,config:{state:state??'ATTENDING'}};
+    return {...base,kind:'handoff' as const,config:{state:state??'ATTENDING',...(text(c.queue,c.team)?{queue:text(c.queue,c.team)}:{}),...(text(c.reason)?{reason:text(c.reason)}:{})}};
   }
   if(acts.length){
     const pend=(message:string)=>items.push({sourceId:originalId,sourceType:type,status:'pending',message});
