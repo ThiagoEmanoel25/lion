@@ -5,13 +5,22 @@ const unescape = (v: string) => v.replace(/\\(.)/g, (_, c) => (c === 'n' ? '\n' 
 const webp = (extra = 0) => { const b = new Uint8Array(12 + extra); b.set([0x52, 0x49, 0x46, 0x46], 0); b.set([0x57, 0x45, 0x42, 0x50], 8); return b; };
 
 describe('escapeVCardText', () => {
-  it('escapes ; , \\ and newlines, and round-trips', () => {
-    const raw = 'Silva; Jr, a\\b\nlinha2\r\nx';
-    const escaped = escapeVCardText(raw);
-    expect(escaped).toBe('Silva\; Jr\\, a\\\\b\\nlinha2\\nx');
-    expect(unescape(escaped)).toBe('Silva; Jr, a\\b\nlinha2\nx');
+  // Expected values are written with String.raw so every backslash is visible and real.
+  it('escapes a semicolon with a real backslash', () => {
+    expect(escapeVCardText('Silva; Jr')).toBe(String.raw`Silva\; Jr`);
+    expect(escapeVCardText('Silva; Jr')).not.toBe('Silva; Jr');
+    expect(escapeVCardText(';')).toBe(String.raw`\;`);
   });
-  it('does not double-escape the backslash it adds', () => expect(escapeVCardText(';')).toBe('\;'));
+  it('escapes comma, backslash and every newline form', () => {
+    expect(escapeVCardText('a,b')).toBe(String.raw`a\,b`);
+    expect(escapeVCardText(String.raw`a\b`)).toBe(String.raw`a\\b`);
+    expect(escapeVCardText('l1\nl2\r\nl3\rl4')).toBe(String.raw`l1\nl2\nl3\nl4`);
+    expect(escapeVCardText('Silva; Jr, a\\b')).toBe(String.raw`Silva\; Jr\, a\\b`);
+  });
+  it('round-trips through a spec-style unescape', () => {
+    const raw = 'Silva; Jr, a\\b\nx';
+    expect(unescape(escapeVCardText(raw))).toBe(raw);
+  });
 });
 
 describe('normalizePhoneE164', () => {
@@ -27,7 +36,7 @@ describe('normalizePhoneE164', () => {
 describe('buildVCard', () => {
   it('builds a valid 3.0 card with CRLF and an escaped name', () => {
     const card = buildVCard({ name: 'Silva; Jr, Ltda', phone: '(11) 98765-4321' });
-    expect(card.split('\r\n')).toEqual(['BEGIN:VCARD', 'VERSION:3.0', 'FN:Silva\; Jr\\, Ltda', 'N:Silva\; Jr\\, Ltda;;;;', 'TEL;type=CELL;waid=5511987654321:+5511987654321', 'END:VCARD']);
+    expect(card.split('\r\n')).toEqual(['BEGIN:VCARD', 'VERSION:3.0', String.raw`FN:Silva\; Jr\, Ltda`, String.raw`N:Silva\; Jr\, Ltda;;;;`, 'TEL;type=CELL;waid=5511987654321:+5511987654321', 'END:VCARD']);
   });
   it('a newline in the name cannot inject a property', () => {
     expect(buildVCard({ name: 'A\nTEL:+1', phone: '11987654321' }).split('\r\n')).toHaveLength(6);

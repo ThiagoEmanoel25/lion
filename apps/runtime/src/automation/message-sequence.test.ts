@@ -91,7 +91,7 @@ describe('contact and sticker items', () => {
   it('renders variables into the vCard payload', () => {
     const m = itemMessage({ type: 'contact', name: '{{nome}}', phone: '{{tel}}' }, { nome: 'Silva; Jr', tel: '(11) 98765-4321' });
     expect(m.providerPayload).toMatchObject({ kind: 'contact', displayName: 'Silva; Jr' });
-    expect(String(m.providerPayload.vcard)).toContain('FN:Silva\; Jr');
+    expect(String(m.providerPayload.vcard)).toContain(String.raw`FN:Silva\; Jr`);
     expect(String(m.providerPayload.vcard)).toContain('waid=5511987654321');
   });
   it('fails on an ambiguous phone', () => {

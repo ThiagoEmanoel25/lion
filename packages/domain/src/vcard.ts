@@ -3,7 +3,7 @@ export const STICKER_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Backslash first, then `;` `,` and line breaks (CRLF, CR, LF all become the literal `\n`). */
 export const escapeVCardText = (value: string): string =>
-  value.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
+  value.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
 
 /**
  * Normalizes a phone to E.164 digits (no "+"), or null when it cannot be done safely.
