@@ -1,4 +1,5 @@
-import { AutomationMessageItemSchema, MESSAGE_MAX_ITEMS } from '@nexo/contracts';
+import { AutomationMessageItemSchema, MESSAGE_MAX_ITEMS, normalizeTypingSeconds } from '@nexo/contracts';
+import { buildVCard } from '@nexo/domain';
 import { isIP } from 'node:net';
 import type { z } from 'zod';
 import { renderTemplate } from './routing.js';
@@ -52,8 +53,15 @@ export function itemMessage(item: SendItem, context: Record<string, unknown>): {
     const body = renderTemplate(item.text, context).trim();
     if (!body) throw new Error('EMPTY_MESSAGE');
     if (body.length > 4096) throw new Error('MESSAGE_TOO_LONG');
-    return { type: 'TEXT', body, mediaUrl: null, providerPayload: item.typingSeconds > 0 ? { typingSeconds: item.typingSeconds } : {} };
+    const typing = normalizeTypingSeconds(item.typingSeconds);
+    return { type: 'TEXT', body, mediaUrl: null, providerPayload: typing > 0 ? { typingSeconds: typing } : {} };
   }
+  if (item.type === 'contact') {
+    const name = renderTemplate(item.name, context).trim();
+    const vcard = buildVCard({ name, phone: renderTemplate(item.phone, context) });
+    return { type: 'TEXT', body: name, mediaUrl: null, providerPayload: { kind: 'contact', displayName: name, vcard } };
+  }
+  if (item.type === 'sticker') return { type: 'IMAGE', body: null, mediaUrl: safeMediaUrl(renderTemplate(item.url, context).trim()), providerPayload: { kind: 'sticker', verifyWebp: true } };
   const mediaUrl = safeMediaUrl(renderTemplate(item.url, context).trim());
   const caption = item.type === 'file' || item.mediaType !== 'audio' ? renderTemplate(item.caption ?? '', context).trim() || null : null;
   if (caption && caption.length > 1024) throw new Error('CAPTION_TOO_LONG');
@@ -63,7 +71,7 @@ export function itemMessage(item: SendItem, context: Record<string, unknown>): {
     if (fileName.length > 255) throw new Error('FILE_NAME_TOO_LONG');
     return { type: 'DOCUMENT', body: caption, mediaUrl, providerPayload: { kind: 'file', fileName } };
   }
-  const delivery={...(item.typingSeconds>0?{typingSeconds:item.typingSeconds}:{}),...(item.forwarded?{forwarded:true}:{})};
+  const typing=normalizeTypingSeconds(item.typingSeconds);const delivery={...(typing>0?{typingSeconds:typing}:{}),...(item.forwarded?{forwarded:true}:{})};
   if (item.mediaType === 'audio') return { type: 'AUDIO', body: null, mediaUrl, providerPayload: { kind: 'audio', ptt: item.ptt === true,...delivery } };
   return { type: item.mediaType === 'video' ? 'VIDEO' : 'IMAGE', body: caption, mediaUrl, providerPayload: delivery };
 }

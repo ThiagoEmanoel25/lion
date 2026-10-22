@@ -79,7 +79,10 @@ const HttpsUrlSchema=z.string().trim().url().max(2048).refine(value=>new URL(val
 export const PlaybookAssetUrlSchema=z.union([HttpsUrlSchema,z.string().trim().regex(/^nexo-asset:\/\/[a-z0-9]{20,32}$/i,'Use um arquivo enviado ou uma URL HTTPS.')]);
 export const AutomationTriggerConfigSchema=z.object({event:AutomationTriggerEventSchema.default('message.received'),tagId:z.string().cuid().optional(),oncePerContact:z.boolean().default(false)}).strict();
 export const MESSAGE_MAX_ITEMS=30;
-export const MESSAGE_MAX_TYPING_SECONDS=30;
+export const MESSAGE_MAX_TYPING_SECONDS=60;
+export const MESSAGE_MIN_TYPING_SECONDS=3;
+// 0 disables; saved flows may still hold 1 or 2, which are read as 3 (never rejected: a live flow must keep publishing).
+export const normalizeTypingSeconds=(seconds:number)=>seconds>0?Math.max(MESSAGE_MIN_TYPING_SECONDS,seconds):0;
 export const MEDIA_MAX_TYPING_SECONDS=60;
 export const MESSAGE_MAX_PAUSE_SECONDS=300;
 const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0)}).strict();
@@ -89,7 +92,9 @@ const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(
   if(item.mediaType!=='audio'&&item.ptt!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Somente áudio pode ser enviado como mensagem de voz.',path:['ptt']});
 });
 const MessagePauseItemSchema=z.object({type:z.literal('pause'),minSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS),maxSeconds:z.number().int().min(0).max(MESSAGE_MAX_PAUSE_SECONDS)}).strict().refine(item=>item.minSeconds<=item.maxSeconds,{message:'O mínimo não pode passar do máximo.',path:['minSeconds']});
-export const AutomationMessageItemSchema=z.union([MessageTextItemSchema,MessageFileItemSchema,MessageMediaItemSchema,MessagePauseItemSchema]);
+const MessageContactItemSchema=z.object({type:z.literal('contact'),name:z.string().trim().min(1).max(200),phone:z.string().trim().min(1).max(64)}).strict();
+const MessageStickerItemSchema=z.object({type:z.literal('sticker'),url:PlaybookAssetUrlSchema}).strict();
+export const AutomationMessageItemSchema=z.union([MessageTextItemSchema,MessageContactItemSchema,MessageStickerItemSchema,MessageFileItemSchema,MessageMediaItemSchema,MessagePauseItemSchema]);
 export const AutomationMessageConfigSchema=z.union([z.object({text:z.string().trim().min(1).max(4096)}).strict(),z.object({items:z.array(AutomationMessageItemSchema).min(1).max(MESSAGE_MAX_ITEMS)}).strict()]);
 export const AutomationImageConfigSchema=z.object({url:PlaybookAssetUrlSchema,caption:z.string().trim().max(1024).optional()}).strict();
 export const AutomationAudioConfigSchema=z.object({url:PlaybookAssetUrlSchema,ptt:z.boolean().optional()}).strict();

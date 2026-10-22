@@ -82,3 +82,26 @@ describe('sequenceOf / sequenceJobOptions', () => {
     expect(sequenceJobOptions('s', 2, 3_000)).toMatchObject({ delay: 3_000, attempts: 5 });
   });
 });
+
+describe('contact and sticker items', () => {
+  it('accepts them and keeps the 30 limit', () => {
+    expect(sequenceItems({ items: [{ type: 'contact', name: 'Ana', phone: '11987654321' }, { type: 'sticker', url: 'https://x.com/a.webp' }] })).toHaveLength(2);
+    expect(() => sequenceItems({ items: Array.from({ length: 31 }, () => ({ type: 'sticker', url: 'https://x.com/a.webp' })) })).toThrow('INVALID_MESSAGE_ITEM_COUNT');
+  });
+  it('renders variables into the vCard payload', () => {
+    const m = itemMessage({ type: 'contact', name: '{{nome}}', phone: '{{tel}}' }, { nome: 'Silva; Jr', tel: '(11) 98765-4321' });
+    expect(m.providerPayload).toMatchObject({ kind: 'contact', displayName: 'Silva; Jr' });
+    expect(String(m.providerPayload.vcard)).toContain('FN:Silva\; Jr');
+    expect(String(m.providerPayload.vcard)).toContain('waid=5511987654321');
+  });
+  it('fails on an ambiguous phone', () => {
+    expect(() => itemMessage({ type: 'contact', name: 'A', phone: '123' }, {})).toThrow('INVALID_CONTACT_PHONE');
+  });
+  it('sticker keeps the url and asks for WebP verification', () => {
+    expect(itemMessage({ type: 'sticker', url: 'https://x.com/a.webp' }, {})).toMatchObject({ type: 'IMAGE', providerPayload: { kind: 'sticker', verifyWebp: true } });
+  });
+  it('normalizes saved typingSeconds 1 and 2 up to 3, keeps 0', () => {
+    const typing = (n: number) => itemMessage({ type: 'text', text: 'a', typingSeconds: n }, {}).providerPayload.typingSeconds;
+    expect([typing(0), typing(1), typing(2), typing(3), typing(60)]).toEqual([undefined, 3, 3, 3, 60]);
+  });
+});

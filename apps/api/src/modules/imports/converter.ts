@@ -40,7 +40,10 @@ function strings(value:unknown,items:ImportReport['items'],id:string):unknown {
 export function isLeonaHostedUrl(url:string){try{const host=new URL(url).hostname.toLowerCase();return host.endsWith('.b-cdn.net')||host.includes('leona')}catch{return false}}
 const triggerNote='O gatilho da Leona não vem no export. O fluxo foi importado para iniciar na mensagem recebida, uma vez por contato — confira antes de publicar.';
 function flagLeonaFiles(out:JsonObject[],items:ImportReport['items'],id:string,type:string){
-  const total=out.filter(item=>typeof item.url==='string'&&isLeonaHostedUrl(item.url)).length;
+  const hosted=out.filter(item=>typeof item.url==='string'&&isLeonaHostedUrl(item.url));
+  const stickers=hosted.filter(item=>item.type==='sticker').length;
+  if(stickers)items.push({sourceId:id,sourceType:type,status:'pending',message:`${stickers} sticker(s) continuam hospedados na Leona e podem sair do ar; troque por um upload local.`});
+  const total=hosted.length-stickers;
   if(total)items.push({sourceId:id,sourceType:type,status:'pending',message:`${total} arquivo(s) continuam hospedados na Leona e podem sair do ar se a conta for cancelada; suba-os em outro lugar e troque as URLs.`});
   return out;
 }
@@ -51,10 +54,12 @@ function messageItems(config:JsonObject,items:ImportReport['items'],id:string){
   if(!actions.length&&text(config.text,config.message,config.content))converted.push({type:'text',text:replaceVariables(text(config.text,config.message,config.content)!,items,id),typingSeconds:0});
   for(const raw of actions){
     const action=object(raw);const type=String(text(action.type,action.action,action.kind)??'').toLowerCase();
-    if(['text','send_message','message'].includes(type)){const body=text(action.text,action.message,action.message_text,action.content);if(body)converted.push({type:'text',text:replaceVariables(body,items,id),typingSeconds:Math.max(0,Math.min(30,num(action.typingSeconds??action.typing_delay_seconds??action.typing_delay)))})}
+    if(['text','send_message','message'].includes(type)){const body=text(action.text,action.message,action.message_text,action.content);if(body)converted.push({type:'text',text:replaceVariables(body,items,id),typingSeconds:Math.max(0,Math.min(60,num(action.typingSeconds??action.typing_delay_seconds??action.typing_delay)))})}
     else if(['file','send_file'].includes(type)){const url=text(action.url,action.fileUrl,action.file_url);if(url)converted.push({type:'file',url,fileName:text(action.fileName,action.file_name,action.name)??'arquivo',...(text(action.caption)?{caption:replaceVariables(text(action.caption)!,items,id)}:{})})}
     else if(['media','send_media'].includes(type)){const url=text(action.url,action.mediaUrl,action.media_url);if(url)converted.push({type:'media',mediaType:text(action.mediaType,action.media_type)??'image',url,...(text(action.caption)?{caption:replaceVariables(text(action.caption)!,items,id)}:{}),...(action.ptt===true?{ptt:true}:{})})}
     else if(['send_multi_media','multi_media'].includes(type)){for(const rawMedia of Array.isArray(action.items)?action.items:Array.isArray(action.media)?action.media:[]){const media=object(rawMedia);const url=text(media.url,media.mediaUrl,media.media_url);if(url)converted.push({type:'media',mediaType:text(media.mediaType,media.media_type,media.type)??'image',url,...(text(media.caption)?{caption:replaceVariables(text(media.caption)!,items,id)}:{})})}}
+    else if(['contact','send_contact'].includes(type)){const name=text(action.name,action.contact_name,action.displayName);const phone=text(action.phone,action.contact_phone,action.number);if(name&&phone)converted.push({type:'contact',name:replaceVariables(name,items,id),phone:replaceVariables(phone,items,id)})}
+    else if(['sticker','send_sticker'].includes(type)){const url=text(action.url,action.sticker_url,action.stickerUrl);if(url)converted.push({type:'sticker',url})}
     else if(['pause','delay_between_messages','delay'].includes(type)){const min=Math.max(0,Math.min(300,num(action.minSeconds??action.min_seconds??action.min_delay_seconds??action.seconds)));const max=Math.max(min,Math.min(300,num(action.maxSeconds??action.max_seconds??action.max_delay_seconds,min)));converted.push({type:'pause',minSeconds:min,maxSeconds:max})}
   }
   return converted.length?flagLeonaFiles(converted,items,id,'message'):[{type:'text',text:'Mensagem importada — revise o conteúdo.',typingSeconds:0}];
@@ -88,9 +93,11 @@ function realMessageItems(actions:JsonObject[],items:ImportReport['items'],id:st
   const out:JsonObject[]=[];const flag=(status:Item['status'],message:string)=>items.push({sourceId:id,sourceType:type,status,message});
   for(const action of actions){
     const c=object(action.config);const kind=action.action_type;
-    if(kind==='send_message'){const body=text(c.message_text,c.message);if(!body){flag('pending','Mensagem sem texto (message_text/message) não foi importada.');continue}const delay=num(c.typing_delay_seconds);if(delay<0||delay>30)flag('adjusted','Tempo de digitação limitado a 0–30 segundos.');out.push({type:'text',text:replaceVariables(body,items,id),typingSeconds:clamp(delay,0,30)})}
+    if(kind==='send_message'){const body=text(c.message_text,c.message);if(!body){flag('pending','Mensagem sem texto (message_text/message) não foi importada.');continue}const delay=num(c.typing_delay_seconds);if(delay<0||delay>60)flag('adjusted','Tempo de digitação limitado a 0–60 segundos.');if(delay>0&&delay<3)flag('adjusted','Tempo de digitação mínimo é 3 segundos; o valor foi ajustado.');out.push({type:'text',text:replaceVariables(body,items,id),typingSeconds:delay>0?clamp(delay,3,60):0})}
     else if(kind==='send_file'){const url=mediaUrl(c,'file_url','url');if(!url){flag('pending','Arquivo sem URL (file_url) não foi importado.');continue}out.push({type:'file',url,fileName:text(c.file_name,object(c.media_file_info).filename)??'arquivo'})}
     else if(kind==='send_multi_media'){const url=mediaUrl(c,'url');if(!url){flag('pending','Mídia sem URL (media_file_info.direct_url) não foi importada.');continue}if(Array.isArray(c.messages)&&c.messages.length)flag('pending','Mensagens extras de “send_multi_media” (messages[]) não foram importadas.');const mediaType=['image','video','audio'].includes(String(c.media_type))?String(c.media_type):'image';const caption=text(c.caption);const delay=num(c.typing_delay_seconds);if(delay<0||delay>60)flag('adjusted','Tempo de digitação/gravação da mídia limitado a 0–60 segundos.');out.push({type:'media',mediaType,url,typingSeconds:clamp(delay,0,60),forwarded:c.audio_forward===true,...(mediaType==='audio'?{ptt:true}:{}),...(caption&&mediaType!=='audio'?{caption:replaceVariables(caption,items,id)}:{})})}
+    else if(kind==='send_contact'){const name=text(c.contact_name,c.name);const phone=text(c.contact_phone,c.phone,c.phone_number);if(!name||!phone){flag('pending','Contato sem nome ou telefone não foi importado.');continue}out.push({type:'contact',name:replaceVariables(name,items,id),phone:replaceVariables(phone,items,id)})}
+    else if(kind==='send_sticker'){const url=mediaUrl(c,'sticker_url','url');if(!url){flag('pending','Sticker sem URL não foi importado.');continue}out.push({type:'sticker',url})}
     else if(kind==='delay_between_messages'){const min=num(c.delay_min_seconds??c.delay_seconds);const max=num(c.delay_max_seconds??c.delay_seconds);if(min>300||max>300)flag('adjusted','Pausa limitada a 300 segundos.');const lo=clamp(min,0,300);out.push({type:'pause',minSeconds:lo,maxSeconds:clamp(Math.max(max,lo),lo,300)})}
     else flag('pending',`Ação “${String(kind)}” não é suportada em mensagens e foi ignorada.`);
   }

@@ -126,6 +126,13 @@ describe('conversor Leona',()=>{
     expect(result.definition.nodes.find(n=>n.kind==='webhook')?.config.body).toBe('{"phone":"{{contact.phone}}"}');
   });
 
+  it('contato e sticker entram na ordem original e sticker da Leona gera aviso',()=>{
+    const act=(action_type:string,config:object,order:number)=>({action_type,config,order});
+    const result=convertLeonaFlow({nodes:[{id:'s',type:'start',data:{actions:[{action_type:'x',config:{},order:1}]}},{id:'m',type:'message',data:{actions:[act('send_message',{message_text:'Oi',typing_delay_seconds:1},1),act('send_contact',{contact_name:'Silva; Jr',contact_phone:'11987654321'},2),act('send_sticker',{sticker_url:'https://leona.b-cdn.net/a.webp'},3)]}}],edges:[]});
+    expect(result.definition.nodes.find(n=>n.kind==='message')?.config.items).toEqual([{type:'text',text:'Oi',typingSeconds:3},{type:'contact',name:'Silva; Jr',phone:'11987654321'},{type:'sticker',url:'https://leona.b-cdn.net/a.webp'}]);
+    expect(result.report.items.some(item=>item.status==='pending'&&item.message.includes('sticker'))).toBe(true);
+  });
+
   it('pixel: mapeia rótulos e marca rastreador diferente de Facebook como pendência',()=>{
     const node=(id:string,type:string,action_type:string,config:object)=>({id,type,data:{actions:[{action_type,config,order:1}]}});
     const convert=(config:object)=>convertLeonaFlow({nodes:[node('s','start','x',{}),node('p','pixel','send_pixel_event',config)],edges:[]});

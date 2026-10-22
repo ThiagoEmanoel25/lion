@@ -38,3 +38,5 @@ export * from './pixel.js';
 export * from './delay.js';
 
 export * from './manipulator.js';
+
+export * from './vcard.js';

@@ -391,7 +391,7 @@ describe('message items', () => {
   it.each([
     ['lista vazia', { items: [] }],
     ['31 itens', { items: Array.from({ length: 31 }, () => text) }],
-    ['digitando 31s', { items: [{ ...text, typingSeconds: 31 }] }],
+    ['digitando 61s', { items: [{ ...text, typingSeconds: 61 }] }],
     ['pausa min > max', { items: [{ type: 'pause', minSeconds: 6, maxSeconds: 5 }] }],
     ['pausa 301s', { items: [{ type: 'pause', minSeconds: 0, maxSeconds: 301 }] }],
     ['arquivo http', { items: [{ type: 'file', url: 'http://x.test/a.pdf', fileName: 'a.pdf' }] }],

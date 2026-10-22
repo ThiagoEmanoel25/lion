@@ -1,9 +1,10 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia, proto, type AnyMessageContent, type WASocket } from '@whiskeysockets/baileys';
 import { MENU_MAX_OPTIONS } from '@nexo/contracts';
+import { assertPublicHttpsUrl, assertSticker, STICKER_MAX_BYTES } from '@nexo/domain';
 
 type Button = { id: string; label: string; description?: string };
 type MenuMode = keyof typeof MENU_MAX_OPTIONS;
-type ProviderPayload = { kind?: unknown; fileName?: unknown; ptt?: unknown; forwarded?:unknown;buttons?: unknown; footer?: unknown; mode?: unknown; buttonText?: unknown };
+type ProviderPayload = { kind?: unknown; vcard?: unknown; displayName?: unknown; fileName?: unknown; ptt?: unknown; forwarded?:unknown;buttons?: unknown; footer?: unknown; mode?: unknown; buttonText?: unknown };
 
 const payloadObject = (value: unknown): ProviderPayload => value && typeof value === 'object' && !Array.isArray(value) ? value as ProviderPayload : {};
 
@@ -25,6 +26,24 @@ const mimetypeOf = (fileName: string) => MIMETYPES[fileName.split('.').pop()?.to
 export const playbookAssetId=(url:string|null|undefined)=>url?.match(/^nexo-asset:\/\/([a-z0-9]{20,32})$/i)?.[1]??null;
 type StoredAsset={data:Buffer;contentType:string;fileName:string};
 
+/** Sticker bytes: a stored asset or a public HTTPS download (size-capped, no redirects); WebP is checked on the bytes. */
+export async function loadStickerBytes(url: string, asset?: StoredAsset | null): Promise<Buffer> {
+  let data: Buffer;
+  if (asset) data = asset.data;
+  else {
+    const target = await assertPublicHttpsUrl(url);
+    const response = await fetch(target, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error('STICKER_DOWNLOAD_FAILED');
+    const declared = Number(response.headers.get('content-length') ?? 0);
+    if (declared > STICKER_MAX_BYTES) throw new Error('STICKER_TOO_LARGE');
+    const chunks: Buffer[] = []; let total = 0;
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) { total += chunk.length; if (total > STICKER_MAX_BYTES) throw new Error('STICKER_TOO_LARGE'); chunks.push(Buffer.from(chunk)); }
+    data = Buffer.concat(chunks);
+  }
+  assertSticker(data);
+  return data;
+}
+
 export function outboundPresence(messageType:string,typingSeconds:number):'recording'|'composing'|undefined{
   if(typingSeconds<=0)return undefined;
   return messageType==='AUDIO'?'recording':'composing';
@@ -36,6 +55,7 @@ export function regularOutboundContent(message: { type: string; body: string | n
   const media=asset?.data??(mediaUrl?{url:mediaUrl}:null);
   const forwarded=payload.forwarded===true?{contextInfo:{isForwarded:true,forwardingScore:1}}:{};
   if (payload.kind === 'buttons') return null;
+  if (payload.kind === 'contact' && typeof payload.vcard === 'string' && typeof payload.displayName === 'string') return { contacts: { displayName: payload.displayName, contacts: [{ displayName: payload.displayName, vcard: payload.vcard }] } };
   if (payload.kind === 'sticker' && media) return { sticker: media };
   if (message.type === 'IMAGE' && media) return { image: media, ...(message.body ? { caption: message.body } : {}),...forwarded };
   if (message.type === 'AUDIO' && media) return { audio: media, ptt: payload.ptt === true,...forwarded };

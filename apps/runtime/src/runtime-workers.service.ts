@@ -10,7 +10,7 @@ import { WhatsAppSessionManager } from './whatsapp/session-manager.service.js';
 import { outboundMessageId } from './whatsapp/message-id.js';
 import { AutomationEngineService } from './automation/automation-engine.service.js';
 import { KnowledgeIndexerService } from './knowledge/knowledge-indexer.service.js';
-import { interactivePayload, outboundPresence,playbookAssetId,regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
+import { interactivePayload, loadStickerBytes, outboundPresence,playbookAssetId,regularOutboundContent, sendInteractiveButtons } from './whatsapp/outbound-content.js';
 import { firstName } from './automation/live-context.js';
 import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { acceptsNewEntrants, isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
@@ -151,7 +151,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       const assetId=playbookAssetId(message.mediaUrl);
       const stored=assetId?await this.prisma.playbookAsset.findFirst({where:{id:assetId,workspaceId:message.workspaceId},select:{data:true,contentType:true,fileName:true}}):null;
       if(assetId&&!stored)throw new Error('PLAYBOOK_ASSET_NOT_FOUND');
-      const asset=stored?{...stored,data:Buffer.from(stored.data)}:null;
+      let asset:{data:Buffer;contentType:string;fileName:string}|null=stored?{...stored,data:Buffer.from(stored.data)}:null;
+      if((message.providerPayload as {verifyWebp?:unknown}|null)?.verifyWebp===true&&message.mediaUrl){const data=await loadStickerBytes(message.mediaUrl,asset);asset={data,contentType:'image/webp',fileName:asset?.fileName??'sticker.webp'}}
       const content = regularOutboundContent(message,asset);
       const quotedSource=typeof payload.quotedMessageId==='string'?await this.prisma.message.findFirst({where:{id:payload.quotedMessageId,conversationId:message.conversationId,direction:'INBOUND'},select:{externalId:true,body:true}}):null;
       const quoted=quotedSource?.externalId?proto.WebMessageInfo.create({key:{remoteJid:jid,fromMe:false,id:quotedSource.externalId},message:{conversation:quotedSource.body??'Mídia'}}):undefined;

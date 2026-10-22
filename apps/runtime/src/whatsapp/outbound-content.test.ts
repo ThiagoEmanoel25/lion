@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { proto, type WASocket } from '@whiskeysockets/baileys';
-import { interactivePayload, nativeFlowButtons,outboundPresence,parseButtons,playbookAssetId, regularOutboundContent, sendInteractiveButtons } from './outbound-content.js';
+import { interactivePayload, loadStickerBytes, nativeFlowButtons,outboundPresence,parseButtons,playbookAssetId, regularOutboundContent, sendInteractiveButtons } from './outbound-content.js';
 
 describe('outbound WhatsApp content', () => {
   it('usa presença de gravação em áudio e digitação nas demais mensagens',()=>{
@@ -70,5 +70,26 @@ describe('sendInteractiveButtons', () => {
     const context = relayed[0]?.viewOnceMessage?.message?.interactiveMessage?.contextInfo;
     expect(context?.stanzaId).toBe('LEAD-MSG-ID');
     expect(context?.quotedMessage?.conversation).toBe('quero');
+  });
+});
+
+describe('contact and sticker content', () => {
+  it('sends a contact card', () => {
+    expect(regularOutboundContent({ type: 'TEXT', body: 'Ana', mediaUrl: null, providerPayload: { kind: 'contact', displayName: 'Ana', vcard: 'V' } })).toEqual({ contacts: { displayName: 'Ana', contacts: [{ displayName: 'Ana', vcard: 'V' }] } });
+  });
+});
+
+describe('loadStickerBytes', () => {
+  const asset = (data: Buffer) => ({ data, contentType: 'image/png', fileName: 'x.png' });
+  it('accepts a WebP asset whatever its stored content type says', async () => {
+    const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP')]);
+    expect(await loadStickerBytes('nexo-asset://abcdefghijklmnopqrst', asset(webp))).toBe(webp);
+  });
+  it('rejects a PNG renamed .webp and an oversized file', async () => {
+    await expect(loadStickerBytes('nexo-asset://abcdefghijklmnopqrst', asset(Buffer.from('\x89PNG\r\n\x1a\n....WEBP')))).rejects.toThrow('STICKER_NOT_WEBP');
+    await expect(loadStickerBytes('nexo-asset://abcdefghijklmnopqrst', asset(Buffer.alloc(10 * 1024 * 1024 + 1)))).rejects.toThrow('STICKER_TOO_LARGE');
+  });
+  it('refuses a private HTTPS host before fetching', async () => {
+    await expect(loadStickerBytes('https://localhost/a.webp')).rejects.toThrow();
   });
 });

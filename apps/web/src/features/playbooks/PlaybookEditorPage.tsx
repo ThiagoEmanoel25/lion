@@ -24,7 +24,7 @@ type TriggerAssociation={channelId:string;channelName:string;slot:'WELCOME'|'DEF
 
 const catalog:Array<{kind:AutomationNodeKind;icon:LucideIcon;label:string;description:string;rule:string}>=[
   {kind:'trigger',icon:Zap,label:'Gatilho',description:'Inicia o fluxo',rule:'Aceita apenas o evento (mensagem recebida, etiqueta adicionada ou conversa criada) e, para etiqueta, o id dela. Só um gatilho pode ser o nó inicial.'},
-  {kind:'message',icon:MessageSquare,label:'Mensagem',description:'Envia texto, arquivos e mídia no WhatsApp',rule:'1 a 30 conteúdos: texto, arquivo, mídia e pausa, enviados em ordem.'},
+  {kind:'message',icon:MessageSquare,label:'Mensagem',description:'Envia texto, arquivos, mídia, contato e sticker no WhatsApp',rule:'1 a 30 conteúdos: texto, arquivo, mídia, contato, sticker e pausa, enviados em ordem.'},
   {kind:'image',icon:Image,label:'Imagem',description:'Envia imagem com legenda',rule:'Faça upload (até 10 MB) ou use URL HTTPS; legenda opcional de até 1024.'},
   {kind:'audio',icon:Mic,label:'Áudio',description:'Envia áudio ou mensagem de voz',rule:'Faça upload (até 10 MB) ou use URL HTTPS; enviar como voz é opcional.'},
   {kind:'sticker',icon:Sticker,label:'Figurinha',description:'Envia uma figurinha',rule:'Faça upload de WebP compatível (até 10 MB) ou use URL HTTPS.'},
@@ -67,17 +67,20 @@ const chatStateOf=(config:Record<string,unknown>)=>CHAT_STATES.find(item=>item[0
 function connectionRule(kind:AutomationNodeKind){return kind==='wait_response'?'Saídas: respondeu (obrigatória) e não respondeu (opcional).':kind==='distributor'?'Cada saída precisa de uma conexão.':NODE_PORTS[kind]?'Saídas: sucesso (obrigatória) e erro (opcional).':kind==='handoff'?'Sem saída, a menos que continuar o fluxo esteja ativo.':terminalKinds.has(kind)?'Não pode ter conexões de saída.':kind==='condition'?'':'Precisa de exatamente uma conexão de saída.'}
 // Mirrors packages/contracts (MESSAGE_*); duplicated so the web bundle does not pull zod in.
 const MESSAGE_MAX_ITEMS=30;
-const MESSAGE_MAX_TYPING_SECONDS=30;
+const MESSAGE_MAX_TYPING_SECONDS=60;
+const MESSAGE_MIN_TYPING_SECONDS=3;
+// Mirrors normalizeTypingSeconds: 0 disables; saved 1 and 2 open as 3.
+const normalizeTyping=(seconds:number)=>seconds>0?Math.max(MESSAGE_MIN_TYPING_SECONDS,seconds):0;
 const MEDIA_MAX_TYPING_SECONDS=60;
 const MESSAGE_MAX_PAUSE_SECONDS=300;
-type MessageItem={type:'text';text:string;typingSeconds:number}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean;typingSeconds:number;forwarded:boolean}|{type:'pause';minSeconds:number;maxSeconds:number};
+type MessageItem={type:'text';text:string;typingSeconds:number}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean;typingSeconds:number;forwarded:boolean}|{type:'pause';minSeconds:number;maxSeconds:number}|{type:'contact';name:string;phone:string}|{type:'sticker';url:string};
 const MEDIA_LABELS={image:'Imagem',video:'Vídeo',audio:'Áudio'} as const;
 function messageItemsOf(config:Record<string,unknown>):MessageItem[]{
-  if(Array.isArray(config.items))return config.items as MessageItem[];
+  if(Array.isArray(config.items))return (config.items as MessageItem[]).map(item=>item&&typeof item==='object'&&'typingSeconds' in item&&typeof item.typingSeconds==='number'?{...item,typingSeconds:normalizeTyping(item.typingSeconds)}:item);
   return [{type:'text',text:typeof config.text==='string'?config.text:'',typingSeconds:0}];
 }
 function messageItemLabel(item:MessageItem){
-  return item.type==='text'?item.text:item.type==='file'?item.fileName||'Arquivo':item.type==='media'?(item.caption||MEDIA_LABELS[item.mediaType]):`Pausa de ${item.minSeconds} a ${item.maxSeconds} s`;
+  return item.type==='text'?item.text:item.type==='file'?item.fileName||'Arquivo':item.type==='media'?(item.caption||MEDIA_LABELS[item.mediaType]):item.type==='contact'?`Contato: ${item.name||'sem nome'}`:item.type==='sticker'?'Sticker':`Pausa de ${item.minSeconds} a ${item.maxSeconds} s`;
 }
 // Mirrors packages/contracts (MENU_*); duplicated so the web bundle does not pull zod in.
 const MENU_CHOICE_FIELD='menu.choice';
@@ -626,11 +629,14 @@ function WebhookEditor({playbookId,node,variablesJson,onEditTestData,onSave,onCa
 const HTTPS_URL=/^https:\/\/\S+\.\S+/;
 const INTERNAL_ASSET_URL=/^nexo-asset:\/\/[a-z0-9]{20,32}$/i;
 const validMediaUrl=(value:string)=>HTTPS_URL.test(value)||INTERNAL_ASSET_URL.test(value);
-function MediaUploadField({label,value,accept,onChange,onFileName}:{label:string;value:string;accept?:string;onChange:(value:string)=>void;onFileName?:(name:string)=>void}){
+// Mirrors isWebp in packages/domain (RIFF....WEBP); the runtime re-checks the stored bytes before sending.
+async function looksLikeWebp(file:File){const b=new Uint8Array(await file.slice(0,12).arrayBuffer());const tag=(from:number)=>String.fromCharCode(...b.subarray(from,from+4));return b.length===12&&tag(0)==='RIFF'&&tag(8)==='WEBP'}
+function MediaUploadField({label,value,accept,webpOnly,onChange,onFileName}:{label:string;value:string;accept?:string;webpOnly?:boolean;onChange:(value:string)=>void;onFileName?:(name:string)=>void}){
   const [uploading,setUploading]=useState(false);const [error,setError]=useState('');const internal=INTERNAL_ASSET_URL.test(value);
   async function select(file:File|undefined){
     if(!file)return;setError('');
     if(file.size>10*1024*1024){setError('O arquivo deve ter no máximo 10 MB.');return}
+    if(webpOnly&&!await looksLikeWebp(file)){setError('O sticker precisa ser um arquivo WebP.');return}
     setUploading(true);
     try{const asset=await uploadPlaybookAsset(file);onChange(asset.url);onFileName?.(asset.fileName)}catch(caught){setError(errorMessage(caught))}finally{setUploading(false)}
   }
@@ -652,9 +658,11 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
   const patch=(index:number,change:Partial<MessageItem>)=>setRows(current=>current.map((row,i)=>i===index?{...row,item:{...row.item,...change} as MessageItem}:row));
   function move(index:number,delta:number){setRows(current=>{const to=index+delta;if(to<0||to>=current.length)return current;const next=[...current];[next[index],next[to]]=[next[to]!,next[index]!];return next})}
   const itemError=(item:MessageItem):string=>{
-    if(item.type==='text')return !item.text.trim()?'Escreva o texto.':item.text.length>4096?'Use até 4096 caracteres.':!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MESSAGE_MAX_TYPING_SECONDS?`Digitando: use de 0 a ${MESSAGE_MAX_TYPING_SECONDS} segundos.`:'';
+    if(item.type==='text')return !item.text.trim()?'Escreva o texto.':item.text.length>4096?'Use até 4096 caracteres.':!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MESSAGE_MAX_TYPING_SECONDS||(item.typingSeconds>0&&item.typingSeconds<MESSAGE_MIN_TYPING_SECONDS)?`Digitando: desligado ou de ${MESSAGE_MIN_TYPING_SECONDS} a ${MESSAGE_MAX_TYPING_SECONDS} segundos.`:'';
+    if(item.type==='contact')return !item.name.trim()?'Informe o nome do contato.':item.name.length>200?'O nome aceita até 200 caracteres.':!item.phone.trim()?'Informe o telefone do contato.':item.phone.length>64?'O telefone aceita até 64 caracteres.':'';
     if(item.type==='pause')return ![item.minSeconds,item.maxSeconds].every(n=>Number.isInteger(n)&&n>=0&&n<=MESSAGE_MAX_PAUSE_SECONDS)?`Use de 0 a ${MESSAGE_MAX_PAUSE_SECONDS} segundos.`:item.minSeconds>item.maxSeconds?'O mínimo não pode passar do máximo.':'';
     if(!validMediaUrl(item.url.trim()))return 'Faça upload de um arquivo ou informe uma URL HTTPS válida.';
+    if(item.type==='sticker')return '';
     if(item.type==='file'&&!item.fileName.trim())return 'Informe o nome do arquivo.';
     if(item.type==='media'&&(!Number.isInteger(item.typingSeconds)||item.typingSeconds<0||item.typingSeconds>MEDIA_MAX_TYPING_SECONDS))return `Use de 0 a ${MEDIA_MAX_TYPING_SECONDS} segundos para a presença.`;
     return (item.caption??'').length>1024?'A legenda aceita até 1024 caracteres.':'';
@@ -666,6 +674,8 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
     const items=rows.map(({item})=>{
       if(item.type==='text')return {...item,text:item.text.trim()};
       if(item.type==='pause')return item;
+      if(item.type==='contact')return {type:'contact',name:item.name.trim(),phone:item.phone.trim()};
+      if(item.type==='sticker')return {type:'sticker',url:item.url.trim()};
       const caption=item.caption?.trim();const url=item.url.trim();
       if(item.type==='file')return {type:'file',url,fileName:item.fileName.trim(),...(caption?{caption}:{})};
       const audio=item.mediaType==='audio';
@@ -679,13 +689,15 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
   <div className="inspector-form menu-editor message-editor">
     <label>Nome do bloco<input value={name} onChange={event=>setName(event.target.value)} maxLength={120}/></label>
     <div className="menu-options-head"><b>Conteúdos ({rows.length}/{MESSAGE_MAX_ITEMS})</b></div>
-    <div className="message-add">{addLabel('Texto',{type:'text',text:'',typingSeconds:0})}{addLabel('Arquivo',{type:'file',url:'',fileName:''})}{addLabel('Mídia',{type:'media',mediaType:'image',url:'',typingSeconds:0,forwarded:false})}{addLabel('Pausa',{type:'pause',minSeconds:1,maxSeconds:3})}</div>
+    <div className="message-add">{addLabel('Texto',{type:'text',text:'',typingSeconds:0})}{addLabel('Arquivo',{type:'file',url:'',fileName:''})}{addLabel('Mídia',{type:'media',mediaType:'image',url:'',typingSeconds:0,forwarded:false})}{addLabel('Contato',{type:'contact',name:'',phone:''})}{addLabel('Sticker',{type:'sticker',url:''})}{addLabel('Pausa',{type:'pause',minSeconds:1,maxSeconds:3})}</div>
     {rows.length===0&&<div className={`menu-options-empty ${submitted?'invalid':''}`}><MessageSquare size={26} aria-hidden="true"/><p>Adicione ao menos um conteúdo.</p></div>}
     <ol className="message-items">{rows.map(({key,item},index)=><li key={key}>
-      <div className="message-item-head"><b>{index+1}. {item.type==='text'?'Texto':item.type==='file'?'Arquivo':item.type==='media'?'Mídia':'Pausa'}</b>
+      <div className="message-item-head"><b>{index+1}. {item.type==='text'?'Texto':item.type==='file'?'Arquivo':item.type==='media'?'Mídia':item.type==='contact'?'Contato':item.type==='sticker'?'Sticker':'Pausa'}</b>
         <span><button type="button" aria-label={`Mover conteúdo ${index+1} para cima`} title="Subir" disabled={index===0} onClick={()=>move(index,-1)}><ChevronUp size={16}/></button><button type="button" aria-label={`Mover conteúdo ${index+1} para baixo`} title="Descer" disabled={index===rows.length-1} onClick={()=>move(index,1)}><ChevronDown size={16}/></button><button type="button" aria-label={`Remover conteúdo ${index+1}`} title="Remover" onClick={()=>setRows(current=>current.filter((_,i)=>i!==index))}><X size={16}/></button></span></div>
       {item.type==='text'&&<><WhatsAppField value={item.text} onChange={text=>patch(index,{text})} maxLength={4096} placeholder="Use {{variavel}} para personalizar." invalid={Boolean(submitted&&itemError(item))}/>
-        <label>Digitando por (segundos)<input type="number" min="0" max={MESSAGE_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>patch(index,{typingSeconds:Number(event.target.value)})}/></label></>}
+        <label>Digitando: {item.typingSeconds>0?`${item.typingSeconds} s`:'Desligado'}<input type="range" min="0" max={MESSAGE_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>{const value=Number(event.target.value);patch(index,{typingSeconds:value>0&&value<MESSAGE_MIN_TYPING_SECONDS?(value>item.typingSeconds?MESSAGE_MIN_TYPING_SECONDS:0):value})}}/></label></>}
+      {item.type==='contact'&&<><label>Nome<input value={item.name} maxLength={200} onChange={event=>patch(index,{name:event.target.value})} placeholder="Nome ou {{variavel}}"/></label><label>Telefone<input value={item.phone} maxLength={64} onChange={event=>patch(index,{phone:event.target.value})} placeholder="(11) 98765-4321 ou {{telefone}}"/></label></>}
+      {item.type==='sticker'&&<MediaUploadField label="Sticker (WebP)" value={item.url} accept="image/webp" webpOnly onChange={url=>patch(index,{url})}/>}
       {item.type==='file'&&<><MediaUploadField label="Arquivo" value={item.url} onChange={url=>patch(index,{url})} onFileName={fileName=>patch(index,{fileName})}/><label>Nome do arquivo<input value={item.fileName} maxLength={255} onChange={event=>patch(index,{fileName:event.target.value})} placeholder="contrato.pdf"/></label><label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label></>}
       {item.type==='media'&&<><label>Tipo<select value={item.mediaType} onChange={event=>patch(index,{mediaType:event.target.value as 'image'|'video'|'audio'})}>{(Object.keys(MEDIA_LABELS) as Array<keyof typeof MEDIA_LABELS>).map(type=><option key={type} value={type}>{MEDIA_LABELS[type]}</option>)}</select></label><MediaUploadField label={MEDIA_LABELS[item.mediaType]} value={item.url} accept={item.mediaType==='image'?'image/jpeg,image/png,image/webp':item.mediaType==='video'?'video/*':'audio/*'} onChange={url=>patch(index,{url})}/>
         {item.mediaType!=='audio'&&<label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label>}
