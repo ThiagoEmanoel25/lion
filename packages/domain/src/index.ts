@@ -40,3 +40,9 @@ export * from './delay.js';
 export * from './manipulator.js';
 
 export * from './vcard.js';
+
+export * from './conditions.js';
+
+export * from './routing.js';
+
+export * from './simulation.js';
