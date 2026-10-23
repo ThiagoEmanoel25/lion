@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import Fastify from 'fastify';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import errors from '../../../core/errors.js';
@@ -104,7 +105,7 @@ describe('ações reais',()=>{
   it('ligadas: Integração roda de verdade, audita sem credenciais, e Pixel nunca dispara',async()=>{
     const fetchMock=vi.fn(async()=>new Response('{"ok":true}',{status:200}));vi.stubGlobal('fetch',fetchMock);
     const {start,audits}=await build();
-    const s=await start({...live,nodes:[...live.nodes],edges:live.edges},{liveActions:true});
+    const s=await start({...live,nodes:[...live.nodes],edges:live.edges},{liveActions:true,confirmLiveActions:true});
     // example.com é bloqueado ou não resolve em sandbox: o importante é que o resultado volta por uma porta e o fluxo segue.
     expect(s.waiting).toBeNull();expect(audits[0]).toMatchObject({action:'playbook.simulation.live_call',changes:{kind:'webhook',nodeId:'h'}});
     expect(JSON.stringify(audits)).not.toMatch(/authorization|apiKey/i);
@@ -114,7 +115,39 @@ describe('ações reais',()=>{
     const fetchMock=vi.fn();vi.stubGlobal('fetch',fetchMock);
     const {start}=await build();
     const def={start:'t',nodes:[node('t','trigger',{event:'message.received'}),node('px','pixel',{pixelId:PIXEL,eventName:'LeadSubmitted'}),node('o','outcome',{type:'QUALIFIED'})],edges:[edge('e1','t','px'),edge('e2','px','o',{port:'success'})]};
-    const s=await start(def,{liveActions:true});
+    const s=await start(def,{liveActions:true,confirmLiveActions:true});
     expect(s.waiting).toMatchObject({kind:'port',nodeId:'px'});expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('limites e confirmação',()=>{
+  it('liveActions sem confirmLiveActions é recusado',async()=>{
+    const {call}=await build();
+    const res=await call('POST','','u1',{definition:chat,liveActions:true});
+    expect(res.statusCode).toBe(422);expect(res.json().code).toBe('LIVE_ACTIONS_CONFIRMATION_REQUIRED');
+  });
+  it('limita sessões abertas por usuário, libera ao apagar e ao expirar',async()=>{
+    const {call,start,redis}=await build();
+    const ids:string[]=[];for(let i=0;i<5;i++)ids.push((await start()).simulationId);
+    const over=await call('POST','','u1',{definition:chat});expect(over.statusCode).toBe(429);expect(over.json().code).toBe('SIMULATION_LIMIT');
+    expect((await call('POST','','u2',{definition:chat})).statusCode).toBe(201);// outro usuário não é afetado
+    await call('DELETE',`/${ids[0]}`,'u1');expect((await call('POST','','u1',{definition:chat})).statusCode).toBe(201);
+    redis.advance(31*60_000);expect((await call('POST','','u1',{definition:chat})).statusCode).toBe(201);
+  });
+  it('guarda a definição uma vez e a restaura ao carregar',async()=>{
+    const {call,start,redis}=await build();const {simulationId:id}=await start();
+    const raw=await redis.get(`simulation:${id}`);expect(JSON.parse(raw!).state.definition).toBeNull();
+    expect((await call('POST',`/${id}/messages`,'u1',{text:'João'})).json().completed).toBe(true);
+  });
+});
+
+// Invariante de segurança: uma simulação nunca pode alcançar um remetente externo (WhatsApp, Meta/pixel, venda,
+// notificação). Qualquer import novo aqui precisa ser decidido de propósito, editando esta lista.
+describe('simulação não importa remetentes',()=>{
+  const ALLOWED=new Set(['fastify','zod','node:crypto','@nexo/contracts','@nexo/domain','../../../core/audit.js','../../ai/runtime.js','../../webhooks/generic.js','../integration-test.js','./sessions.js']);
+  it.each(['routes.ts','sessions.ts'])('%s só importa módulos da lista permitida',file=>{
+    const src=readFileSync(new URL(`./${file}`,import.meta.url),'utf8');
+    const specs=[...src.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)].map(m=>m[1]!);
+    expect(specs.filter(s=>!ALLOWED.has(s))).toEqual([]);
   });
 });

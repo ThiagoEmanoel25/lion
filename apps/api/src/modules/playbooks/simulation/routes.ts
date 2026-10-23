@@ -8,7 +8,7 @@ import {decryptWebhookSecret} from '../../webhooks/generic.js';
 import {integrationTestRateLimit,testIntegrationRequest} from '../integration-test.js';
 import {createSessionStore,type SessionRedis,type SimulationSession} from './sessions.js';
 
-const CreateInput=z.object({definition:z.unknown(),variables:z.record(z.unknown()).default({}),liveActions:z.boolean().default(false)}).strict();
+const CreateInput=z.object({definition:z.unknown(),variables:z.record(z.unknown()).default({}),liveActions:z.boolean().default(false),confirmLiveActions:z.boolean().default(false)}).strict();
 const MessageInput=z.union([
   z.object({text:z.string()}).strict(),
   z.object({optionId:z.string().min(1).max(200)}).strict(),
@@ -100,6 +100,7 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
     const {id}=request.params as {id:string};
     await assertPlaybook(request.auth.workspaceId,id);
     const input=CreateInput.parse(request.body);
+    if(input.liveActions&&!input.confirmLiveActions)throw new DomainError('LIVE_ACTIONS_CONFIRMATION_REQUIRED','Ações reais chamam IA e integrações de verdade e podem gerar custo. Confirme com confirmLiveActions:true.',422);
     const validation=await validate(app.prisma,request.auth.workspaceId,input.definition);
     if(!validation.valid||!validation.definition)throw new DomainError('INVALID_AUTOMATION','A automação possui erros.',422,validation.issues);
     const definition=validation.definition as SimulationDefinition;
@@ -124,7 +125,7 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
     const {id,simulationId}=request.params as {id:string;simulationId:string};
     await assertPlaybook(request.auth.workspaceId,id);
     await store.load(simulationId,{userId:request.auth.userId,workspaceId:request.auth.workspaceId,playbookId:id});
-    await store.remove(simulationId);
+    await store.remove(simulationId,request.auth.userId);
     return reply.status(204).send();
   });
 }
