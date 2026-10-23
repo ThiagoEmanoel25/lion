@@ -218,6 +218,15 @@ function runNode(s: SimulationState, node: FlowNode, o: Resolved) {
       for (const item of messageItems(node)) {
         if (s.error) return;
         if (item.type === 'pause') continue; // Pauses keep their place in the order but never wait in simulation.
+        if (item.type === 'text') {
+          // itemMessage() in the runtime refuses these, so the simulation has to refuse them too:
+          // a template with an unset variable must not pass here and fail on the first real contact.
+          const body = renderTemplate(item.text ?? '', s.context).trim();
+          if (!body) return fail(s, 'EMPTY_MESSAGE', 'A mensagem ficou vazia após a interpolação.', node.id);
+          if (body.length > 4096) return fail(s, 'MESSAGE_TOO_LONG', 'A mensagem passou de 4096 caracteres após a interpolação.', node.id);
+          say(s, { role: 'bot', nodeId: node.id, kind: 'text', text: body }, o);
+          continue;
+        }
         say(s, { role: 'bot', nodeId: node.id, kind: item.mediaUrl ? 'media' : 'text', text: item.text, mediaUrl: item.mediaUrl }, o);
       }
       return route(s, node, nextOf(), 'A mensagem não tem saída conectada.', o);

@@ -105,6 +105,31 @@ describe('condicional', () => {
   });
 });
 
+describe('mensagem', () => {
+  it('recusa um texto que ficou vazio na interpolação, como o runtime', () => {
+    const definition = flow('m', [node('m', 'message', { items: [{ type: 'text', text: '{{nome}}' }] }), node('next', 'message', { text: 'não deveria chegar' })], [edge('e', 'm', 'next')]);
+    const failed = start(definition);
+    expect(failed.error).toMatchObject({ code: 'EMPTY_MESSAGE', nodeId: 'm' });
+    expect(failed.messages).toHaveLength(0);
+    expect(failed.completed).toBe(false);
+    const filled = start(definition, { nome: 'Ana' });
+    expect(filled.error).toBeUndefined();
+    expect(texts(filled)).toContain('Ana');
+  });
+
+  it('recusa um texto acima de 4096 caracteres depois da interpolação', () => {
+    const definition = flow('m', [node('m', 'message', { items: [{ type: 'text', text: '{{texto}}' }] })], []);
+    expect(start(definition, { texto: 'a'.repeat(4097) }).error).toMatchObject({ code: 'MESSAGE_TOO_LONG', nodeId: 'm' });
+  });
+
+  it('mantém a ordem dos itens e não espera nas pausas', () => {
+    const definition = flow('m', [node('m', 'message', { items: [{ type: 'text', text: 'um' }, { type: 'pause', minSeconds: 3, maxSeconds: 5 }, { type: 'text', text: 'dois' }] })], []);
+    const done = start(definition);
+    expect(texts(done).slice(0, 2)).toEqual(['um', 'dois']);
+    expect(done.waiting).toBeNull();
+  });
+});
+
 describe('delay', () => {
   const definition = flow('d', [
     node('d', 'delay', { mode: 'duration', duration: 2, unit: 'hours' }),
@@ -288,16 +313,16 @@ describe('limites', () => {
 });
 
 describe('isolamento: nada é escrito em lugar nenhum', () => {
-  const originals = { fetch: globalThis.fetch, now: Date.now };
+  const originals = { fetch: globalThis.fetch };
   afterEach(() => {
     globalThis.fetch = originals.fetch;
-    Date.now = originals.now;
     delete (globalThis as Record<string, unknown>).prisma;
     delete (globalThis as Record<string, unknown>).redis;
   });
 
-  // Every member access or call on these throws, so any attempt to write (or to read the wall clock,
-  // or to reach the network) fails the walk instead of passing silently.
+  // Every member access or call on these throws, so a write or a network call added to the engine fails the
+  // walk instead of passing silently. They cannot catch a wall-clock read (the engine never names a global
+  // clock), so what guards purity for time is the static scan in the second test, not these traps.
   const trap = (name: string, attempts: string[]) => new Proxy(function () {} as unknown as Record<string, unknown>, {
     get: (_target, property) => { attempts.push(`${name}.${String(property)}`); throw new Error(`escrita proibida: ${name}.${String(property)}`); },
     apply: () => { attempts.push(`${name}()`); throw new Error(`escrita proibida: ${name}()`); },
@@ -345,7 +370,6 @@ describe('isolamento: nada é escrito em lugar nenhum', () => {
     globalThis.fetch = trap('fetch', attempts) as unknown as typeof fetch;
     (globalThis as Record<string, unknown>).prisma = trap('prisma', attempts);
     (globalThis as Record<string, unknown>).redis = trap('redis', attempts);
-    Date.now = trap('Date.now', attempts) as unknown as typeof Date.now;
 
     const variables = Object.freeze({ contact: Object.freeze({ name: 'Ana', customFields: Object.freeze({ pontos: 1 }) }) });
     const definition = Object.freeze({ ...funnel, nodes: Object.freeze(funnel.nodes.map(item => Object.freeze(item))), edges: Object.freeze(funnel.edges.map(item => Object.freeze(item))) }) as SimulationDefinition;
@@ -378,9 +402,10 @@ describe('isolamento: nada é escrito em lugar nenhum', () => {
   });
 
   it('o código do motor não fala com banco, fila, rede nem com o relógio global', () => {
-    const sources = ['simulation.ts', 'routing.ts', 'conditions.ts'].map(file => readFileSync(new URL(file, import.meta.url), 'utf8'));
+    // Every module the engine imports, not just its own file.
+    const sources = ['simulation.ts', 'routing.ts', 'conditions.ts', 'delay.ts', 'manipulator.ts'].map(file => readFileSync(new URL(file, import.meta.url), 'utf8'));
     for (const source of sources) {
-      for (const forbidden of [/prisma/i, /redis/i, /bullmq/i, /\bfetch\s*\(/, /XMLHttpRequest/, /process\.env/, /Date\.now/, /node:(fs|net|http)/, /@nexo\/contracts/, /@prisma/]) {
+      for (const forbidden of [/prisma/i, /redis/i, /bullmq/i, /\bfetch\s*\(/, /XMLHttpRequest/, /process\.env/, /Date\.now/, /node:(fs|net|http|dns)/, /@nexo\/contracts/, /@prisma/]) {
         expect(source).not.toMatch(forbidden);
       }
     }
