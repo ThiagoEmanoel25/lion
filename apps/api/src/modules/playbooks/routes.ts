@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import {
   AutomationDefinitionSchema,
+  ArchivePlaybookInput,
   CreatePlaybookInput,
   ListExecutionsQuery,
   MovePlaybookFolderInput,
@@ -59,11 +60,11 @@ async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unkn
   if(!validation.definition)return validation;
   const flowJumpTargets=[...new Set(validation.definition.nodes.flatMap(node=>node.kind==='flow_jump'&&typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId.trim()?[node.config.targetPlaybookId]:[]))];
   const existingTargets=flowJumpTargets.length
-    ? await (prisma as {playbook:{findMany(args:unknown):Promise<Array<{id:string}>>}}).playbook.findMany({where:{workspaceId,id:{in:flowJumpTargets}},select:{id:true}})
+    ? await (prisma as {playbook:{findMany(args:unknown):Promise<Array<{id:string}>>}}).playbook.findMany({where:{workspaceId,id:{in:flowJumpTargets},status:{not:'ARCHIVED'}},select:{id:true}})
     : [];
   const existingTargetIds=new Set(existingTargets.map(target=>target.id));
   const flowJumpIssues=validation.definition.nodes.flatMap(node=>node.kind==='flow_jump'&&typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId.trim()&&!existingTargetIds.has(node.config.targetPlaybookId)
-    ? [{level:'error' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino não existe neste workspace.',nodeId:node.id}]
+    ? [{level:'error' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino não existe neste workspace ou está arquivado.',nodeId:node.id}]
     : []);
   const issues=[...validation.issues,...flowJumpIssues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
   return {...validation,valid:!issues.some(issue=>issue.level==='error'),issues};
@@ -141,6 +142,71 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     return { id, status: 'PUBLISHED' };
   });
 
+  async function archiveImpact(db: Prisma.TransactionClient, workspaceId: string, id: string) {
+    const [configs, keywords, webhooks, legacyChannels, others, activeExecutions] = await Promise.all([
+      db.channelFlowConfig.findMany({ where: { playbookId: id, channel: { workspaceId } }, select: { id: true, slot: true, channel: { select: { id: true, displayName: true } } } }),
+      db.channelKeyword.findMany({ where: { playbookId: id, channel: { workspaceId } }, select: { id: true, keyword: true, match: true, channel: { select: { id: true, displayName: true } } } }),
+      db.inboundWebhookEndpoint.findMany({ where: { playbookId: id, workspaceId, isActive: true }, select: { id: true, name: true } }),
+      db.channel.findMany({ where: { workspaceId, activePlaybookId: id }, select: { id: true, displayName: true } }),
+      db.playbook.findMany({ where: { workspaceId, id: { not: id }, activeVersionId: { not: null } }, select: { id: true, name: true, activeVersion: { select: { definition: true } } } }),
+      db.execution.count({ where: { workspaceId, playbookVersion: { playbookId: id }, status: { in: ['RUNNING', 'WAITING'] } } })
+    ]);
+    const flowJumps = others.flatMap(other => {
+      const nodes = (other.activeVersion?.definition as { nodes?: Array<{ id?: string; kind?: string; config?: { targetPlaybookId?: unknown } }> } | null)?.nodes ?? [];
+      return nodes.filter(item => item.kind === 'flow_jump' && item.config?.targetPlaybookId === id).map(item => ({ playbookId: other.id, playbookName: other.name, nodeId: item.id ?? '' }));
+    });
+    return {
+      slots: configs.map(item => ({ id: item.id, slot: item.slot, channelId: item.channel.id, channelName: item.channel.displayName })),
+      keywords: keywords.map(item => ({ id: item.id, keyword: item.keyword, match: item.match, channelId: item.channel.id, channelName: item.channel.displayName })),
+      legacyChannels: legacyChannels.map(item => ({ channelId: item.id, channelName: item.displayName })),
+      webhooks,
+      flowJumps,
+      activeExecutions
+    };
+  }
+  const impactCount = (impact: Awaited<ReturnType<typeof archiveImpact>>) => impact.slots.length + impact.keywords.length + impact.legacyChannels.length + impact.webhooks.length + impact.flowJumps.length;
+
+  app.get('/v1/playbooks/:id/archive-impact', { preHandler: [app.requirePermission('playbook.read')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { workspaceId } = request.auth;
+    if (!await app.prisma.playbook.count({ where: { id, workspaceId } })) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+    return archiveImpact(app.prisma as unknown as Prisma.TransactionClient, workspaceId, id);
+  });
+
+  app.post('/v1/playbooks/:id/archive', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { workspaceId, userId } = request.auth;
+    const { confirmDetach } = ArchivePlaybookInput.parse(request.body ?? {});
+    return app.prisma.$transaction(async tx => {
+      const playbook = await tx.playbook.findFirst({ where: { id, workspaceId }, select: { id: true, status: true } });
+      if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+      if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ALREADY_ARCHIVED', 'O fluxo já está arquivado.', 409);
+      const impact = await archiveImpact(tx, workspaceId, id);
+      if (impact.activeExecutions) throw new DomainError('PLAYBOOK_HAS_ACTIVE_EXECUTIONS', 'Existem execuções em andamento. Aguarde ou cancele antes de arquivar.', 409, impact);
+      if (impactCount(impact) && !confirmDetach) throw new DomainError('ARCHIVE_NEEDS_CONFIRMATION', 'Este fluxo está em uso. Confirme para desvincular.', 409, impact);
+      await tx.channelFlowConfig.deleteMany({ where: { playbookId: id, channel: { workspaceId } } });
+      await tx.channelKeyword.deleteMany({ where: { playbookId: id, channel: { workspaceId } } });
+      await tx.channel.updateMany({ where: { workspaceId, activePlaybookId: id }, data: { activePlaybookId: null } });
+      // Webhooks keep the FK (Restrict); they are deactivated rather than deleted.
+      await tx.inboundWebhookEndpoint.updateMany({ where: { playbookId: id, workspaceId }, data: { isActive: false } });
+      await tx.playbook.update({ where: { id }, data: { status: 'ARCHIVED', archivedAt: new Date(), activeVersionId: null } });
+      await audit(tx, { workspaceId, actorId: userId, action: 'playbook.archived', targetType: 'Playbook', targetId: id, changes: { from: playbook.status, detached: { slots: impact.slots.length, keywords: impact.keywords.length, webhooks: impact.webhooks.length, flowJumpsLeftInvalid: impact.flowJumps.length } } });
+      return { id, status: 'ARCHIVED' as const };
+    }, { isolationLevel: 'Serializable' });
+  });
+
+  app.post('/v1/playbooks/:id/unarchive', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
+    const { id } = request.params as { id: string };
+    const { workspaceId, userId } = request.auth;
+    const restored = await app.prisma.playbook.updateMany({ where: { id, workspaceId, status: 'ARCHIVED' }, data: { status: 'DRAFT', archivedAt: null } });
+    if (!restored.count) {
+      if (!await app.prisma.playbook.count({ where: { id, workspaceId } })) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+      throw new DomainError('PLAYBOOK_NOT_ARCHIVED', 'Somente fluxos arquivados podem ser desarquivados.', 409);
+    }
+    await audit(app.prisma, { workspaceId, actorId: userId, action: 'playbook.unarchived', targetType: 'Playbook', targetId: id });
+    return { id, status: 'DRAFT' as const };
+  });
+
   app.get('/v1/playbooks/:id', { preHandler: [app.requirePermission('playbook.read')] }, async request => {
     const { id } = request.params as { id: string };
     const playbook = await app.prisma.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { versions: { orderBy: { version: 'desc' } }, activeVersion: true } });
@@ -173,6 +239,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       const version = await app.prisma.$transaction(async tx => {
         const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
         if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+        if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ARCHIVED', 'Fluxo arquivado é somente leitura. Desarquive para editar.', 409);
         const current = playbook.versions[0]?.version ?? 0;
         if (current !== input.expectedVersion) throw new DomainError('VERSION_CONFLICT', 'Existe uma versão mais recente. Recarregue antes de salvar.', 409, { currentVersion: current });
         const nextChecksum = checksum(validation.definition);
@@ -228,6 +295,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     return app.prisma.$transaction(async tx => {
       const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
+      if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ARCHIVED', 'Fluxo arquivado não pode ser publicado. Desarquive primeiro.', 409);
       const latest = playbook.versions[0];
       if (!latest || latest.version !== input.expectedVersion) throw new DomainError('VERSION_CONFLICT', 'Somente a versão mais recente pode ser publicada.', 409, { currentVersion: latest?.version ?? 0 });
       const validation = await validateForWorkspace(tx,request.auth.workspaceId,latest.definition);
@@ -254,6 +322,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { activeVersion: true } });
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
       if (!playbook.activeVersion) throw new DomainError('PLAYBOOK_NOT_PUBLISHED', 'Publique a automação antes de executá-la.', 409);
+      if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ARCHIVED', 'A automação está arquivada.', 409);
       if (playbook.status === 'PAUSED') throw new DomainError('PLAYBOOK_NOT_PUBLISHED', 'A automação está pausada.', 409);
       const conversation = await tx.conversation.findFirst({ where: { id: input.conversationId, workspaceId: request.auth.workspaceId } });
       if (!conversation) throw new DomainError('CONVERSATION_NOT_FOUND', 'Conversa não encontrada.', 404);

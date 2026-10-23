@@ -10,15 +10,16 @@ const flows = [
 
 describe('filterFlows', () => {
   it('filtra pela pasta, com null para Sem pasta', () => {
-    expect(filterFlows(flows, { folderId: null, query: '', status: 'all' }).map(item => item.name)).toEqual(['Qualificação Comercial', 'Rascunho', 'Antigo']);
+    expect(filterFlows(flows, { folderId: null, query: '', status: 'all' }).map(item => item.name)).toEqual(['Qualificação Comercial', 'Rascunho']);
     expect(filterFlows(flows, { folderId: 'f1', query: '', status: 'all' }).map(item => item.name)).toEqual(['Reativação']);
   });
   it('busca sem diferenciar acentos e maiúsculas', () => {
     expect(filterFlows(flows, { folderId: null, query: 'QUALIFICACAO', status: 'all' }).map(item => item.name)).toEqual(['Qualificação Comercial']);
   });
-  it('separa ativos e pausados; Todos inclui rascunhos e arquivados', () => {
+  it('separa ativos e pausados; Todos inclui rascunhos e exclui arquivados', () => {
     expect(filterFlows(flows, { folderId: null, query: '', status: 'active' }).map(item => item.name)).toEqual(['Qualificação Comercial']);
     expect(filterFlows(flows, { folderId: 'f1', query: '', status: 'paused' }).map(item => item.name)).toEqual(['Reativação']);
+    expect(filterFlows(flows, { folderId: null, query: '', status: 'archived' }).map(item => item.name)).toEqual(['Antigo']);
   });
 });
 

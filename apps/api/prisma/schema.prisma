@@ -527,6 +527,7 @@ model Playbook {
   status                  PlaybookStatus              @default(DRAFT)
   importSource            Json?
   folderId                String?
+  archivedAt              DateTime?
   activeVersionId         String?                     @unique
   createdAt               DateTime                    @default(now())
   updatedAt               DateTime                    @updatedAt

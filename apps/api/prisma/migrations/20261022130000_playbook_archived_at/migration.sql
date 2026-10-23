@@ -1,0 +1,1 @@
+ALTER TABLE "Playbook" ADD COLUMN "archivedAt" TIMESTAMP(3);

@@ -72,6 +72,7 @@ export const ImportReportSchema=z.object({
 export const ImportNexoShareInput=z.object({code:z.string().trim().length(10).transform(value=>value.toUpperCase())});
 export const PlaybookFolderInput = z.object({name:z.string().trim().min(1).max(60)});
 export const MovePlaybookFolderInput = z.object({folderId:z.string().min(1).max(64).nullable()});
+export const ArchivePlaybookInput = z.object({confirmDetach:z.boolean().default(false)});
 export const PublishPlaybookInput = z.object({expectedVersion:z.number().int().positive(),testCaseIds:z.array(z.string()).default([])});
 export const AutomationNodeKindSchema=z.enum(['trigger','message','image','audio','sticker','buttons','condition','delay','agent','webhook','assign','tag','handoff','outcome','ai','wait_response','kanban','pixel','flow_jump','distributor','notification','manipulator']);
 export const AutomationTriggerEventSchema=z.enum(['message.received','tag.added','conversation.created']);
