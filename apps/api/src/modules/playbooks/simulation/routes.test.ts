@@ -126,12 +126,13 @@ describe('limites e confirmação',()=>{
     const res=await call('POST','','u1',{definition:chat,liveActions:true});
     expect(res.statusCode).toBe(422);expect(res.json().code).toBe('LIVE_ACTIONS_CONFIRMATION_REQUIRED');
   });
-  it('limita sessões abertas por usuário, libera ao apagar e ao expirar',async()=>{
+  it('limita sessões abertas por usuário (descarta a mais antiga), libera ao apagar e ao expirar',async()=>{
     const {call,start,redis}=await build();
     const ids:string[]=[];for(let i=0;i<5;i++)ids.push((await start()).simulationId);
-    const over=await call('POST','','u1',{definition:chat});expect(over.statusCode).toBe(429);expect(over.json().code).toBe('SIMULATION_LIMIT');
+    const over=await call('POST','','u1',{definition:chat});expect(over.statusCode).toBe(201);// evicts the oldest instead of 429
+    expect((await call('POST',`/${ids[0]}/messages`,'u1',{text:'x'})).json().code).toBe('SIMULATION_EXPIRED');expect((await call('POST',`/${ids[1]}/advance`,'u1')).statusCode).not.toBe(404);
     expect((await call('POST','','u2',{definition:chat})).statusCode).toBe(201);// outro usuário não é afetado
-    await call('DELETE',`/${ids[0]}`,'u1');expect((await call('POST','','u1',{definition:chat})).statusCode).toBe(201);
+    await call('DELETE',`/${ids[1]}`,'u1');expect((await call('POST','','u1',{definition:chat})).statusCode).toBe(201);
     redis.advance(31*60_000);expect((await call('POST','','u1',{definition:chat})).statusCode).toBe(201);
   });
   it('guarda a definição uma vez e a restaura ao carregar',async()=>{

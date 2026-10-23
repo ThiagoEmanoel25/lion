@@ -23,7 +23,8 @@ export function createSessionStore(redis:SessionRedis){
       // ponytail: read-modify-write index, a burst of parallel creates can overshoot the cap by a few; use a Lua script if that matters.
       const ids:string[]=JSON.parse(await redis.get(indexKey(session.userId))??'[]');
       const alive=(await Promise.all(ids.map(async i=>(await redis.get(key(i)))?i:null))).filter((i):i is string=>i!==null);
-      if(alive.length>=MAX_SESSIONS_PER_USER)throw new DomainError('SIMULATION_LIMIT','Você já tem '+MAX_SESSIONS_PER_USER+' simulações abertas. Feche ou reinicie uma existente antes de iniciar outra.',429);
+      // Over the cap, evict the oldest instead of refusing: sessions leaked by a reload or crash would otherwise lock the user out for 30 minutes.
+      while(alive.length>=MAX_SESSIONS_PER_USER)await redis.del(key(alive.shift()!));
       const id=randomUUID();
       await redis.set(key(id),pack(session),'EX',SESSION_TTL_SECONDS);
       await redis.set(indexKey(session.userId),JSON.stringify([...alive,id]),'EX',SESSION_TTL_SECONDS);
