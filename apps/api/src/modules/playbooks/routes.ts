@@ -22,6 +22,7 @@ import { kanbanReferenceIssues } from '../kanban/validation.js';
 import { pixelReferenceIssues } from '../pixels/validation.js';
 import {IntegrationUrlBlockedError,integrationTestRateLimit,testIntegrationRequest} from './integration-test.js';
 import { definitionChecksum } from './checksum.js';
+import { registerSimulationRoutes } from './simulation/routes.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
 const templates: Record<'qualification' | 'reactivation' | 'support', AutomationDefinition> = {
@@ -71,6 +72,7 @@ async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unkn
 }
 
 export const playbookRoutes: FastifyPluginAsync = async app => {
+  registerSimulationRoutes(app, validateForWorkspace);
   app.get('/v1/playbooks', { preHandler: [app.requirePermission('playbook.read')] }, async request => {
     // ponytail: loads the latest definition to count nodes; switch to a jsonb_array_length raw query if lists get large.
     const items = await app.prisma.playbook.findMany({ where: { workspaceId: request.auth.workspaceId }, include: { activeVersion: { select: { id: true, version: true, publishedAt: true } }, _count: { select: { versions: true } }, versions: { orderBy: { version: 'desc' }, take: 1, select: { definition: true } } }, orderBy: { updatedAt: 'desc' } });
