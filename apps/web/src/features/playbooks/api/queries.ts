@@ -28,3 +28,10 @@ export const fetchArchiveImpact=(id:string)=>api<ArchiveImpact>(`/v1/playbooks/$
 export function useArchivePlaybook(){const client=useQueryClient();return useMutation({mutationFn:({id,confirmDetach}:{id:string;confirmDetach:boolean})=>api(`/v1/playbooks/${id}/archive`,{method:'POST',body:JSON.stringify({confirmDetach})}),onSuccess:()=>client.invalidateQueries()})}
 export function useUnarchivePlaybook(){const client=useQueryClient();return useMutation({mutationFn:(id:string)=>api(`/v1/playbooks/${id}/unarchive`,{method:'POST'}),onSuccess:()=>client.invalidateQueries()})}
 export function useTogglePause(){const client=useQueryClient();return useMutation({mutationFn:({id,pause}:{id:string;pause:boolean})=>api(`/v1/playbooks/${id}/${pause?'pause':'resume'}`,{method:'POST'}),onSuccess:()=>client.invalidateQueries({queryKey:['playbooks']})})}
+const simBase=(id:string)=>`/v1/playbooks/${id}/simulation-sessions`;
+export type SimulationSessionView=import('../simulator').SimView&{simulationId:string};
+export const createSimulation=(id:string,body:{definition:AutomationDefinition;variables:Record<string,unknown>;liveActions:boolean;confirmLiveActions:boolean})=>api<SimulationSessionView>(simBase(id),{method:'POST',body:JSON.stringify(body)});
+export const sendSimulation=(id:string,simulationId:string,body:{text:string}|{optionId:string}|{port:{nodeId:string;port:import('../simulator').SimPort}})=>api<import('../simulator').SimView>(`${simBase(id)}/${simulationId}/messages`,{method:'POST',body:JSON.stringify(body)});
+export const advanceSimulation=(id:string,simulationId:string)=>api<import('../simulator').SimView>(`${simBase(id)}/${simulationId}/advance`,{method:'POST'});
+export const restartSimulation=(id:string,simulationId:string)=>api<import('../simulator').SimView>(`${simBase(id)}/${simulationId}/restart`,{method:'POST'});
+export const closeSimulation=(id:string,simulationId:string)=>api<void>(`${simBase(id)}/${simulationId}`,{method:'DELETE'});
