@@ -22,12 +22,12 @@ function fakeRedis(){
   };
 }
 
-async function build(granted=['playbook.write']){
+async function build(granted=['playbook.write'],opts:{timezone?:string;targets?:any[]}={}){
   const redis=fakeRedis();const audits:any[]=[];
   const prisma:any={
-    playbook:{count:async({where}:any)=>where.id==='pb'&&where.workspaceId==='ws'?1:0,findMany:async()=>[]},
+    playbook:{count:async({where}:any)=>where.id==='pb'&&where.workspaceId==='ws'?1:0,findMany:async({where}:any)=>(opts.targets??[]).filter(t=>where.id.in.includes(t.id)&&(!where.status||t.status!=='ARCHIVED'))},
     metaPixel:{findMany:async()=>[{id:PIXEL}]},
-    workspace:{findUnique:async()=>({openaiApiKeyEncrypted:null})},
+    workspace:{findUnique:async()=>({openaiApiKeyEncrypted:null,timezone:opts.timezone??'America/Bahia'})},
     auditLog:{create:async({data}:any)=>{audits.push(data)}}
   };
   const app=Fastify();app.decorate('prisma',prisma);app.decorate('redis',redis as any);
@@ -37,7 +37,30 @@ async function build(granted=['playbook.write']){
   const start=async(definition:unknown=chat,extra:Record<string,unknown>={})=>(await call('POST','','u1',{definition,variables:{nome:'Ana'},...extra})).json();
   return {app,redis,audits,call,start};
 }
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers()});
+
+describe('fuso do workspace e saltos para fluxos arquivados',()=>{
+  const days=[0,1,2,3,4,5,6].map(day=>({day,enabled:day>=1&&day<=5,start:'09:00',end:'18:00'}));
+  const delayFlow={start:'t',nodes:[node('t','trigger',{event:'message.received'}),node('d','delay',{mode:'schedule',days}),node('o','outcome',{type:'QUALIFIED'})],edges:[edge('e1','t','d'),edge('e2','d','o')]};
+  const resume=async(timezone:string)=>{
+    vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-24T15:00:00Z'));// sábado
+    const {start}=await build(['playbook.write'],{timezone});return (await start(delayFlow)).waiting.resumeAt;
+  };
+  it('usa o fuso do workspace, não o padrão, para prever a espera',async()=>{
+    expect(await resume('America/Manaus')).toBe('2026-10-26T13:00:00.000Z');// 09:00 -04
+    expect(await resume('America/Bahia')).toBe('2026-10-26T12:00:00.000Z');// 09:00 -03
+  });
+  const jump=(target:string)=>({start:'t',nodes:[node('t','trigger',{event:'message.received'}),node('j','flow_jump',{targetPlaybookId:target})],edges:[edge('e1','t','j')]});
+  const CLX='clx000000000000000000001';
+  it('salto para fluxo inexistente continua sendo erro; para arquivado vira aviso e salva',async()=>{
+    const {call}=await build(['playbook.write'],{targets:[{id:CLX,status:'ARCHIVED'}]});
+    const body=(def:unknown)=>({definition:def,variables:{}});
+    const missing=await call('POST','','u1',body(jump('clx000000000000000000002')));
+    expect(missing.statusCode).toBe(422);
+    expect(JSON.stringify(missing.json())).toContain('FLOW_JUMP_TARGET_NOT_FOUND');
+    expect((await call('POST','','u1',body(jump(CLX)))).statusCode).not.toBe(422);
+  });
+});
 
 describe('sessões do simulador',()=>{
   it('inicia, espera resposta e conclui',async()=>{

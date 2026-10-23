@@ -229,7 +229,7 @@ export class AutomationEngineService implements OnModuleDestroy {
               ...(typeof node.config.footer === 'string' && node.config.footer.trim() ? { footer: renderTemplate(node.config.footer, context) } : {}),
               ...(typeof node.config.buttonText === 'string' && node.config.buttonText.trim() ? { buttonText: renderTemplate(node.config.buttonText, context) } : {})
             }
-          : node.kind === 'sticker' ? { kind: 'sticker' }
+          : node.kind === 'sticker' ? { kind: 'sticker', verifyWebp: true }
           : node.kind === 'audio' ? { kind: 'audio', ptt: node.config.ptt === true }
           : { kind: 'image' };
         const outboundPayload={...providerPayload,...(quote.quotedMessageId?{quotedMessageId:quote.quotedMessageId}:{})};

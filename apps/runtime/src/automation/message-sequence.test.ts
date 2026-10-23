@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { itemMessage, pauseSeconds, safeMediaUrl, sequenceItems, sequenceJobOptions, sequenceOf } from './message-sequence.js';
 
@@ -103,5 +104,12 @@ describe('contact and sticker items', () => {
   it('normalizes saved typingSeconds 1 and 2 up to 3, keeps 0', () => {
     const typing = (n: number) => itemMessage({ type: 'text', text: 'a', typingSeconds: n }, {}).providerPayload.typingSeconds;
     expect([typing(0), typing(1), typing(2), typing(3), typing(60)]).toEqual([undefined, 3, 3, 3, 60]);
+  });
+});
+
+describe('standalone sticker node', () => {
+  it('asks for WebP verification like sequence stickers', () => {
+    const source = readFileSync(new URL('./automation-engine.service.ts', import.meta.url), 'utf8');
+    expect(source).toContain("{ kind: 'sticker', verifyWebp: true }");
   });
 });

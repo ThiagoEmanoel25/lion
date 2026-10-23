@@ -37,7 +37,8 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
       pending=[];
       for(const row of rows){if(!row.activeVersion||known.has(row.id))continue;known.set(row.id,{definition:row.activeVersion.definition,name:row.name});pending.push(...targetsOf(row.activeVersion.definition).filter(id=>!known.has(id)))}
     }
-    return {loadFlow:id=>known.get(id)??null};
+    const workspace=await app.prisma.workspace.findUnique({where:{id:workspaceId},select:{timezone:true}});
+    return {loadFlow:id=>known.get(id)??null,...(workspace?.timezone?{timezone:workspace.timezone}:{})};
   }
   const targetsOf=(definition:SimulationDefinition)=>[...new Set(definition.nodes.flatMap(n=>n.kind==='flow_jump'&&typeof n.config?.targetPlaybookId==='string'?[n.config.targetPlaybookId]:[]))];
 

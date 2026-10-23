@@ -61,12 +61,17 @@ async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unkn
   if(!validation.definition)return validation;
   const flowJumpTargets=[...new Set(validation.definition.nodes.flatMap(node=>node.kind==='flow_jump'&&typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId.trim()?[node.config.targetPlaybookId]:[]))];
   const existingTargets=flowJumpTargets.length
-    ? await (prisma as {playbook:{findMany(args:unknown):Promise<Array<{id:string}>>}}).playbook.findMany({where:{workspaceId,id:{in:flowJumpTargets},status:{not:'ARCHIVED'}},select:{id:true}})
+    ? await (prisma as {playbook:{findMany(args:unknown):Promise<Array<{id:string;status:string}>>}}).playbook.findMany({where:{workspaceId,id:{in:flowJumpTargets}},select:{id:true,status:true}})
     : [];
-  const existingTargetIds=new Set(existingTargets.map(target=>target.id));
-  const flowJumpIssues=validation.definition.nodes.flatMap(node=>node.kind==='flow_jump'&&typeof node.config.targetPlaybookId==='string'&&node.config.targetPlaybookId.trim()&&!existingTargetIds.has(node.config.targetPlaybookId)
-    ? [{level:'error' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino não existe neste workspace ou está arquivado.',nodeId:node.id}]
-    : []);
+  const targetStatus=new Map(existingTargets.map(target=>[target.id,target.status]));
+  const flowJumpIssues=validation.definition.nodes.flatMap((node):Array<{level:'error'|'warning';code:string;message:string;nodeId:string}>=>{
+    if(node.kind!=='flow_jump'||typeof node.config.targetPlaybookId!=='string'||!node.config.targetPlaybookId.trim())return [];
+    const status=targetStatus.get(node.config.targetPlaybookId);
+    if(status===undefined)return [{level:'error' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino não existe neste workspace.',nodeId:node.id}];
+    // Archived targets only warn: an error here would make every flow that jumps to it unsavable.
+    if(status==='ARCHIVED')return [{level:'warning' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino está arquivado; o salto não será executado.',nodeId:node.id}];
+    return [];
+  });
   const issues=[...validation.issues,...flowJumpIssues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
   return {...validation,valid:!issues.some(issue=>issue.level==='error'),issues};
 }
