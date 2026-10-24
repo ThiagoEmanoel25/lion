@@ -76,7 +76,7 @@ const MESSAGE_MIN_TYPING_SECONDS=3;
 const normalizeTyping=(seconds:number)=>seconds>0?Math.max(MESSAGE_MIN_TYPING_SECONDS,seconds):0;
 const MEDIA_MAX_TYPING_SECONDS=60;
 const MESSAGE_MAX_PAUSE_SECONDS=300;
-type MessageItem={type:'text';text:string;typingSeconds:number}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean;typingSeconds:number;forwarded:boolean}|{type:'pause';minSeconds:number;maxSeconds:number}|{type:'contact';name:string;phone:string}|{type:'sticker';url:string};
+type MessageItem={type:'text';text:string;typingSeconds:number;deleteOnTagId?:string}|{type:'file';url:string;fileName:string;caption?:string}|{type:'media';mediaType:'image'|'video'|'audio';url:string;caption?:string;ptt?:boolean;typingSeconds:number;forwarded:boolean}|{type:'pause';minSeconds:number;maxSeconds:number}|{type:'contact';name:string;phone:string}|{type:'sticker';url:string};
 const MEDIA_LABELS={image:'Imagem',video:'Vídeo',audio:'Áudio'} as const;
 function messageItemsOf(config:Record<string,unknown>):MessageItem[]{
   if(Array.isArray(config.items))return (config.items as MessageItem[]).map(item=>item&&typeof item==='object'&&'typingSeconds' in item&&typeof item.typingSeconds==='number'?{...item,typingSeconds:normalizeTyping(item.typingSeconds)}:item);
@@ -280,7 +280,7 @@ export function PlaybookEditorPage(){
       {inspectorOpen&&<aside role={selectedNode?'dialog':undefined} aria-modal={selectedNode?true:undefined} aria-label={selectedNode?`Editar ${selectedNode.data.name}`:undefined} className={`flow-inspector floating-panel ${selectedNode?'node-edit-modal':''} ${selectedNode?.data.kind==='ai'?'ai-edit-modal':''} ${selectedNode?.data.kind==='webhook'?'integration-edit-modal':''}`}><button className="panel-close" aria-label="Fechar configurações" onClick={()=>setInspectorOpen(false)}>×</button>
         {selectedNode
           ? selectedNode.data.kind==='message'
-            ? <MessageEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
+            ? <MessageEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='ai'
             ? <AiEditor key={selectedNode.id} node={selectedNode} aiKeyConfigured={aiKey.data?.configured} onSave={saveAi} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='pixel'
@@ -698,7 +698,7 @@ function MediaUploadField({label,value,accept,webpOnly,onChange,onFileName}:{lab
     {error&&<small className="field-error">{error}</small>}
   </div>
 }
-function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
+function MessageEditor({node,tags,onSave,onCancel}:{node:FlowNode;tags:ContactMeta['tags'];onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const keyRef=useRef(0);const nextKey=()=>(keyRef.current+=1);
   const [name,setName]=useState(node.data.name);
   const [rows,setRows]=useState(()=>messageItemsOf(node.data.config).map(item=>({key:nextKey(),item})));
@@ -722,7 +722,8 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
   function save(){
     setSubmitted(true);if(hasErrors)return;
     const items=rows.map(({item})=>{
-      if(item.type==='text')return {...item,text:item.text.trim()};
+      // Uma etiqueta apagada no workspace não pode continuar presa ao item: a mensagem nunca seria apagada.
+      if(item.type==='text'){const keeps=item.deleteOnTagId&&tags.some(tag=>tag.id===item.deleteOnTagId);return {...item,text:item.text.trim(),...(keeps?{}:{deleteOnTagId:undefined})}}
       if(item.type==='pause')return item;
       if(item.type==='contact')return {type:'contact',name:item.name.trim(),phone:item.phone.trim()};
       if(item.type==='sticker')return {type:'sticker',url:item.url.trim()};
@@ -745,7 +746,9 @@ function MessageEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(name:string
       <div className="message-item-head"><b>{index+1}. {item.type==='text'?'Texto':item.type==='file'?'Arquivo':item.type==='media'?'Mídia':item.type==='contact'?'Contato':item.type==='sticker'?'Sticker':'Pausa'}</b>
         <span><button type="button" aria-label={`Mover conteúdo ${index+1} para cima`} title="Subir" disabled={index===0} onClick={()=>move(index,-1)}><ChevronUp size={16}/></button><button type="button" aria-label={`Mover conteúdo ${index+1} para baixo`} title="Descer" disabled={index===rows.length-1} onClick={()=>move(index,1)}><ChevronDown size={16}/></button><button type="button" aria-label={`Remover conteúdo ${index+1}`} title="Remover" onClick={()=>setRows(current=>current.filter((_,i)=>i!==index))}><X size={16}/></button></span></div>
       {item.type==='text'&&<><WhatsAppField value={item.text} onChange={text=>patch(index,{text})} maxLength={4096} placeholder="Use {{variavel}} para personalizar." invalid={Boolean(submitted&&itemError(item))}/>
-        <label>Digitando: {item.typingSeconds>0?`${item.typingSeconds} s`:'Desligado'}<input type="range" min="0" max={MESSAGE_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>{const value=Number(event.target.value);patch(index,{typingSeconds:value>0&&value<MESSAGE_MIN_TYPING_SECONDS?(value>item.typingSeconds?MESSAGE_MIN_TYPING_SECONDS:0):value})}}/></label></>}
+        <label>Digitando: {item.typingSeconds>0?`${item.typingSeconds} s`:'Desligado'}<input type="range" min="0" max={MESSAGE_MAX_TYPING_SECONDS} step="1" value={item.typingSeconds} onChange={event=>{const value=Number(event.target.value);patch(index,{typingSeconds:value>0&&value<MESSAGE_MIN_TYPING_SECONDS?(value>item.typingSeconds?MESSAGE_MIN_TYPING_SECONDS:0):value})}}/></label>
+        {tags.length?<><ToggleCard title="Apagar ao aplicar etiqueta" description="Quando a etiqueta escolhida for aplicada ao contato, esta mensagem é apagada para todos. Remover a etiqueta depois não a traz de volta." checked={Boolean(item.deleteOnTagId)} onChange={checked=>patch(index,{deleteOnTagId:checked?tags[0]!.id:undefined})}/>
+        {item.deleteOnTagId&&<label>Etiqueta que apaga<select value={item.deleteOnTagId} onChange={event=>patch(index,{deleteOnTagId:event.target.value})}>{tags.map(tag=><option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>}</>:<p className="field-help">Cadastre uma etiqueta no workspace para poder apagar esta mensagem ao aplicá-la.</p>}</>}
       {item.type==='contact'&&<><label>Nome<input value={item.name} maxLength={200} onChange={event=>patch(index,{name:event.target.value})} placeholder="Nome ou {{variavel}}"/></label><label>Telefone<input value={item.phone} maxLength={64} onChange={event=>patch(index,{phone:event.target.value})} placeholder="(11) 98765-4321 ou {{telefone}}"/></label></>}
       {item.type==='sticker'&&<MediaUploadField label="Sticker (WebP)" value={item.url} accept="image/webp" webpOnly onChange={url=>patch(index,{url})}/>}
       {item.type==='file'&&<><MediaUploadField label="Arquivo" value={item.url} onChange={url=>patch(index,{url})} onFileName={fileName=>patch(index,{fileName})}/><label>Nome do arquivo<input value={item.fileName} maxLength={255} onChange={event=>patch(index,{fileName:event.target.value})} placeholder="contrato.pdf"/></label><label>Legenda <span className="optional">(opcional)</span><textarea rows={2} value={item.caption??''} maxLength={1024} onChange={event=>patch(index,{caption:event.target.value})}/></label></>}

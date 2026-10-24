@@ -412,6 +412,31 @@ model Conversation {
   @@index([workspaceId, needsReply, status])
 }
 
+// Apagar mensagem ao aplicar etiqueta: a regra nasce quando a mensagem é enviada de fato e guarda
+// o estado da exclusão, para que aplicar a etiqueta duas vezes não tente apagar duas vezes.
+enum MessageDeletionStatus {
+  PENDING
+  REQUESTED
+  DELETED
+  FAILED
+}
+
+model MessageDeletionRule {
+  id          String                @id @default(cuid())
+  workspaceId String
+  messageId   String
+  contactId   String
+  tagId       String
+  status      MessageDeletionStatus @default(PENDING)
+  error       String?
+  deletedAt   DateTime?
+  createdAt   DateTime              @default(now())
+  message     Message               @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, tagId])
+  @@index([contactId, tagId, status])
+}
+
 model MessageMedia {
   id          String   @id @default(cuid())
   workspaceId String
@@ -494,14 +519,14 @@ model ScheduledMessage {
 }
 
 model Message {
-  id              String            @id @default(cuid())
+  id              String                @id @default(cuid())
   workspaceId     String
   conversationId  String
   externalId      String?
   clientRequestId String?
   direction       MessageDirection
-  type            MessageType       @default(TEXT)
-  status          MessageStatus     @default(PENDING)
+  type            MessageType           @default(TEXT)
+  status          MessageStatus         @default(PENDING)
   body            String?
   mediaUrl        String?
   authorType      String
@@ -512,10 +537,11 @@ model Message {
   sentAt          DateTime?
   deliveredAt     DateTime?
   readAt          DateTime?
-  createdAt       DateTime          @default(now())
-  conversation    Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime              @default(now())
+  conversation    Conversation          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   media           MessageMedia?
   scheduledSource ScheduledMessage?
+  deletionRules   MessageDeletionRule[]
 
   @@unique([workspaceId, externalId])
   @@unique([workspaceId, clientRequestId])

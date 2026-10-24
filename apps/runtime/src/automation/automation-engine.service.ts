@@ -8,6 +8,7 @@ import { planDelay } from './delay.js';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
 import { AssignmentError, resolveAssignment } from './department.js';
+import { requestDeletions } from './message-deletion.js';
 import { applyChatController } from './chat-controller.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, getPathValue, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
@@ -310,11 +311,19 @@ export class AutomationEngineService implements OnModuleDestroy {
           const tagIds = [...new Set(uniqueIds)];
           if (mode === 'remove') await tx.contactTag.deleteMany({ where: { contactId: conversation.contactId, tagId: { in: tagIds } } });
           else for (const tagId of tagIds) {
+
             const alreadyTagged = await tx.contactTag.count({ where: { contactId: conversation.contactId, tagId } });
             await tx.contactTag.upsert({ where: { contactId_tagId: { contactId: conversation.contactId, tagId } }, create: { contactId: conversation.contactId, tagId }, update: {} });
             if (!alreadyTagged) await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Contact', aggregateId: conversation.contactId, type: 'automation.trigger.requested', payload: { event: 'tag.added', conversationId, contactId: conversation.contactId, tagId } } });
           }
-          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { mode, tagIds });
+          // Mensagens marcadas para apagar nessa etiqueta: o claim condicional dentro da transação
+          // garante que aplicar a etiqueta duas vezes não peça a exclusão duas vezes.
+          const deletions = mode === 'add' ? await requestDeletions(conversation.contactId, tagIds, {
+            pending: async (contactId, wanted) => tx.messageDeletionRule.findMany({ where: { workspaceId, contactId, tagId: { in: wanted }, status: 'PENDING' }, select: { id: true, messageId: true } }),
+            claim: async ruleId => (await tx.messageDeletionRule.updateMany({ where: { id: ruleId, status: 'PENDING' }, data: { status: 'REQUESTED' } })).count === 1,
+            request: async rule => { await tx.outboxEvent.create({ data: { workspaceId, aggregate: 'Message', aggregateId: rule.messageId, type: 'message.delete.requested', payload: { messageId: rule.messageId, ruleId: rule.id } } }); }
+          }) : [];
+          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { mode, tagIds, ...(deletions.length ? { deletions: deletions.length } : {}) });
         });
         return 'continue';
       }

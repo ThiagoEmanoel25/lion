@@ -86,7 +86,7 @@ export const MESSAGE_MIN_TYPING_SECONDS=3;
 export const normalizeTypingSeconds=(seconds:number)=>seconds>0?Math.max(MESSAGE_MIN_TYPING_SECONDS,seconds):0;
 export const MEDIA_MAX_TYPING_SECONDS=60;
 export const MESSAGE_MAX_PAUSE_SECONDS=300;
-const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0)}).strict();
+const MessageTextItemSchema=z.object({type:z.literal('text'),text:z.string().trim().min(1).max(4096),typingSeconds:z.number().int().min(0).max(MESSAGE_MAX_TYPING_SECONDS).default(0),deleteOnTagId:z.string().cuid().optional()}).strict();
 const MessageFileItemSchema=z.object({type:z.literal('file'),url:PlaybookAssetUrlSchema,fileName:z.string().trim().min(1).max(255),caption:z.string().trim().max(1024).optional()}).strict();
 const MessageMediaItemSchema=z.object({type:z.literal('media'),mediaType:z.enum(['image','video','audio']),url:PlaybookAssetUrlSchema,caption:z.string().trim().max(1024).optional(),ptt:z.boolean().optional(),typingSeconds:z.number().int().min(0).max(MEDIA_MAX_TYPING_SECONDS).default(0),forwarded:z.boolean().default(false)}).strict().superRefine((item,ctx)=>{
   if(item.mediaType==='audio'&&item.caption)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Áudio não tem legenda.',path:['caption']});

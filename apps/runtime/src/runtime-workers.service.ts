@@ -16,6 +16,7 @@ import { MEDIA_RETENTION_MS } from './whatsapp/message-content.js';
 import { acceptsNewEntrants, isOncePerContact, matchesAutomationTrigger, shouldStartForContact } from './automation/trigger.js';
 import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js';
 import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js';
+import { deleteOnTagIdOf } from './automation/message-deletion.js';
 import {selectInboundRoute} from './automation/channel-routing.js';
 
 @Injectable()
@@ -112,6 +113,26 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       const jid=phone.includes('@')?phone:`${phone.replace(/\D/g,'')}@s.whatsapp.net`;
       await socket.sendMessage(jid,{react:{text:emoji,key:{remoteJid:jid,fromMe:false,id:messageExternalId}}});return;
     }
+    if(job.data.deletion){
+      const {ruleId}=job.data.deletion;
+      const rule=await this.prisma.messageDeletionRule.findUnique({where:{id:ruleId},include:{message:{include:{conversation:{include:{contact:true,channel:true}}}}}});
+      if(!rule||rule.status==='DELETED')return;
+      const {message}=rule;const {channel,contact}=message.conversation;
+      const fail=async(reason:string)=>{await this.prisma.messageDeletionRule.update({where:{id:ruleId},data:{status:'FAILED',error:reason.slice(0,500)}})};
+      if(!message.externalId)return fail('A mensagem não tem id no WhatsApp.');
+      if(channel.provider!=='baileys')return fail('O canal não é gerenciado pelo Baileys.');
+      let socket=this.sessions.getSocket(channel.id);if(!socket){await this.sessions.connect(channel.id);socket=this.sessions.getSocket(channel.id)}
+      if(!socket)throw new Error(`WhatsApp session ${channel.id} is unavailable`);
+      const jid=contact.externalRef?.includes('@')?contact.externalRef:`${contact.phone.replace(/\D/g,'')}@s.whatsapp.net`;
+      try{
+        await socket.sendMessage(jid,{delete:{remoteJid:jid,fromMe:true,id:message.externalId}});
+        await this.prisma.messageDeletionRule.update({where:{id:ruleId},data:{status:'DELETED',deletedAt:new Date(),error:null}});
+      }catch(error){
+        // Janela de exclusão expirada é definitiva: marcar FAILED em vez de repetir a tentativa para sempre.
+        await fail(error instanceof Error?error.message:'DELETE_FAILED');
+      }
+      return;
+    }
     if(job.data.notification){
       const {channelId,phone,text}=job.data.notification;const channel=await this.prisma.channel.findUnique({where:{id:channelId}});if(!channel||channel.provider!=='baileys')throw new Error('Notification channel is unavailable');
       let socket=this.sessions.getSocket(channelId);if(!socket){await this.sessions.connect(channelId);socket=this.sessions.getSocket(channelId)}if(!socket)throw new Error(`WhatsApp session ${channelId} is unavailable`);
@@ -173,6 +194,9 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
         data: { externalId: externalId ?? message.externalId, status: 'SENT', sentAt: new Date(), errorCode: null }
       });
       await this.prisma.scheduledMessage.updateMany({where:{sentMessageId:message.id,status:{in:['PROCESSING','FAILED']}},data:{status:'SENT',error:null}});
+      // A regra de "apagar ao aplicar etiqueta" só nasce aqui: sem envio confirmado não há o que apagar.
+      const deleteOnTagId=deleteOnTagIdOf(message.providerPayload);
+      if(deleteOnTagId&&(externalId??message.externalId))await this.prisma.messageDeletionRule.upsert({where:{messageId_tagId:{messageId:message.id,tagId:deleteOnTagId}},create:{workspaceId:message.workspaceId,messageId:message.id,contactId:message.conversation.contactId,tagId:deleteOnTagId},update:{}});
       if (typingSeconds > 0) await socket.sendPresenceUpdate('paused', jid).catch(() => undefined);
     } catch (error) {
       await this.prisma.message.update({
@@ -190,13 +214,14 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','message.delete.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; scheduledMessageId?:string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
+      const payload = event.payload as { messageId?: string; ruleId?: string; scheduledMessageId?:string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
+        : event.type === 'message.delete.requested' ? Boolean(payload.ruleId)
         : event.type === 'scheduled_message.send.requested' ? Boolean(payload.scheduledMessageId)
         : event.type==='notification.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.text)
         : event.type==='reaction.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.messageExternalId&&payload.emoji)
@@ -223,6 +248,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           await this.knowledge.index(payload.sourceId!,payload.content??null);
         } else if(event.type==='notification.send.requested'){
           await outboundQueue.add('notification',{notification:{channelId:payload.channelId!,phone:payload.phone!,text:payload.text!}},{...commonOptions,attempts:3});
+        } else if(event.type==='message.delete.requested'){
+          await outboundQueue.add('deletion',{deletion:{ruleId:payload.ruleId!}},{...commonOptions,attempts:3});
         } else if(event.type==='reaction.send.requested'){
           await outboundQueue.add('reaction',{reaction:{channelId:payload.channelId!,phone:payload.phone!,messageExternalId:payload.messageExternalId!,emoji:payload.emoji!}},{...commonOptions,attempts:3});
         } else if(event.type==='automation.sequence.continue.requested'){

@@ -54,7 +54,8 @@ export function itemMessage(item: SendItem, context: Record<string, unknown>): {
     if (!body) throw new Error('EMPTY_MESSAGE');
     if (body.length > 4096) throw new Error('MESSAGE_TOO_LONG');
     const typing = normalizeTypingSeconds(item.typingSeconds);
-    return { type: 'TEXT', body, mediaUrl: null, providerPayload: typing > 0 ? { typingSeconds: typing } : {} };
+    // deleteOnTagId viaja no payload porque a regra de exclusão só pode nascer depois do envio confirmado.
+    return { type: 'TEXT', body, mediaUrl: null, providerPayload: { ...(typing > 0 ? { typingSeconds: typing } : {}), ...(item.deleteOnTagId ? { deleteOnTagId: item.deleteOnTagId } : {}) } };
   }
   if (item.type === 'contact') {
     const name = renderTemplate(item.name, context).trim();
