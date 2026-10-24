@@ -28,7 +28,12 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 | 3.3 Comprovante estruturado | Implementado em 23/10/2026; nunca rodou contra a OpenAI | O bloco de IA preenche `comprovante.valor`, `nome_pagador`, `data` e `referencia`. **Falta** combinar com a Kovil um endpoint que receba esse objeto no corpo. |
 | Transversal 5 Responsividade | Verificada por leitura do CSS, não em navegador | Telas da fase 1 já tinham os cortes em 900 e 600 px. Os seis cards do dashboard passaram para três colunas e os filtros empilham abaixo de 760 px. |
 | Transversal 6 Estados vazios | Dispensado | As listas já mostram o botão de criar ao lado do texto de vazio; um segundo botão para a mesma ação não agrega. |
-| Fase 4 | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
+| 4.1 Disparos em massa | Implementado em 24/10/2026; migration não aplicada | Opt-in obrigatório, lista de saída por palavra recebida, cota diária e intervalo aleatório. Tela em Operações → Disparos em massa. |
+| 4.2 Facebook Ads · 4.6 Carrossel e Template · 4.7 Ligar | **Bloqueado fora do código** | 4.2 exige app Meta com `ads_read` aprovado pela Meta; 4.6 depende da Cloud API; 4.7 depende de suporte do Baileys a chamada, com risco de bloqueio. |
+| 4.3 Importar contatos do WhatsApp | Não iniciado | Construtível com o Baileys, sem dependência externa. É o próximo da fase 4. |
+| 4.4 Agentes: vozes e "Criar com IA" | Parcialmente bloqueado | "Criar com IA" é construtível; vozes exigem conta ElevenLabs ou similar. |
+| 4.5 Catálogo de integrações | Reduzido pelo MVP | Gateways de pagamento saem com a decisão de 23/10. Notasy e UTMify exigem conta; Gemini e OpenRouter são construtíveis. |
+| 4.8 Tradução, MCP, acesso de suporte | Não iniciado | Baixa prioridade para a migração. |
 
 ---
 
@@ -223,7 +228,7 @@ conversas por conexão. As abas Vendas/Atendimento e tudo que depende de valor f
 
 | Item | Notas |
 |---|---|
-| 4.1 Disparos em massa | Exige cota por canal, intervalo aleatório entre envios, opt-in e lista de bloqueio. Há risco de banimento do número no WhatsApp não oficial |
+| 4.1 Disparos em massa | **Entregue em 24/10/2026.** `Broadcast` + `BroadcastRecipient`, com `planBroadcastSchedule` em `@nexo/domain`: intervalo sorteado entre mínimo e máximo (piso de 20 s), cota por janela de 24 h e teto de 5 000 destinatários. Só alcança contato com `consentAt`; `Contact.optedOutAt` é gravado quando o contato responde SAIR, PARAR ou equivalente, e a checagem é refeita na hora do envio. A prévia mostra o alcance e quantos ficam de fora antes de criar |
 | 4.2 Facebook Ads (campanhas, gasto, ROAS) | Exige app Meta com permissão `ads_read`, que passa por revisão da Meta |
 | 4.3 Importar contatos do WhatsApp | A partir da agenda e dos chats do Baileys |
 | 4.4 Agentes: vozes, modelos e "Criar com IA" | Vozes dependem de ElevenLabs ou similar |
