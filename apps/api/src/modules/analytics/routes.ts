@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { buildDailySeries, percentageChange, ratio, startOfUtcDay } from './metrics.js';
+import { buildDailySeries, buildHourSeries, percentageChange, ratio, startOfUtcDay } from './metrics.js';
 
-const Query = z.object({ days: z.coerce.number().int().refine(value => [7, 30, 90].includes(value)).default(7) });
+const Query = z.object({ days: z.coerce.number().int().refine(value => [7, 30, 90].includes(value)).default(7), channelId: z.string().trim().min(1).optional() });
 
 const attentionReason = (conversation: { mode: string; status: string; unreadCount: number; assigneeId: string | null }) => {
   if (conversation.mode === 'HUMAN' && !conversation.assigneeId) return 'Aguardando responsável';
@@ -13,28 +13,31 @@ const attentionReason = (conversation: { mode: string; status: string; unreadCou
 
 export const analyticsRoutes: FastifyPluginAsync = async app => {
   app.get('/v1/analytics/overview', { preHandler: [app.requirePermission('analytics.read')] }, async request => {
-    const { days } = Query.parse(request.query);
+    const { days, channelId } = Query.parse(request.query);
     const workspaceId = request.auth.workspaceId;
+    // O filtro de conexão atravessa tudo: um número desligado não deve puxar a média geral para baixo.
+    const onChannel = channelId ? { channelId } : {};
+    const onChannelConversation = channelId ? { conversation: { channelId } } : {};
     const to = new Date();
     const from = startOfUtcDay(to);
     from.setUTCDate(from.getUTCDate() - days + 1);
     const previousFrom = new Date(from);
     previousFrom.setUTCDate(previousFrom.getUTCDate() - days);
 
-    const [conversations, previousConversations, outcomes, previousOutcomes, usage, previousUsage, open, firstResponses, automatedResolved, failedExecutions, channels, attention, playbooks] = await Promise.all([
-      app.prisma.conversation.findMany({ where: { workspaceId, OR: [{ createdAt: { gte: from, lte: to } }, { resolvedAt: { gte: from, lte: to } }] }, select: { createdAt: true, resolvedAt: true } }),
-      app.prisma.conversation.count({ where: { workspaceId, createdAt: { gte: previousFrom, lt: from } } }),
-      app.prisma.outcome.findMany({ where: { workspaceId, occurredAt: { gte: from, lte: to } }, select: { occurredAt: true, type: true, conversationId: true } }),
-      app.prisma.outcome.count({ where: { workspaceId, occurredAt: { gte: previousFrom, lt: from } } }),
+    const [conversations, previousConversations, outcomes, previousOutcomes, usage, previousUsage, open, firstResponses, automatedResolved, failedExecutions, channels, attention, playbooks, workspace, leads, previousLeads, byChannel, channelNames] = await Promise.all([
+      app.prisma.conversation.findMany({ where: { workspaceId, ...onChannel, OR: [{ createdAt: { gte: from, lte: to } }, { resolvedAt: { gte: from, lte: to } }] }, select: { createdAt: true, resolvedAt: true } }),
+      app.prisma.conversation.count({ where: { workspaceId, ...onChannel, createdAt: { gte: previousFrom, lt: from } } }),
+      app.prisma.outcome.findMany({ where: { workspaceId, ...onChannelConversation, occurredAt: { gte: from, lte: to } }, select: { occurredAt: true, type: true, conversationId: true } }),
+      app.prisma.outcome.count({ where: { workspaceId, ...onChannelConversation, occurredAt: { gte: previousFrom, lt: from } } }),
       app.prisma.usageRecord.aggregate({ where: { workspaceId, occurredAt: { gte: from, lte: to } }, _sum: { costCents: true } }),
       app.prisma.usageRecord.aggregate({ where: { workspaceId, occurredAt: { gte: previousFrom, lt: from } }, _sum: { costCents: true } }),
-      app.prisma.conversation.count({ where: { workspaceId, status: { not: 'RESOLVED' } } }),
-      app.prisma.conversation.findMany({ where: { workspaceId, createdAt: { gte: from, lte: to }, firstResponseAt: { not: null } }, select: { createdAt: true, firstResponseAt: true } }),
-      app.prisma.conversation.count({ where: { workspaceId, resolvedAt: { gte: from, lte: to }, mode: { not: 'HUMAN' }, executions: { some: { status: 'SUCCEEDED' } } } }),
+      app.prisma.conversation.count({ where: { workspaceId, ...onChannel, status: { not: 'RESOLVED' } } }),
+      app.prisma.conversation.findMany({ where: { workspaceId, ...onChannel, createdAt: { gte: from, lte: to }, firstResponseAt: { not: null } }, select: { createdAt: true, firstResponseAt: true } }),
+      app.prisma.conversation.count({ where: { workspaceId, ...onChannel, resolvedAt: { gte: from, lte: to }, mode: { not: 'HUMAN' }, executions: { some: { status: 'SUCCEEDED' } } } }),
       app.prisma.execution.count({ where: { workspaceId, startedAt: { gte: from, lte: to }, status: 'FAILED' } }),
       app.prisma.channel.groupBy({ by: ['status'], where: { workspaceId }, _count: { _all: true } }),
       app.prisma.conversation.findMany({
-        where: { workspaceId, status: { not: 'RESOLVED' }, OR: [{ status: 'QUEUED' }, { mode: 'HUMAN' }, { unreadCount: { gt: 0 } }] },
+        where: { workspaceId, ...onChannel, status: { not: 'RESOLVED' }, OR: [{ status: 'QUEUED' }, { mode: 'HUMAN' }, { unreadCount: { gt: 0 } }] },
         select: { id: true, status: true, mode: true, unreadCount: true, assigneeId: true, updatedAt: true, contact: { select: { id: true, name: true, phone: true } } },
         orderBy: [{ unreadCount: 'desc' }, { updatedAt: 'asc' }], take: 5
       }),
@@ -42,7 +45,13 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
         where: { workspaceId, status: 'PUBLISHED', activeVersionId: { not: null } },
         select: { id: true, name: true, activeVersion: { select: { version: true, executions: { where: { startedAt: { gte: from, lte: to } }, select: { status: true } } } } },
         orderBy: { updatedAt: 'desc' }, take: 5
-      })
+      }),
+      app.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { timezone: true } }),
+      // Lead novo é contato criado no período; com filtro de conexão, só os que falaram por ela.
+      app.prisma.contact.count({ where: { workspaceId, createdAt: { gte: from, lte: to }, ...(channelId ? { conversations: { some: { channelId } } } : {}) } }),
+      app.prisma.contact.count({ where: { workspaceId, createdAt: { gte: previousFrom, lt: from }, ...(channelId ? { conversations: { some: { channelId } } } : {}) } }),
+      app.prisma.conversation.groupBy({ by: ['channelId'], where: { workspaceId, createdAt: { gte: from, lte: to } }, _count: { _all: true } }),
+      app.prisma.channel.findMany({ where: { workspaceId }, select: { id: true, displayName: true, phoneNumber: true, status: true }, orderBy: { displayName: 'asc' } })
     ]);
 
     const conversationCount = conversations.filter(item => item.createdAt >= from && item.createdAt <= to).length;
@@ -61,18 +70,23 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
     const outcomeRate = ratio(convertedConversations, conversationCount);
 
     return {
-      period: { from: from.toISOString(), to: to.toISOString(), days },
+      period: { from: from.toISOString(), to: to.toISOString(), days, channelId: channelId ?? null },
       summary: {
-        conversations: conversationCount, outcomes: outcomeCount, open, resolved, costCents,
+        conversations: conversationCount, outcomes: outcomeCount, open, resolved, costCents, leads,
         outcomeRate, aiResolutionRate, averageFirstResponseSeconds,
         costPerOutcomeCents: outcomeCount ? Math.round(costCents / outcomeCount) : null,
         trends: {
           conversations: percentageChange(conversationCount, previousConversations),
           outcomes: percentageChange(outcomeCount, previousOutcomes),
-          cost: percentageChange(costCents, previousCostCents)
+          cost: percentageChange(costCents, previousCostCents),
+          leads: percentageChange(leads, previousLeads)
         }
       },
       series: buildDailySeries(from, days, conversations, outcomes),
+      hours: buildHourSeries(conversations.filter(item => item.createdAt >= from && item.createdAt <= to), workspace?.timezone ?? 'UTC'),
+      // A quebra por conexão ignora o filtro de conexão de propósito: é onde se escolhe o filtro.
+      byChannel: channelNames.map(channel => ({ id: channel.id, name: channel.displayName, phone: channel.phoneNumber, status: channel.status, conversations: byChannel.find(row => row.channelId === channel.id)?._count._all ?? 0 })).sort((a, b) => b.conversations - a.conversations),
+      channels: channelNames.map(channel => ({ id: channel.id, name: channel.displayName, phone: channel.phoneNumber, status: channel.status })),
       health: {
         score: healthScore,
         label: healthScore >= 90 ? 'Excelente' : healthScore >= 75 ? 'Estável' : healthScore >= 55 ? 'Atenção' : 'Crítica',

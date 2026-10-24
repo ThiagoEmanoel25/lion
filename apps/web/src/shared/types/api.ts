@@ -39,13 +39,16 @@ export type ChannelFlowSettingsChannel={id:string;displayName:string;phoneNumber
 export type ChannelFlowSettingsData={channels:ChannelFlowSettingsChannel[];playbooks:ChannelFlowPlaybook[]};
 export type ChannelFlowSettingsInput={slots:Record<ChannelFlowSlot,string|null>;defaultResponseWindowHours:number;keywords:Array<{keyword:string;match:ChannelKeywordMatch;playbookId:string}>};
 export type AnalyticsOverview={
-  period:{from:string;to:string;days:7|30|90};
+  period:{from:string;to:string;days:7|30|90;channelId:string|null};
   summary:{
-    conversations:number;outcomes:number;open:number;resolved:number;costCents:number;
+    conversations:number;outcomes:number;open:number;resolved:number;costCents:number;leads:number;
     outcomeRate:number;aiResolutionRate:number;averageFirstResponseSeconds:number|null;costPerOutcomeCents:number|null;
-    trends:{conversations:number|null;outcomes:number|null;cost:number|null};
+    trends:{conversations:number|null;outcomes:number|null;cost:number|null;leads:number|null};
   };
   series:Array<{date:string;conversations:number;outcomes:number;resolved:number}>;
+  hours:Array<{hour:number;conversations:number}>;
+  byChannel:Array<{id:string;name:string;phone:string;status:string;conversations:number}>;
+  channels:Array<{id:string;name:string;phone:string;status:string}>;
   health:{score:number;label:string;signals:Array<{key:string;label:string;status:'operational'|'warning';detail:string}>};
   attention:Array<{id:string;contact:{id:string;name:string|null;phone:string};reason:string;updatedAt:string}>;
   playbooks:Array<{id:string;name:string;version:number;executions:number;succeeded:number;failed:number;successRate:number}>;

@@ -23,7 +23,10 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 | Transversal 2 Salvar em todos os modais | Implementado em 23/10/2026 | Os doze blocos que usavam o inspetor ganham Cancelar/Salvar por um invólucro de rascunho. |
 | Transversal 3 Seletor de variáveis | Implementado em 23/10/2026 | Catálogo único com os grupos Contato, Conversa, Fluxo e Globais. Comprovante entra na fase 3. |
 | Transversal 4 Alterações não salvas | Implementado em 23/10/2026 | `beforeunload`, confirmação ao sair do editor e rascunho local a cada 30 s com restaurar/descartar. |
-| Fase 3 em diante | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
+| 3.4 Dashboard (recorte do MVP) | Implementado em 23/10/2026 | Filtro por conexão em todas as métricas, Leads novos, Taxa de conversão, movimento por horário no fuso do workspace e quebra por conexão. |
+| 3.1 Produtos · 3.2 Venda aprovada · 3.5 PIX | **Fora do MVP** | Decisão de 23/10/2026: este MVP não tem cobrança nem pagamento. Vendas, faturamento, ROAS, lucro e o bloco PIX ficam para depois. |
+| 3.3 Comprovante estruturado | Não iniciado | Depende da conversa com a Kovil, não de pagamento. |
+| Fase 4 | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
 
 ---
 
@@ -166,6 +169,10 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 
 ## Fase 3: vendas (fecha o funil e resolve a Kovil)
 
+> **Recorte do MVP (23/10/2026):** este MVP não tem cobrança nem pagamento. Entregue apenas o
+> dashboard (3.4), sem as partes que dependem de dinheiro: faturamento, ROAS, gasto em anúncios,
+> lucro e ticket médio. Produtos (3.1), Venda aprovada (3.2) e o botão PIX (3.5) ficam para depois.
+
 ### 3.1 Produtos (P)
 **Frontend:** Configurações → Produtos, com nome, moeda, **preço mínimo, preço máximo e valor padrão**.
 
@@ -188,6 +195,11 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 **Integração:** combinar com a Kovil um endpoint que receba esse objeto no corpo da requisição.
 
 ### 3.4 Dashboard de vendas (M)
+
+**Entregue no recorte do MVP:** filtro por conexão aplicado a todas as métricas, cards de Leads
+novos e Taxa de conversão, gráfico de movimento por horário no fuso do workspace e quebra de
+conversas por conexão. As abas Vendas/Atendimento e tudo que depende de valor ficaram de fora.
+
 **Frontend:**
 - O Dashboard ganha as abas **Vendas** e **Atendimento** (a atual).
 - Vendas tem filtros de período, canal, produto e moeda, e os cards Leads novos, Faturamento, Vendas, Ticket médio e Taxa de conversão.

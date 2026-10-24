@@ -37,3 +37,20 @@ export function startOfUtcDay(date: Date) {
   result.setUTCHours(0, 0, 0, 0);
   return result;
 }
+
+export type HourPoint = { hour: number; conversations: number };
+
+// Distribuição por hora do dia, no fuso do workspace: saber que o movimento chega às 20h só
+// serve se "20h" for a hora de quem atende, não UTC. Fuso inválido cai no UTC em vez de quebrar.
+export function buildHourSeries(conversations: Array<{ createdAt: Date }>, timeZone: string): HourPoint[] {
+  const points: HourPoint[] = Array.from({ length: 24 }, (_, hour) => ({ hour, conversations: 0 }));
+  let format: Intl.DateTimeFormat;
+  try { format = new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', hour12: false }); }
+  catch { format = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: '2-digit', hour12: false }); }
+  for (const conversation of conversations) {
+    // "24" aparece à meia-noite em alguns runtimes.
+    const hour = Number(format.format(conversation.createdAt)) % 24;
+    if (Number.isInteger(hour) && hour >= 0 && hour < 24) points[hour]!.conversations++;
+  }
+  return points;
+}

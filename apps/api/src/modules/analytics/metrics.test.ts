@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDailySeries, percentageChange, ratio, startOfUtcDay } from './metrics.js';
+import { buildDailySeries, buildHourSeries, percentageChange, ratio, startOfUtcDay } from './metrics.js';
 
 describe('analytics metrics', () => {
   it('calcula proporções e variação sem dividir por zero', () => {
@@ -21,5 +21,30 @@ describe('analytics metrics', () => {
       { date: '2026-10-14', conversations: 0, outcomes: 0, resolved: 0 }
     ]);
     expect(startOfUtcDay(new Date('2026-10-14T18:30:00Z')).toISOString()).toBe('2026-10-14T00:00:00.000Z');
+  });
+});
+
+describe('buildHourSeries', () => {
+  it('conta cada conversa na hora local do workspace', () => {
+    // 02:30 UTC é 23:30 do dia anterior em America/Bahia (UTC-3).
+    const series = buildHourSeries([{ createdAt: new Date('2026-10-15T02:30:00Z') }], 'America/Bahia');
+    expect(series[23]!.conversations).toBe(1);
+    expect(series[2]!.conversations).toBe(0);
+  });
+
+  it('devolve sempre as 24 horas, mesmo sem movimento', () => {
+    const series = buildHourSeries([], 'America/Bahia');
+    expect(series).toHaveLength(24);
+    expect(series.every(point => point.conversations === 0)).toBe(true);
+  });
+
+  it('coloca a meia-noite na hora 0, não na 24', () => {
+    const series = buildHourSeries([{ createdAt: new Date('2026-10-15T03:00:00Z') }], 'America/Bahia');
+    expect(series[0]!.conversations).toBe(1);
+  });
+
+  it('cai no UTC quando o fuso do workspace é inválido, em vez de quebrar', () => {
+    const series = buildHourSeries([{ createdAt: new Date('2026-10-15T02:30:00Z') }], 'BRT');
+    expect(series[2]!.conversations).toBe(1);
   });
 });
