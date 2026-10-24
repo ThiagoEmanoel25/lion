@@ -16,11 +16,13 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 | 2.2 Intervalo inteligente | Implementado em 22–23/10/2026 | Abas Intervalo/Data/Horários, agendamento no fuso do workspace. |
 | 2.3 Manipulador | Implementado em 22–23/10/2026; SQL nunca rodou contra Postgres | Definir/Somar/Subtrair/Multiplicar/Dividir com `jsonb_set` atômico. |
 | 2.4 Controlador de Chat | Implementado em 22–23/10/2026 | Aguardando/Atendimento/Resolvido; Resolvido dispara `CONVERSATION_RESOLVED`. |
-| 2.5 Mensagem: Contato e Sticker | Parcial | vCard e sticker entregues. **Falta** "apagar mensagem ao aplicar etiqueta" (tabela nova + caminho de delete no Baileys). |
-| 2.6 Departamento por lista | Não iniciado | Bloqueado: a migração de dados precisa de um banco para validar. |
+| 2.5 Mensagem: Contato, Sticker e apagar | Implementado em 23/10/2026; migration não aplicada | vCard, sticker e `MessageDeletionRule`: a regra nasce depois do SENT e o bloco Etiqueta a reivindica dentro da transação. |
+| 2.6 Departamento por lista | Implementado em 23/10/2026; migration não aplicada | `Conversation.departmentId` com FK; o runtime resolve departamento e membro na execução. |
 | 2.7 Arquivar fluxo | Implementado em 22–23/10/2026 | Arquivar/desarquivar, checagem de impacto, destino arquivado vira aviso. |
 | Transversal 1 Visual dos blocos | Implementado em 23/10/2026 | Cabeçalho em degradê, ícone em círculo e caixas tingidas em todos os 22 tipos. |
-| Transversal 4 Alterações não salvas | Parcial | `beforeunload` ligado ao estado sujo. **Falta** confirmar ao sair do editor e o rascunho local. |
+| Transversal 2 Salvar em todos os modais | Implementado em 23/10/2026 | Os doze blocos que usavam o inspetor ganham Cancelar/Salvar por um invólucro de rascunho. |
+| Transversal 3 Seletor de variáveis | Implementado em 23/10/2026 | Catálogo único com os grupos Contato, Conversa, Fluxo e Globais. Comprovante entra na fase 3. |
+| Transversal 4 Alterações não salvas | Implementado em 23/10/2026 | `beforeunload`, confirmação ao sair do editor e rascunho local a cada 30 s com restaurar/descartar. |
 | Fase 3 em diante | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
 
 ---
