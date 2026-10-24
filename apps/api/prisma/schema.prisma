@@ -511,6 +511,7 @@ model ScheduledMessage {
   body           String
   scheduledFor   DateTime
   status         ScheduledMessageStatus @default(PENDING)
+  jobId          String?                @unique
   sentMessageId  String?                @unique
   error          String?
   createdAt      DateTime               @default(now())

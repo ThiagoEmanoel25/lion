@@ -27,6 +27,13 @@ describe('conversor Leona',()=>{
     expect(result.report.items.some(item=>item.message.includes('link_grupo'))).toBe(true);
   });
 
+  it('converte a convenção global g_nome sem inventar valor',()=>{
+    const result=convertLeonaFlow({nodes:[{id:'1',type:'start',data:{}},{id:'2',type:'message',data:{message:'Entre em {g_link_grupo}'}}],edges:[{id:'e',source:'1',target:'2'}]});
+    const items=result.definition.nodes.find(node=>node.kind==='message')?.config.items as Array<{text?:string}>;
+    expect(items[0]?.text).toBe('Entre em {{global.link_grupo}}');
+    expect(result.report.items).toEqual(expect.arrayContaining([expect.objectContaining({sourceId:'2',status:'pending',message:expect.stringContaining('Cadastre global.link_grupo')})]));
+  });
+
   it('remove segredos de snapshots compartilháveis',()=>{
     const definition=AutomationDefinitionSchema.parse({start:'start',nodes:[
       {id:'start',kind:'trigger',name:'Início',config:{event:'message.received'},position:{x:0,y:0}},

@@ -33,6 +33,12 @@ export const assetRoutes:FastifyPluginAsync=async app=>{
     return reply.status(201).send({id:asset.id,fileName:asset.fileName,contentType:asset.contentType,size:asset.size,url:`nexo-asset://${asset.id}`});
   });
 
+  app.get('/v1/playbook-assets/:id',{preHandler:[app.requirePermission('conversation.read')]},async(request,reply)=>{
+    const {id}=request.params as {id:string};if(!ASSET_ID.test(id))throw new DomainError('NOT_FOUND','Arquivo não encontrado.',404);
+    const asset=await app.prisma.playbookAsset.findFirst({where:{id,workspaceId:request.auth.workspaceId},select:{data:true,fileName:true,contentType:true}});if(!asset)throw new DomainError('NOT_FOUND','Arquivo não encontrado.',404);
+    return reply.header('content-type',asset.contentType).header('content-disposition',`inline; filename*=UTF-8''${encodeURIComponent(asset.fileName)}`).header('cache-control','private, max-age=300').send(Buffer.from(asset.data));
+  });
+
   app.delete('/v1/playbook-assets/:id',guard,async(request,reply)=>{
     const {id}=request.params as {id:string};
     if(!ASSET_ID.test(id))throw new DomainError('NOT_FOUND','Arquivo não encontrado.',404);
