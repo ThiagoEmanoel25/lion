@@ -70,7 +70,8 @@ function nodeConfigIssues(node: AutomationDefinition['nodes'][number]): Automati
       return validateConfig(AutomationWebhookConfigSchema, 'INVALID_WEBHOOK_CONFIG', 'Integração inválida');
     }
     case 'assign':
-      return typeof config.queue === 'string' && config.queue.trim() || typeof config.assigneeId === 'string' && config.assigneeId.trim() ? [] : [error('ASSIGN_TARGET_REQUIRED', 'Informe uma fila ou responsável para atribuição.')];
+      // departmentId é o alvo novo; queue em texto continua aceito nos fluxos importados do Leona.
+      return typeof config.departmentId === 'string' && config.departmentId.trim() || typeof config.queue === 'string' && config.queue.trim() || typeof config.assigneeId === 'string' && config.assigneeId.trim() ? [] : [error('ASSIGN_TARGET_REQUIRED', 'Informe um departamento ou responsável para atribuição.')];
     case 'tag':
       return validateConfig(AutomationTagConfigSchema, 'TAG_REQUIRED', 'Etiquetas inválidas');
     case 'outcome':

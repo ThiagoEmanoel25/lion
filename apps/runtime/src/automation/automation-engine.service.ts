@@ -7,6 +7,7 @@ import {applyManipulation,assertPublicHttpsUrl,kanbanAction,parseTarget} from '@
 import { planDelay } from './delay.js';
 import { PrismaService } from '../infra/prisma.service.js';
 import { RedisService } from '../infra/redis.service.js';
+import { AssignmentError, resolveAssignment } from './department.js';
 import { applyChatController } from './chat-controller.js';
 import { menuOptions, menuTimeoutSeconds, renderTemplate, resolveMenuChoice, routesByChoice, selectAiRouteEdge, selectNextEdge, selectPortEdge, setAiResponseContext, setContextPath, getPathValue, type AutomationDefinition, type AutomationNode } from './routing.js';
 import { integrationOutcome, parseResponseFields } from './integration.js';
@@ -280,13 +281,10 @@ export class AutomationEngineService implements OnModuleDestroy {
       }
 
       case 'assign': {
-        const assigneeId = typeof node.config.assigneeId === 'string' ? node.config.assigneeId : undefined;
-        const queue = typeof node.config.queue === 'string' ? node.config.queue.trim() : undefined;
-        if (!assigneeId && !queue) throw new NodeExecutionError('ASSIGN_TARGET_REQUIRED', 'Informe um responsável ou fila.');
-        if (assigneeId && !await this.prisma.membership.count({ where: { workspaceId, userId: assigneeId } })) throw new NodeExecutionError('INVALID_ASSIGNEE', 'O responsável não pertence ao workspace.');
+        const assignment = await this.resolveAssignmentFor(workspaceId, node.config);
         await this.prisma.$transaction(async tx => {
-          await tx.conversation.update({ where: { id: conversationId }, data: { assigneeId, queue } });
-          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, { assigneeId, queue });
+          await tx.conversation.update({ where: { id: conversationId }, data: { assigneeId: assignment.assigneeId, queue: assignment.queue, departmentId: assignment.departmentId } });
+          await this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, assignment);
         });
         return 'continue';
       }
@@ -483,11 +481,12 @@ export class AutomationEngineService implements OnModuleDestroy {
         if (!parsed.success) throw new NodeExecutionError('INVALID_HANDOFF_CONFIG', 'Configure o estado do Controlador de Chat.');
         const config = parsed.data;
         const reason = config.reason ? renderTemplate(config.reason, context) : 'Handoff solicitado pela automação.';
-        if (config.state === 'ATTENDING' && config.assigneeId && !await this.prisma.membership.count({ where: { workspaceId, userId: config.assigneeId } })) throw new NodeExecutionError('INVALID_ASSIGNEE', 'O responsável não pertence ao workspace.');
+        const hasTarget = Boolean(config.departmentId || config.assigneeId || config.queue?.trim());
+        const assignment = config.state === 'ATTENDING' && hasTarget ? await this.resolveAssignmentFor(workspaceId, config) : undefined;
         const continues = config.returnToAi && Boolean(nextNodeId);
         await this.prisma.$transaction(async tx => {
-          const events = await applyChatController(tx, { workspaceId, conversationId, config });
-          const output = { handoff: true, state: config.state, reason, queue: config.queue, events };
+          const events = await applyChatController(tx, { workspaceId, conversationId, config, assignment });
+          const output = { handoff: true, state: config.state, reason, queue: assignment?.queue ?? config.queue, departmentId: assignment?.departmentId ?? null, events };
           if (continues) return this.finishInTransaction(tx, executionId, step.id, nextNodeId, context, asJson(output));
           await tx.executionStep.update({ where: { id: step.id }, data: { status: 'SUCCEEDED', output: asJson(output), finishedAt: new Date() } });
           await tx.execution.update({ where: { id: executionId }, data: { status: 'SUCCEEDED', currentNode: node.id, context: asJson(context), finishedAt: new Date() } });
@@ -675,6 +674,20 @@ export class AutomationEngineService implements OnModuleDestroy {
 
   private async completeStep(executionId: string, stepId: string, nextNodeId: string | undefined, context: EngineContext, output: Prisma.InputJsonValue) {
     await this.prisma.$transaction(async tx => this.finishInTransaction(tx, executionId, stepId, nextNodeId, context, output));
+  }
+
+  // Um único ponto resolve departamento e responsável para o bloco Departamento e para o Controlador de Chat.
+  private async resolveAssignmentFor(workspaceId: string, config: Record<string, unknown>) {
+    const target = { departmentId: typeof config.departmentId === 'string' ? config.departmentId : undefined, assigneeId: typeof config.assigneeId === 'string' ? config.assigneeId : undefined, queue: typeof config.queue === 'string' ? config.queue : undefined };
+    try {
+      return await resolveAssignment(target, {
+        department: id => this.prisma.department.findFirst({ where: { id, workspaceId }, select: { id: true, name: true } }),
+        isWorkspaceMember: async userId => Boolean(await this.prisma.membership.count({ where: { workspaceId, userId } }))
+      });
+    } catch (error) {
+      if (error instanceof AssignmentError) throw new NodeExecutionError(error.code, error.message);
+      throw error;
+    }
   }
 
   private async finishInTransaction(tx: Prisma.TransactionClient, executionId: string, stepId: string, nextNodeId: string | undefined, context: EngineContext, output: Prisma.InputJsonValue) {

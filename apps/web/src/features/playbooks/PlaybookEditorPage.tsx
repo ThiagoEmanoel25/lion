@@ -7,7 +7,7 @@ import {ApiError} from '../../shared/api/client';
 import type {ImportReport,AutomationDefinition,AutomationEdge,AutomationIssue,AutomationNodeKind,AutomationValidation,KanbanBoard,Playbook,PlaybookVersion} from '../../shared/types/api';
 import {uploadPlaybookAsset,useDistributorCounts,usePlaybook,usePlaybooks,usePublishPlaybook,useSavePlaybookVersion,useUnarchivePlaybook,useSimulatePlaybook,useTestIntegration,useValidatePlaybook} from './api/queries';
 import {useAgents} from '../agents/api/queries';
-import {useBusinessHours,useChannelFlowSettings,useGlobalVariables,useMetaPixels,useTestMetaPixel,useWorkspace,useWorkspaceAiKey} from '../settings/api/queries';
+import {useBusinessHours,useChannelFlowSettings,useDepartments,useGlobalVariables,useMetaPixels,useTestMetaPixel,useWorkspace,useWorkspaceAiKey} from '../settings/api/queries';
 import {DAY_NAMES,DELAY_UNIT_LABELS,DISPLAY_DAY_ORDER,defaultScheduleDays,delayCfgError,delayConfigOf,delaySummary,isoToLocal,localToIso,type DelayCfg,type DelayUnit} from './delay-config';
 import {MANIPULATOR_OPERATION_LABELS,CONTACT_FIELD_PREFIX,FLOW_PREFIX,manipulatorError,manipulatorSummary,splitTarget,type ManipulatorOperation} from './manipulator-config';
 import {useContactMeta} from '../contacts/api/queries';
@@ -118,6 +118,7 @@ function nodeSummary(kind:AutomationNodeKind,config:Record<string,unknown>){
   if(kind==='trigger')return String(config.event??'message.received').replace('message.received','Mensagem recebida').replace('tag.added','Etiqueta adicionada').replace('conversation.created','Conversa criada')+(config.oncePerContact===true?' · uma vez por contato':'');
   if(kind==='delay')return delaySummary(config);
   if(kind==='webhook')return `${String(config.method??'POST')} · ${String(config.url||'URL não definida')}`;
+  // queue guarda o nome do departamento no momento da escolha, então o canvas mostra o nome sem buscar o cadastro.
   if(kind==='assign')return `Atribuir para ${String(config.queue||config.assigneeId||'destino não definido')}`;
   if(kind==='handoff')return `Mover chat para ${chatStateOf(config)[1]}`;
   if(kind==='tag'){const total=(Array.isArray(config.tagIds)?config.tagIds.length:0)+(Array.isArray(config.tags)?config.tags.length:0)+(config.tagId||config.tag?1:0);return `${config.mode==='remove'?'Remover':'Adicionar'} ${total||0} etiqueta(s)`}
@@ -291,14 +292,14 @@ export function PlaybookEditorPage(){
             : selectedNode.data.kind==='manipulator'
             ? <ManipulatorEditor key={selectedNode.id} node={selectedNode} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='handoff'
-            ? <ChatControllerEditor key={selectedNode.id} node={selectedNode} onSave={config=>{updateSelected({config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
+            ? <ChatControllerEditor key={selectedNode.id} node={selectedNode} members={contactMeta.data?.members??[]} onSave={config=>{updateSelected({config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='delay'
             ? <DelayEditor key={selectedNode.id} node={selectedNode} onSave={config=>{updateSelected({config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='buttons'
             ? <MenuEditor key={selectedNode.id} node={selectedNode} onSave={saveMenu} onCancel={()=>setInspectorOpen(false)}/>
             : selectedNode.data.kind==='condition'
               ? <ConditionEditor key={selectedNode.id} node={selectedNode} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} boards={kanbanBoards.data??[]} onSave={saveCondition} onCancel={()=>setInspectorOpen(false)}/>
-            : <DraftInspector key={selectedNode.id} node={selectedNode} playbooks={(playbooks.data??[]).filter(item=>item.id!==id&&item.status!=='ARCHIVED')} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} boards={kanbanBoards.data??[]} triggerAssociations={triggerAssociations} isStart={selectedNode.id===start} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
+            : <DraftInspector key={selectedNode.id} node={selectedNode} playbooks={(playbooks.data??[]).filter(item=>item.id!==id&&item.status!=='ARCHIVED')} agents={agents.data??[]} agentsLoading={agents.isLoading} aiKeyConfigured={aiKey.data?.configured} tags={contactMeta.data?.tags??[]} members={contactMeta.data?.members??[]} boards={kanbanBoards.data??[]} triggerAssociations={triggerAssociations} isStart={selectedNode.id===start} onSave={(name,config)=>{updateSelected({name,config});setInspectorOpen(false)}} onCancel={()=>setInspectorOpen(false)} onStart={()=>{setStart(selectedNode.id);setDirty(true)}} onRemove={removeSelection}/>
           : selectedEdge
             ? <EdgeInspector edge={selectedEdge} onChange={updateSelectedEdge} onRemove={removeSelection}/>
             : <FlowInspector definition={definition} result={result} importReport={playbook.data.importSource?.report} version={version} restoredVersion={restoredVersion} versions={playbook.data.versions??[]}  onRestore={restoreLocal} onSettings={next=>{setSettings(next);setDirty(true);setResult(null)}} onSelectIssue={(nodeId,edgeId)=>{if(nodeId){setSelectedNodeId(nodeId);setSelectedEdgeId(null);setInspectorOpen(false);flowRef.current?.fitView({nodes:[{id:nodeId}],duration:250,padding:1})}else if(edgeId){setSelectedEdgeId(edgeId);setSelectedNodeId(null)}}}/>
@@ -390,6 +391,31 @@ function TriggerAssociations({items}:{items:TriggerAssociation[]}){
 // O Leona salva sozinho; aqui todo editor tem Cancelar/Salvar. Este invólucro dá o par aos blocos
 // que ainda usam o NodeInspector, sem reescrever os doze formulários dele: as edições vão para um
 // rascunho local e só chegam ao fluxo no Salvar.
+// Departamento e responsável saem do cadastro, não de texto livre (Leona faz igual). Uma fila importada
+// em texto continua visível até ser substituída; departamento apagado ou inativo é sinalizado aqui.
+function DepartmentPicker({config,members,onConfigs}:{config:Record<string,unknown>;members:ConditionMember[];onConfigs:(patch:Record<string,unknown>)=>void}){
+  const departments=useDepartments();
+  const list=departments.data??[];
+  const departmentId=String(config.departmentId??'');
+  const legacyQueue=String(config.queue??'').trim();
+  const chosen=list.find(item=>item.id===departmentId);
+  const assigneeId=String(config.assigneeId??'');
+  const options=chosen?chosen.members.map(item=>({id:item.membership.user.id,name:item.membership.user.name})):members;
+  return <>
+    <label>Departamento<select value={departmentId} onChange={event=>{const next=event.target.value;const picked=list.find(item=>item.id===next);const keeps=next?picked?.members.some(item=>item.membership.user.id===assigneeId):true;onConfigs({departmentId:next||undefined,queue:picked?.name,...(keeps?{}:{assigneeId:undefined})})}}>
+      <option value="">Nenhum</option>
+      {list.map(item=><option key={item.id} value={item.id}>{item.name}{item.isActive?'':' (inativo)'}</option>)}
+    </select></label>
+    {departmentId&&!chosen&&!departments.isLoading&&<p className="field-error">O departamento salvo neste bloco não existe mais neste workspace. Escolha outro.</p>}
+    {chosen&&!chosen.isActive&&<p className="field-help">Este departamento está desativado. O chat continua sendo atribuído a ele.</p>}
+    {!departmentId&&legacyQueue&&<p className="field-help">Fila importada em texto: “{legacyQueue}”. Escolha um departamento para substituí-la.</p>}
+    <label>Responsável <span className="optional">(opcional)</span><select value={assigneeId} onChange={event=>onConfigs({assigneeId:event.target.value||undefined})}>
+      <option value="">Qualquer atendente</option>
+      {options.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+      {assigneeId&&!options.some(item=>item.id===assigneeId)&&<option value={assigneeId}>{assigneeId} (fora do departamento)</option>}
+    </select></label>
+  </>
+}
 function DraftInspector({node,onSave,onCancel,...rest}:Omit<Parameters<typeof NodeInspector>[0],'onName'|'onConfig'|'onConfigs'>&{onSave:(name:string,config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const [draft,setDraft]=useState({name:node.data.name,config:{...node.data.config}});
   const changed=draft.name!==node.data.name||JSON.stringify(draft.config)!==JSON.stringify(node.data.config);
@@ -399,7 +425,7 @@ function DraftInspector({node,onSave,onCancel,...rest}:Omit<Parameters<typeof No
     <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={()=>onSave(draft.name,draft.config)} disabled={!changed}>Salvar</button></footer>
   </>
 }
-function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags,boards,triggerAssociations,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;playbooks:Playbook[];agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];boards:KanbanBoard[];triggerAssociations:TriggerAssociation[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
+function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags,members,boards,triggerAssociations,isStart,onName,onConfig,onConfigs,onStart,onRemove}:{node:FlowNode;playbooks:Playbook[];agents:AiAgent[];agentsLoading:boolean;aiKeyConfigured:boolean|undefined;tags:ContactMeta['tags'];members:ConditionMember[];boards:KanbanBoard[];triggerAssociations:TriggerAssociation[];isStart:boolean;onName:(value:string)=>void;onConfig:(key:string,value:unknown)=>void;onConfigs:(patch:Record<string,unknown>)=>void;onStart:()=>void;onRemove:()=>void}){
   const kind=node.data.kind;const KindIcon=kindMeta[kind].icon;const config=node.data.config;
   const selectedTagIds=Array.isArray(config.tagIds)?config.tagIds.filter((value):value is string=>typeof value==='string'):[];
   const customTags=Array.isArray(config.tags)?config.tags.filter((value):value is string=>typeof value==='string'):[];
@@ -416,7 +442,7 @@ function NodeInspector({node,playbooks,agents,agentsLoading,aiKeyConfigured,tags
     {kind==='wait_response'&&<WaitFields config={config} onConfigs={onConfigs}/>}
     {kind==='agent'&&<><label>Agente configurado<select value={String(config.agentId??'')} onChange={event=>onConfig('agentId',event.target.value)} disabled={agentsLoading}><option value="">{agentsLoading?'Carregando agentes…':'Selecione um agente'}</option>{agents.filter(agent=>agent.isActive).map(agent=><option key={agent.id} value={agent.id}>{agent.name} · {agent.model}</option>)}</select></label>{!agentsLoading&&!agents.some(agent=>agent.isActive)&&<p className="field-help">Crie e ative um agente no módulo Agentes de IA antes de publicar.</p>}<label>Instrução adicional do bloco<textarea rows={4} value={String(config.prompt??'')} onChange={event=>onConfig('prompt',event.target.value)} placeholder="Opcional: contexto específico desta etapa." /></label><p className="field-help">Objetivo, tom, confiança e handoff são controlados pelo agente selecionado.</p></>}
     {kind==='webhook'&&<><label>URL HTTPS<input type="url" value={String(config.url??'')} onChange={event=>onConfig('url',event.target.value)} placeholder="https://api.exemplo.com/webhook" /></label><label>Método HTTP<select value={String(config.method??'POST')} onChange={event=>onConfig('method',event.target.value)}><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH (legado)</option><option value="DELETE">DELETE (legado)</option></select></label><JsonHeadersField value={config.headers} onChange={value=>onConfig('headers',value)}/>{String(config.method??'POST')!=='GET'&&<label>Corpo da requisição<textarea rows={5} value={String(config.body??'')} onChange={event=>onConfig('body',event.target.value)} placeholder={'{"telefone":"{{contact.phone}}"}'}/><small>JSON ou texto; variáveis com {'{{caminho}}'}.</small></label>}<label>Salvar resposta na variável<input value={String(config.responseVariable??'')} onChange={event=>onConfig('responseVariable',event.target.value||undefined)} placeholder="integration.response" /></label><div className="response-fields"><b>Campos da resposta</b>{(Array.isArray(config.responseFields)?config.responseFields as Array<{path:string;variable:string}>:[]).map((field,index,all)=><div key={index}><input aria-label={`Caminho do campo ${index+1}`} value={field.path} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,path:event.target.value}:item))} placeholder="body.accepted"/><input aria-label={`Variável do campo ${index+1}`} value={field.variable} onChange={event=>onConfig('responseFields',all.map((item,i)=>i===index?{...item,variable:event.target.value}:item))} placeholder="kovil.receipt.accepted"/><button type="button" aria-label={`Remover campo ${index+1}`} onClick={()=>onConfig('responseFields',all.filter((_,i)=>i!==index))}><X size={14}/></button></div>)}<button type="button" className="add-button-option" disabled={Array.isArray(config.responseFields)&&config.responseFields.length>=20} onClick={()=>onConfig('responseFields',[...(Array.isArray(config.responseFields)?config.responseFields:[]),{path:'',variable:''}])}>+ Adicionar campo</button><p className="field-help">Caminho em status, body ou headers da resposta (ex.: body.accepted) e a variável que recebe o valor.</p></div><p className="field-help">Respostas 2xx seguem por sucesso; erro HTTP, timeout de 30 s ou falha de rede seguem por erro.</p></>}
-    {kind==='assign'&&<><label>Fila<input value={String(config.queue??'')} onChange={event=>onConfig('queue',event.target.value)} placeholder="Ex.: Comercial" /></label><div className="config-separator"><span>ou</span></div><label>ID do responsável<input value={String(config.assigneeId??'')} onChange={event=>onConfig('assigneeId',event.target.value)} placeholder="ID do usuário no workspace" /></label><p className="field-help">Preencha ao menos uma fila ou um responsável.</p></>}
+    {kind==='assign'&&<><DepartmentPicker config={config} members={members} onConfigs={onConfigs}/><p className="field-help">Escolha ao menos um departamento ou um responsável.</p></>}
     {kind==='tag'&&<><label>Ação<select value={String(config.mode??'add')} onChange={event=>onConfig('mode',event.target.value)}><option value="add">Adicionar etiquetas</option><option value="remove">Remover etiquetas</option></select></label><div className="tag-picker"><b>Etiquetas do workspace</b>{tags.length?tags.map(tag=><label key={tag.id} className="check-field"><input type="checkbox" checked={selectedTagIds.includes(tag.id)} onChange={event=>onConfig('tagIds',event.target.checked?[...selectedTagIds,tag.id]:selectedTagIds.filter(id=>id!==tag.id))}/><i style={{background:tag.color}}/>{tag.name}</label>):<p className="field-help">Nenhuma etiqueta cadastrada ainda.</p>}</div><label>Outras etiquetas, separadas por vírgula<input value={customTags.join(', ')} onChange={event=>onConfig('tags',event.target.value.split(',').map(value=>value.trim()).filter(Boolean))} placeholder="vip, retorno" /></label><p className="field-help">Ao adicionar, nomes novos são criados. Ao remover, nomes inexistentes são ignorados.</p></>}
     {kind==='kanban'&&<KanbanFields config={config} boards={boards} onConfigs={onConfigs}/>}
     {kind==='flow_jump'&&<><label>Fluxo de destino<select value={String(config.targetPlaybookId??'')} onChange={event=>{const target=playbooks.find(item=>item.id===event.target.value);onConfigs({targetPlaybookId:event.target.value||undefined,...(target?{targetName:target.name}:{})})}}><option value="">Selecione o fluxo</option>{playbooks.map(item=><option value={item.id} key={item.id}>{item.name}{item.status==='PAUSED'?' · pausado':item.status!=='PUBLISHED'?' · não publicado':''}</option>)}</select></label>{!config.targetPlaybookId&&config.targetName&&<div className="config-callout warning"><b>Destino importado não resolvido</b><p>Na Leona: {String(config.targetName)} — escolha o fluxo correspondente.</p></div>}<p className="field-help">O fluxo atual termina e a conversa continua na versão publicada do destino.</p></>}
@@ -476,14 +502,14 @@ function WaitEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(config:Record<
     </div>
     <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer></>
 }
-function ChatControllerEditor({node,onSave,onCancel}:{node:FlowNode;onSave:(config:Record<string,unknown>)=>void;onCancel:()=>void}){
+function ChatControllerEditor({node,members,onSave,onCancel}:{node:FlowNode;members:ConditionMember[];onSave:(config:Record<string,unknown>)=>void;onCancel:()=>void}){
   const [config,setConfig]=useState<Record<string,unknown>>({...node.data.config});const patch=(change:Record<string,unknown>)=>setConfig(current=>({...current,...change}));
   const [state,,effect]=chatStateOf(config);
-  function save(){const next:Record<string,unknown>={...config,state};if(state!=='ATTENDING'){delete next.queue;delete next.assigneeId;delete next.reason}if(state!=='AWAITING')delete next.returnToAi;onSave(next)}
+  function save(){const next:Record<string,unknown>={...config,state};if(state!=='ATTENDING'){delete next.departmentId;delete next.queue;delete next.assigneeId;delete next.reason}if(state!=='AWAITING')delete next.returnToAi;onSave(next)}
   return <><header><span className="palette-icon handoff"><Headset size={17} aria-hidden="true"/></span><div><small>BLOCO SELECIONADO</small><b>Editar Controlador de Chat</b></div></header>
     <div className="inspector-form ai-editor chat-controller-editor">
       <label>Mover o chat para<select value={state} onChange={event=>patch({state:event.target.value})}>{CHAT_STATES.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><small>{effect}</small></label>
-      {state==='ATTENDING'&&<><label>Fila de destino<input value={String(config.queue??'')} onChange={event=>patch({queue:event.target.value})} placeholder="Ex.: Atendimento"/></label><label>Responsável (ID do usuário, opcional)<input value={String(config.assigneeId??'')} onChange={event=>patch({assigneeId:event.target.value})}/></label><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>patch({reason:event.target.value})} placeholder="Explique por que a conversa será transferida."/></label></>}
+      {state==='ATTENDING'&&<><DepartmentPicker config={config} members={members} onConfigs={patch}/><label>Motivo<textarea rows={4} value={String(config.reason??'')} onChange={event=>patch({reason:event.target.value})} placeholder="Explique por que a conversa será transferida."/></label></>}
       {state==='AWAITING'&&<ToggleCard title="Continuar o fluxo depois" description="Avançado: o bloco ganha uma saída e o fluxo segue após colocar o chat em Aguardando." checked={config.returnToAi===true} onChange={checked=>patch({returnToAi:checked})}/>}
     </div>
     <footer className="menu-actions"><button type="button" onClick={onCancel}>Cancelar</button><button type="button" className="primary" onClick={save}>Salvar</button></footer></>

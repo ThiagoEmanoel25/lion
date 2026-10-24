@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AutomationHandoffConfigSchema } from '@nexo/contracts';
 import { applyChatController, type ChatControllerConfig } from './chat-controller.js';
+import type { DepartmentAssignment } from './department.js';
 
-type Conv = { status: string; mode: string; assigneeId: string | null; queue: string | null; unreadCount: number; resolvedAt?: Date };
+type Conv = { status: string; mode: string; assigneeId: string | null; queue: string | null; departmentId?: string | null; unreadCount: number; resolvedAt?: Date };
 function fakeTx(initial: Partial<Conv> = {}) {
   const conv: Conv = { status: 'AUTOMATED', mode: 'AI', assigneeId: 'u0', queue: 'Old', unreadCount: 3, ...initial };
   const outbox: Array<{ type: string; payload: { slot: string } }> = [];
@@ -14,7 +15,7 @@ function fakeTx(initial: Partial<Conv> = {}) {
     },
     outboxEvent: { create: async ({ data }: { data: { type: string; payload: { slot: string } } }) => { outbox.push(data); } }
   };
-  return { conv, outbox, run: (config: Partial<ChatControllerConfig> & { state: ChatControllerConfig['state'] }) => applyChatController(tx as never, { workspaceId: 'w', conversationId: 'c', config: { returnToAi: false, ...config } }) };
+  return { conv, outbox, run: (config: Partial<ChatControllerConfig> & { state: ChatControllerConfig['state'] }, assignment?: DepartmentAssignment) => applyChatController(tx as never, { workspaceId: 'w', conversationId: 'c', config: { returnToAi: false, ...config }, assignment }) };
 }
 
 describe('chat controller', () => {
@@ -23,10 +24,18 @@ describe('chat controller', () => {
     expect(t.conv).toMatchObject({ mode: 'HUMAN', status: 'QUEUED', assigneeId: null, queue: 'Old' });
   });
   it('ATTENDING assigns when there is an assignee, queues otherwise', async () => {
-    const a = fakeTx(); await a.run({ state: 'ATTENDING', queue: 'Vendas', assigneeId: 'u1' });
+    const a = fakeTx(); await a.run({ state: 'ATTENDING' }, { departmentId: null, queue: 'Vendas', assigneeId: 'u1' });
     expect(a.conv).toMatchObject({ mode: 'HUMAN', status: 'ASSIGNED', assigneeId: 'u1', queue: 'Vendas' });
-    const q = fakeTx(); await q.run({ state: 'ATTENDING', queue: 'Vendas' });
+    const q = fakeTx(); await q.run({ state: 'ATTENDING' }, { departmentId: null, queue: 'Vendas' });
     expect(q.conv).toMatchObject({ status: 'QUEUED', assigneeId: 'u0', queue: 'Vendas' });
+  });
+  it('ATTENDING grava o departamento resolvido e o nome atual dele', async () => {
+    const t = fakeTx(); await t.run({ state: 'ATTENDING' }, { departmentId: 'dep-1', queue: 'Vendas' });
+    expect(t.conv).toMatchObject({ departmentId: 'dep-1', queue: 'Vendas' });
+  });
+  it('AWAITING e RESOLVED não escrevem departamento', async () => {
+    const a = fakeTx(); await a.run({ state: 'AWAITING' }, { departmentId: 'dep-1', queue: 'Vendas' });
+    expect(a.conv).not.toHaveProperty('departmentId');
   });
   it('legacy ATTENDING with no queue or assignee keeps the existing ones', async () => {
     const t = fakeTx({ status: 'ASSIGNED', queue: 'Vendas', assigneeId: 'u9' }); await t.run(AutomationHandoffConfigSchema.parse({ reason: 'x' }) as ChatControllerConfig);
