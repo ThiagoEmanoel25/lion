@@ -134,6 +134,7 @@ model Workspace {
   updatedAt               DateTime                 @updatedAt
   memberships             Membership[]
   channels                Channel[]
+  broadcasts              Broadcast[]
   contacts                Contact[]
   tags                    Tag[]
   conversations           Conversation[]
@@ -204,6 +205,7 @@ model User {
   ownedContacts             Contact[]           @relation("ContactOwner")
   createdFlowImportSessions FlowImportSession[] @relation("FlowImportCreatedBy")
   createdFlowShareCodes     FlowShareCode[]     @relation("FlowShareCreatedBy")
+  broadcasts                Broadcast[]
 }
 
 model Membership {
@@ -301,6 +303,7 @@ model Channel {
   inboundWebhookEndpoints InboundWebhookEndpoint[]
   flowConfigs             ChannelFlowConfig[]
   keywords                ChannelKeyword[]
+  broadcasts              Broadcast[]
 
   @@index([workspaceId, status])
   @@index([workspaceId, activePlaybookId])
@@ -339,6 +342,7 @@ model Contact {
   stage                  String                      @default("new")
   customFields           Json                        @default("{}")
   consentAt              DateTime?
+  optedOutAt             DateTime?
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
   workspace              Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -348,6 +352,7 @@ model Contact {
   outcomes               Outcome[]
   kanbanCards            KanbanCard[]
   distributorAssignments FlowDistributorAssignment[]
+  broadcastRecipients    BroadcastRecipient[]
 
   @@unique([workspaceId, phone])
   @@index([workspaceId, stage, updatedAt])
@@ -818,6 +823,64 @@ model InboundWebhookEndpoint {
   @@index([workspaceId, isActive])
   @@index([playbookId])
   @@index([channelId])
+}
+
+// Disparo em massa. O envio reaproveita o caminho normal de mensagem: cada destinatário virá de um
+// evento de outbox com availableAt no horário planejado, então retentativa e cancelamento já funcionam.
+enum BroadcastStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  DONE
+  CANCELLED
+}
+
+enum BroadcastRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+model Broadcast {
+  id                 String               @id @default(cuid())
+  workspaceId        String
+  channelId          String
+  name               String
+  body               String
+  status             BroadcastStatus      @default(DRAFT)
+  minIntervalSeconds Int                  @default(45)
+  maxIntervalSeconds Int                  @default(180)
+  dailyQuota         Int                  @default(200)
+  startAt            DateTime
+  createdById        String
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel            Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  createdBy          User                 @relation(fields: [createdById], references: [id])
+  recipients         BroadcastRecipient[]
+
+  @@index([workspaceId, status, createdAt])
+}
+
+model BroadcastRecipient {
+  id           String                   @id @default(cuid())
+  broadcastId  String
+  contactId    String
+  scheduledFor DateTime
+  status       BroadcastRecipientStatus @default(PENDING)
+  reason       String?
+  messageId    String?
+  sentAt       DateTime?
+  broadcast    Broadcast                @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  contact      Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([broadcastId, contactId])
+  @@index([broadcastId, status, scheduledFor])
 }
 
 model OutboxEvent {

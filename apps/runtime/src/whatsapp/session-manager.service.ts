@@ -1,4 +1,5 @@
 import { Inject,Injectable, OnModuleDestroy } from '@nestjs/common';
+import { isOptOutMessage } from '@nexo/domain';
 import { Boom } from '@hapi/boom';
 import makeWASocket, {
   Browsers,
@@ -215,6 +216,9 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
           const metadata = withCtwa(conversation.metadata, ctwaOf(incoming.message), new Date());
           await tx.conversation.update({ where: { id: conversation.id }, data: { unreadCount: { increment: 1 }, updatedAt: new Date(), ...(metadata ? { metadata: metadata as Prisma.InputJsonObject } : {}) } });
           await tx.channel.update({ where: { id: channelId }, data: { lastInboundAt: new Date() } });
+          // "SAIR", "PARAR" e companhia tiram o contato dos disparos na hora. Pedir para sair e
+          // continuar recebendo é o caminho mais curto para o número ser denunciado e bloqueado.
+          if (isOptOutMessage(body)) await tx.contact.updateMany({ where: { id: contact.id, optedOutAt: null }, data: { optedOutAt: new Date() } });
           await tx.outboxEvent.create({data:{workspaceId:channel.workspaceId,aggregate:'Conversation',aggregateId:conversation.id,type:'automation.inbound.received',payload:{conversationId:conversation.id,messageId:created.id,channelId}}});
           if (conversationWasCreated) await tx.outboxEvent.create({data:{workspaceId:channel.workspaceId,aggregate:'Conversation',aggregateId:conversation.id,type:'automation.trigger.requested',payload:{event:'conversation.created',conversationId:conversation.id,contactId:contact.id,channelId}}});
           return created;

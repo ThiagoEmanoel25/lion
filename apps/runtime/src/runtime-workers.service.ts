@@ -214,14 +214,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested','message.delete.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','message.delete.requested','broadcast.recipient.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
-      const payload = event.payload as { messageId?: string; ruleId?: string; scheduledMessageId?:string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
+      const payload = event.payload as { messageId?: string; ruleId?: string; recipientId?: string; scheduledMessageId?:string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
         : event.type === 'message.delete.requested' ? Boolean(payload.ruleId)
+        : event.type === 'broadcast.recipient.requested' ? Boolean(payload.recipientId)
         : event.type === 'scheduled_message.send.requested' ? Boolean(payload.scheduledMessageId)
         : event.type==='notification.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.text)
         : event.type==='reaction.send.requested'?Boolean(payload.channelId&&payload.phone&&payload.messageExternalId&&payload.emoji)
@@ -248,6 +249,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           await this.knowledge.index(payload.sourceId!,payload.content??null);
         } else if(event.type==='notification.send.requested'){
           await outboundQueue.add('notification',{notification:{channelId:payload.channelId!,phone:payload.phone!,text:payload.text!}},{...commonOptions,attempts:3});
+        } else if(event.type==='broadcast.recipient.requested'){
+          await this.dispatchBroadcastRecipient(payload.recipientId!);
         } else if(event.type==='message.delete.requested'){
           await outboundQueue.add('deletion',{deletion:{ruleId:payload.ruleId!}},{...commonOptions,attempts:3});
         } else if(event.type==='reaction.send.requested'){
@@ -283,6 +286,29 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.relayingOutbox = false;
     }
+  }
+
+  // Um destinatário do disparo. O envio em si vai pelo caminho normal de mensagem, então typing,
+  // retentativa e registro no inbox são os mesmos de uma resposta humana.
+  private async dispatchBroadcastRecipient(id:string){
+    await this.prisma.$transaction(async tx=>{
+      const recipient=await tx.broadcastRecipient.findUnique({where:{id},include:{broadcast:{include:{channel:{select:{id:true,status:true}}}},contact:{select:{id:true,optedOutAt:true}}}});
+      if(!recipient||recipient.status!=='PENDING')return;
+      const {broadcast}=recipient;
+      // Pausado ou cancelado: o destinatário fica PENDING para o reinício reaproveitá-lo.
+      if(broadcast.status!=='RUNNING')return;
+      const skip=async(reason:string)=>{await tx.broadcastRecipient.update({where:{id},data:{status:'SKIPPED',reason}})};
+      // A checagem de saída é refeita aqui: entre criar o disparo e chegar a vez dele, o contato pode ter pedido para sair.
+      if(recipient.contact.optedOutAt)return skip('O contato pediu para sair da lista.');
+      if(broadcast.channel.status!=='CONNECTED')return skip('A conexão estava desconectada no horário do envio.');
+      let conversation=await tx.conversation.findFirst({where:{workspaceId:broadcast.workspaceId,channelId:broadcast.channelId,contactId:recipient.contactId,status:{not:'RESOLVED'}},orderBy:{createdAt:'desc'},select:{id:true}});
+      conversation??=await tx.conversation.create({data:{workspaceId:broadcast.workspaceId,channelId:broadcast.channelId,contactId:recipient.contactId,status:'NEW',mode:'HUMAN'},select:{id:true}});
+      const message=await tx.message.create({data:{workspaceId:broadcast.workspaceId,conversationId:conversation.id,direction:'OUTBOUND',type:'TEXT',status:'PENDING',body:broadcast.body,authorType:'user',authorId:broadcast.createdById}});
+      await tx.outboxEvent.create({data:{workspaceId:broadcast.workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});
+      await tx.broadcastRecipient.update({where:{id},data:{status:'SENT',messageId:message.id,sentAt:new Date(),reason:null}});
+      const left=await tx.broadcastRecipient.count({where:{broadcastId:broadcast.id,status:'PENDING'}});
+      if(left===0)await tx.broadcast.update({where:{id:broadcast.id},data:{status:'DONE',finishedAt:new Date()}});
+    });
   }
 
   private async dispatchScheduledMessage(id:string){
