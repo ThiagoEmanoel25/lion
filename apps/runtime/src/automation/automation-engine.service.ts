@@ -144,7 +144,7 @@ export class AutomationEngineService implements OnModuleDestroy {
       const nextNodeId = edge?.target;
       let routedNodeId: string | undefined = nextNodeId;
       let step = await this.prisma.executionStep.findFirst({ where: { executionId: execution.id, nodeId: node.id, status: 'RUNNING' }, orderBy: { startedAt: 'desc' } });
-      step ??= await this.prisma.executionStep.create({ data: { executionId: execution.id, nodeId: node.id, kind: node.kind, status: 'RUNNING', input: asJson({ context, selectedEdgeId: edge?.id ?? null }) } });
+      step ??= await this.prisma.executionStep.create({ data: { executionId: execution.id, nodeId: node.id, kind: node.kind, status: 'RUNNING', input: asJson({ context, selectedEdgeId: edge?.id ?? null,globalsResolved:Object.keys(globals) }) } });
       try {
         const result = await this.runNode({ executionId: execution.id, workspaceId: execution.workspaceId, playbookId:execution.playbookVersion.playbookId, conversationId: execution.conversationId, context, definition, node, step, nextNodeId });
         if (result === 'waiting' || result === 'terminal') return;
