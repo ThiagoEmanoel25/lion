@@ -26,6 +26,14 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
   const base='/v1/playbooks/:id/simulation-sessions';
 
   const assertPlaybook=async(workspaceId:string,id:string)=>{if(!await app.prisma.playbook.count({where:{id,workspaceId}}))throw new DomainError('NOT_FOUND','Automação não encontrada.',404)};
+  async function simulationVariables(workspaceId:string,input:Record<string,unknown>){
+    const rows=await app.prisma.globalVariable.findMany({where:{workspaceId},select:{normalizedName:true,valueEncrypted:true,sensitive:true}});const supplied=input.global&&typeof input.global==='object'&&!Array.isArray(input.global)?input.global as Record<string,unknown>:{};const publicGlobals:Record<string,string>={};const allowed=new Set<string>();
+    for(const row of rows){if(row.sensitive){if(row.normalizedName in supplied)throw new DomainError('SENSITIVE_GLOBAL_OVERRIDE','Variáveis globais sensíveis não podem ser sobrescritas na simulação.',422);continue}allowed.add(row.normalizedName);try{publicGlobals[row.normalizedName]=decryptWebhookSecret(row.valueEncrypted)}catch{/* valor corrompido fica indisponível */}}
+    const unknown=Object.keys(supplied).find(name=>!allowed.has(name));if(unknown)throw new DomainError('GLOBAL_OVERRIDE_NOT_ALLOWED',`global.${unknown} não é uma variável global não sensível deste workspace.`,422);
+    for(const [name,value] of Object.entries(supplied))publicGlobals[name]=String(value);
+    return {...input,global:publicGlobals};
+  }
+  async function sensitiveGlobals(workspaceId:string){const rows=await app.prisma.globalVariable.findMany({where:{workspaceId,sensitive:true},select:{normalizedName:true,valueEncrypted:true}});return Object.fromEntries(rows.flatMap(row=>{try{return [[row.normalizedName,decryptWebhookSecret(row.valueEncrypted)] as const]}catch{return []}}))}
 
   // Flow jumps read the active (published) definitions of the targets, same workspace only, and never write.
   // ponytail: reloads targets on every step; cache in the session if jump-heavy flows get slow.
@@ -51,11 +59,12 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
       if(!node||(node.kind!=='ai'&&node.kind!=='webhook'))return state;
       await integrationTestRateLimit(app.redis,auth.userId);
       let port:SimulationPort='failure';let aiResponse:string|undefined;let context=state.context;let detail:Record<string,unknown>={};
+      const liveContext={...state.context,global:{...(state.context.global&&typeof state.context.global==='object'&&!Array.isArray(state.context.global)?state.context.global as Record<string,unknown>:{}),...await sensitiveGlobals(auth.workspaceId)}};
       if(node.kind==='webhook'){
         const parsed=AutomationWebhookConfigSchema.safeParse(node.config??{});
         if(parsed.success){
           try{
-            const result=await testIntegrationRequest({config:parsed.data,variables:state.context});
+            const result=await testIntegrationRequest({config:parsed.data,variables:liveContext});
             if(result.ok){
               port='success';
               if(parsed.data.responseVariable)context=setContextPath(context,parsed.data.responseVariable,result.body);
@@ -71,7 +80,7 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
           try{
             // The key stays on the server: it is decrypted here and never put in the session, the response or the audit.
             const provider=new OpenAiProvider(decryptWebhookSecret(workspace.openaiApiKeyEncrypted));
-            const completion=await provider.complete({model:config.data.model,system:`${renderTemplate(config.data.systemPrompt,state.context)}\n\nResponda somente JSON com answer (string), confidence (0..1), shouldHandoff (boolean) e reason (string).`,message:renderTemplate(config.data.userMessage,state.context)});
+            const completion=await provider.complete({model:config.data.model,system:`${renderTemplate(config.data.systemPrompt,liveContext)}\n\nResponda somente JSON com answer (string), confidence (0..1), shouldHandoff (boolean) e reason (string).`,message:renderTemplate(config.data.userMessage,liveContext)});
             port='success';aiResponse=completion.text;
             await app.prisma.usageRecord.create({data:{workspaceId:auth.workspaceId,kind:'ai_tokens',quantity:completion.inputTokens+completion.outputTokens,unit:'token',costCents:completion.costCents,provider:'openai',referenceId:`simulation:${simulationId}`}});
             detail={inputTokens:completion.inputTokens,outputTokens:completion.outputTokens,costCents:completion.costCents};
@@ -105,7 +114,8 @@ export function registerSimulationRoutes(app:FastifyInstance,validate:Validate,r
     const validation=await validate(app.prisma,request.auth.workspaceId,input.definition);
     if(!validation.valid||!validation.definition)throw new DomainError('INVALID_AUTOMATION','A automação possui erros.',422,validation.issues);
     const definition=validation.definition as SimulationDefinition;
-    const session:SimulationSession={userId:request.auth.userId,workspaceId:request.auth.workspaceId,playbookId:id,liveActions:input.liveActions,definition,variables:input.variables,state:createSimulation(definition,input.variables)};
+    const variables=await simulationVariables(request.auth.workspaceId,input.variables);
+    const session:SimulationSession={userId:request.auth.userId,workspaceId:request.auth.workspaceId,playbookId:id,liveActions:input.liveActions,definition,variables,state:createSimulation(definition,variables)};
     const options=await flowOptions(request.auth.workspaceId,definition);
     session.state=stepSimulation(session.state,{kind:'start'},options);
     const simulationId=await store.create(session);

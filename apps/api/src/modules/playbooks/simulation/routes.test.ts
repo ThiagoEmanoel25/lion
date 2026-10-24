@@ -3,6 +3,8 @@ import Fastify from 'fastify';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import errors from '../../../core/errors.js';
 import {playbookRoutes} from '../routes.js';
+import {encryptWebhookSecret} from '../../webhooks/generic.js';
+process.env.FIELD_ENCRYPTION_KEY=Buffer.alloc(32,9).toString('base64');
 
 const PIXEL='clx000000000000000000009';
 const node=(id:string,kind:string,config:Record<string,unknown>={})=>({id,kind,name:id,config,position:{x:0,y:0}});
@@ -22,10 +24,11 @@ function fakeRedis(){
   };
 }
 
-async function build(granted=['playbook.write'],opts:{timezone?:string;targets?:any[]}={}){
+async function build(granted=['playbook.write'],opts:{timezone?:string;targets?:any[];globals?:any[]}={}){
   const redis=fakeRedis();const audits:any[]=[];
   const prisma:any={
     playbook:{count:async({where}:any)=>where.id==='pb'&&where.workspaceId==='ws'?1:0,findMany:async({where}:any)=>(opts.targets??[]).filter(t=>where.id.in.includes(t.id)&&(!where.status||t.status!=='ARCHIVED'))},
+    globalVariable:{findMany:async({where}:any)=>(opts.globals??[]).filter(row=>where.sensitive===undefined||row.sensitive===where.sensitive)},
     metaPixel:{findMany:async()=>[{id:PIXEL}]},
     workspace:{findUnique:async()=>({openaiApiKeyEncrypted:null,timezone:opts.timezone??'America/Bahia'})},
     auditLog:{create:async({data}:any)=>{audits.push(data)}}
@@ -63,6 +66,12 @@ describe('fuso do workspace e saltos para fluxos arquivados',()=>{
 });
 
 describe('sessões do simulador',()=>{
+  it('carrega globais não sensíveis e bloqueia sobrescrita de segredo',async()=>{
+    const globals=[{normalizedName:'link',valueEncrypted:encryptWebhookSecret('https://real.test'),sensitive:false},{normalizedName:'token',valueEncrypted:encryptWebhookSecret('segredo'),sensitive:true}];
+    const flow={start:'t',nodes:[node('t','trigger',{event:'message.received'}),node('m','message',{text:'{{global.link}}'})],edges:[edge('e','t','m')]};const {call}=await build(['playbook.write'],{globals});
+    const ok=await call('POST','','u1',{definition:flow,variables:{global:{link:'https://override.test'}}});expect(ok.statusCode).toBe(201);expect(ok.json().messages[0].text).toBe('https://override.test');
+    const blocked=await call('POST','','u1',{definition:flow,variables:{global:{token:'falso'}}});expect(blocked.statusCode).toBe(422);expect(blocked.json().code).toBe('SENSITIVE_GLOBAL_OVERRIDE');
+  });
   it('inicia, espera resposta e conclui',async()=>{
     const {call,start}=await build();
     const s=await start();expect(s.waiting.kind).toBe('reply');expect(s.messages[0].text).toBe('Oi Ana');expect(s.simulationId).toBeTruthy();
