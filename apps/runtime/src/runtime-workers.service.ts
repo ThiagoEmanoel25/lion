@@ -5,7 +5,7 @@ import {proto} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { PrismaService } from './infra/prisma.service.js';
 import { RedisService } from './infra/redis.service.js';
-import { QUEUES, type AutomationJob, type ConnectionJob, type OutboundJob } from './queues.js';
+import { QUEUES, type AutomationJob, type ConnectionJob, type OutboundJob,type ScheduledMessageJob } from './queues.js';
 import { WhatsAppSessionManager } from './whatsapp/session-manager.service.js';
 import { outboundMessageId } from './whatsapp/message-id.js';
 import { AutomationEngineService } from './automation/automation-engine.service.js';
@@ -18,6 +18,7 @@ import { pendingWaitOf, waitBufferSeconds } from './automation/wait-response.js'
 import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js';
 import { deleteOnTagIdOf } from './automation/message-deletion.js';
 import {selectInboundRoute} from './automation/channel-routing.js';
+import {dispatchScheduledMessage} from './scheduled-message.js';
 
 @Injectable()
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
@@ -40,8 +41,9 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     const outboundQueue = new Queue<OutboundJob>(QUEUES.whatsappOutbound, { connection: this.redis });
     const connectionQueue = new Queue<ConnectionJob>(QUEUES.whatsappConnection, { connection: this.redis });
+    const scheduledQueue = new Queue<ScheduledMessageJob>(QUEUES.scheduledMessages,{connection:this.redis});
     const automationQueue = this.automationQueue = new Queue<AutomationJob>(QUEUES.automationExecute, { connection: this.redis });
-    this.queues.push(outboundQueue, connectionQueue, automationQueue);
+    this.queues.push(outboundQueue, connectionQueue, scheduledQueue,automationQueue);
     const connectionWorker = new Worker<ConnectionJob>(QUEUES.whatsappConnection, job => this.handleConnection(job), {
       connection: this.redis,
       concurrency: 10
@@ -55,10 +57,11 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       connection: this.redis,
       concurrency: 20
     });
-    this.workers.push(connectionWorker, outboundWorker, automationWorker);
+    const scheduledWorker=new Worker<ScheduledMessageJob>(QUEUES.scheduledMessages,job=>dispatchScheduledMessage(this.prisma,job.data.scheduledMessageId),{connection:this.redis,concurrency:20});
+    this.workers.push(connectionWorker, outboundWorker, scheduledWorker,automationWorker);
     for (const worker of this.workers) worker.on('failed', (job, error) => this.logger.error({ jobId: job?.id, err: error }, 'job failed'));
 
-    this.outboxTimer = setInterval(() => { void this.relayOutbox(outboundQueue, automationQueue); }, 1_000);
+    this.outboxTimer = setInterval(() => { void this.relayOutbox(outboundQueue, scheduledQueue,automationQueue); }, 1_000);
     this.outboxTimer.unref();
     void this.purgeExpiredMedia();
     this.mediaTimer = setInterval(() => { void this.purgeExpiredMedia(); }, 6 * 3_600_000);
@@ -209,7 +212,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     await continueSequence();
   }
 
-  private async relayOutbox(outboundQueue: Queue<OutboundJob>, automationQueue: Queue<AutomationJob>) {
+  private async relayOutbox(outboundQueue: Queue<OutboundJob>,scheduledQueue:Queue<ScheduledMessageJob>, automationQueue: Queue<AutomationJob>) {
     if (this.relayingOutbox) return;
     this.relayingOutbox = true;
     try {
@@ -244,7 +247,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           removeOnFail: { age: 604_800, count: 10_000 }
         };
         if(event.type==='scheduled_message.send.requested'){
-          await this.dispatchScheduledMessage(payload.scheduledMessageId!);
+          const scheduled=await this.prisma.scheduledMessage.findUnique({where:{id:payload.scheduledMessageId!},select:{id:true,jobId:true,scheduledFor:true,status:true}});
+          if(scheduled?.status==='PENDING')await scheduledQueue.add('send',{scheduledMessageId:scheduled.id},{...commonOptions,jobId:scheduled.jobId??`scheduled-${scheduled.id}`,delay:Math.max(0,scheduled.scheduledFor.getTime()-Date.now())});
         } else if(event.type==='knowledge.index.requested'){
           await this.knowledge.index(payload.sourceId!,payload.content??null);
         } else if(event.type==='notification.send.requested'){
@@ -308,19 +312,6 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       await tx.broadcastRecipient.update({where:{id},data:{status:'SENT',messageId:message.id,sentAt:new Date(),reason:null}});
       const left=await tx.broadcastRecipient.count({where:{broadcastId:broadcast.id,status:'PENDING'}});
       if(left===0)await tx.broadcast.update({where:{id:broadcast.id},data:{status:'DONE',finishedAt:new Date()}});
-    });
-  }
-
-  private async dispatchScheduledMessage(id:string){
-    await this.prisma.$transaction(async tx=>{
-      const scheduled=await tx.scheduledMessage.findUnique({where:{id},include:{conversation:true}});
-      if(!scheduled||['CANCELLED','SENT','FAILED'].includes(scheduled.status)||scheduled.sentMessageId)return;
-      if(scheduled.conversation.status==='RESOLVED'||scheduled.conversation.mode!=='HUMAN'){
-        await tx.scheduledMessage.update({where:{id},data:{status:'FAILED',error:'A conversa não está disponível para envio humano.'}});return;
-      }
-      const message=await tx.message.create({data:{workspaceId:scheduled.workspaceId,conversationId:scheduled.conversationId,direction:'OUTBOUND',type:'TEXT',status:'QUEUED',body:scheduled.body,authorType:'user',authorId:scheduled.authorId,clientRequestId:`scheduled:${scheduled.id}`}});
-      await tx.scheduledMessage.update({where:{id},data:{status:'PROCESSING',sentMessageId:message.id,error:null}});
-      await tx.outboxEvent.create({data:{workspaceId:scheduled.workspaceId,aggregate:'Message',aggregateId:message.id,type:'message.send.requested',payload:{messageId:message.id}}});
     });
   }
 
@@ -395,8 +386,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   private async purgeExpiredMedia() {
     try {
       await this.prisma.messageMedia.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - MEDIA_RETENTION_MS) } } });
+      const assets=await this.prisma.playbookAsset.findMany({where:{createdAt:{lt:new Date(Date.now()-30*86_400_000)},quickReplies:{none:{}}},select:{id:true},take:100});
+      if(assets.length){
+        const urls=assets.map(asset=>`nexo-asset://${asset.id}`);
+        const [versions,messages]=await Promise.all([this.prisma.playbookVersion.findMany({select:{definition:true}}),this.prisma.message.findMany({where:{mediaUrl:{in:urls}},select:{mediaUrl:true}})]);
+        const used=new Set(messages.flatMap(message=>message.mediaUrl?[message.mediaUrl.slice('nexo-asset://'.length)]:[]));const definitions=versions.map(version=>JSON.stringify(version.definition));
+        for(const asset of assets)if(!used.has(asset.id)&&!definitions.some(definition=>definition.includes(`nexo-asset://${asset.id}`)))await this.prisma.playbookAsset.deleteMany({where:{id:asset.id,quickReplies:{none:{}}}});
+      }
     } catch (error) {
-      this.logger.warn({ err: error }, 'failed to purge expired message media');
+      this.logger.warn({ err: error }, 'failed to purge expired media or orphan assets');
     }
   }
 

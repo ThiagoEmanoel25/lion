@@ -25,6 +25,11 @@ function replaceVariables(value:string,items:ImportReport['items'],id:string){
   return value.replace(/\{([A-Za-z_][\w.-]*)\}/g,(_,name:string)=>{
     const mapped=knownVariables[name];
     if(mapped)return `{{${mapped}}}`;
+    if(/^g_[a-z][a-z0-9_]*$/i.test(name)){
+      const globalName=name.slice(2).toLowerCase();
+      items.push({sourceId:id,status:'pending',message:`Cadastre global.${globalName} no workspace; a variável global da Leona foi convertida, mas nenhum valor foi criado automaticamente.`});
+      return `{{global.${globalName}}}`;
+    }
     items.push({sourceId:id,status:'pending',message:`Confira a variável “${name}”, importada como campo personalizado.`});
     return `{{contact.customFields.${name}}}`;
   });
