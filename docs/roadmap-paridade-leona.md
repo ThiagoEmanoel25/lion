@@ -25,7 +25,7 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 | Transversal 4 Alterações não salvas | Implementado em 23/10/2026 | `beforeunload`, confirmação ao sair do editor e rascunho local a cada 30 s com restaurar/descartar. |
 | 3.4 Dashboard (recorte do MVP) | Implementado em 23/10/2026 | Filtro por conexão em todas as métricas, Leads novos, Taxa de conversão, movimento por horário no fuso do workspace e quebra por conexão. |
 | 3.1 Produtos · 3.2 Venda aprovada · 3.5 PIX | **Fora do MVP** | Decisão de 23/10/2026: este MVP não tem cobrança nem pagamento. Vendas, faturamento, ROAS, lucro e o bloco PIX ficam para depois. |
-| 3.3 Comprovante estruturado | Não iniciado | Depende da conversa com a Kovil, não de pagamento. |
+| 3.3 Comprovante estruturado | Implementado em 23/10/2026; nunca rodou contra a OpenAI | O bloco de IA preenche `comprovante.valor`, `nome_pagador`, `data` e `referencia`. **Falta** combinar com a Kovil um endpoint que receba esse objeto no corpo. |
 | Fase 4 | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
 
 ---
@@ -190,7 +190,11 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 ### 3.3 Leitura de comprovante estruturada (M)
 **Por quê:** os funis 03–05 dependem da Kovil buscar a análise de comprovante dentro do Leona.
 
-**Runtime:** o Bloco de IA com "Identificar comprovante" grava `comprovante.valor`, `comprovante.nome_pagador`, `comprovante.data` e `comprovante.referencia` a partir do JSON que o prompt já pede.
+**Runtime (entregue em 23/10/2026):** o Bloco de IA com "Identificar comprovante" grava
+`comprovante.valor`, `comprovante.nome_pagador`, `comprovante.data` e `comprovante.referencia` a
+partir do JSON que o prompt já pede. Os campos passam por `parseReceipt` em `@nexo/domain`: valor
+aceita `R$ 1.234,56` e `1,234.56`, data sai sempre em `yyyy-mm-dd` e campo ilegível fica nulo em vez
+de virar texto vazio. Só são lidos quando a própria IA marcou o comprovante como válido.
 
 **Integração:** combinar com a Kovil um endpoint que receba esse objeto no corpo da requisição.
 

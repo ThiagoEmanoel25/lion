@@ -570,7 +570,7 @@ function AiEditor({node,aiKeyConfigured,onSave,onCancel}:{node:FlowNode;aiKeyCon
         <ToggleCard title="Entender áudio" description="Transcreve e processa mensagens de áudio." checked={config.understandAudio===true} onChange={value=>patch('understandAudio',value)}/>
         <ToggleCard title="Entender imagem" description="Permite analisar imagens recebidas." checked={config.understandImage===true} onChange={value=>patch('understandImage',value)}/>
         <ToggleCard title="Entender PDF" description="Permite analisar documentos PDF recebidos." checked={config.understandPdf===true} onChange={value=>patch('understandPdf',value)}/>
-        <ToggleCard title="Identificar comprovante" description="Analisa imagem/PDF e cria a saída “Comprovante válido” no topo do bloco." checked={config.identifyReceipt===true} onChange={value=>patch('identifyReceipt',value)}/>
+        <ToggleCard title="Identificar comprovante" description="Analisa imagem/PDF, cria a saída “Comprovante válido” no topo do bloco e preenche {{comprovante.valor}}, {{comprovante.nome_pagador}}, {{comprovante.data}} e {{comprovante.referencia}}. Um campo ilegível fica vazio, sem chute." checked={config.identifyReceipt===true} onChange={value=>patch('identifyReceipt',value)}/>
       </div>
       <section className="ai-conditionals"><div className="ai-section-head"><div><b>Condicionais inteligentes ({conditions.length}/10)</b><p>A IA classifica a resposta e segue pela primeira saída correspondente. A ordem define a prioridade.</p></div><button type="button" onClick={addCondition} disabled={conditions.length>=10}><Plus size={16}/> Adicionar condicional</button></div>
         {conditions.length===0&&<div className="ai-empty"><GitBranch size={22}/><span>Nenhuma classificação adicional. O fluxo usará a saída de sucesso.</span></div>}
@@ -594,7 +594,9 @@ const INTEGRATION_METHODS=['GET','POST','PUT','PATCH','DELETE'] as const;
 const VARIABLE_GROUPS:Array<[string,Array<[string,string]>]>=[
   ['Contato',[['contact.name','Nome completo'],['contact.firstName','Primeiro nome'],['contact.phone','Telefone'],['contact.email','E-mail'],['contact.stage','Etapa']]],
   ['Conversa',[['last_message','Última mensagem'],['conversation.status','Status'],['conversation.queue','Fila']]],
-  ['Fluxo',[['system.date','Data de hoje'],['system.time','Hora atual']]]
+  ['Fluxo',[['system.date','Data de hoje'],['system.time','Hora atual']]],
+  // Só existem depois de um Bloco de IA com "Identificar comprovante" no caminho.
+  ['Comprovante',[['comprovante.valor','Valor'],['comprovante.nome_pagador','Nome do pagador'],['comprovante.data','Data do pagamento'],['comprovante.referencia','Referência da transação']]]
 ];
 function VariableOptions(){const variables=useGlobalVariables();return <>{VARIABLE_GROUPS.map(([group,items])=><optgroup key={group} label={group}>{items.map(([path,label])=><option key={path} value={path}>{label}</option>)}</optgroup>)}{variables.data?.length?<optgroup label="Globais">{variables.data.map(item=><option key={item.id} value={`global.${item.name}`}>{item.name}{item.sensitive?' 🔒':''}</option>)}</optgroup>:null}</>}
 function VariableInput({label,value,onChange,placeholder,invalid}:{label:string;value:string;onChange:(value:string)=>void;placeholder?:string;invalid?:boolean}){

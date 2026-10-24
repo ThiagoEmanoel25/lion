@@ -605,6 +605,9 @@ export class AutomationEngineService implements OnModuleDestroy {
         const routeId = result.receiptValid ? 'receipt_valid' : result.routeId;
         aiContext = setContextPath(aiContext, 'ai.route', routeId);
         aiContext = setContextPath(aiContext, 'ai.receiptValid', result.receiptValid);
+        // Os funis importados do Leona já usam {{comprovante.valor}} e companhia; um campo ilegível
+        // fica null em vez de virar texto vazio, que dispararia EMPTY_MESSAGE numa mensagem.
+        if (config.identifyReceipt === true) for (const [field, value] of Object.entries(result.receipt)) aiContext = setContextPath(aiContext, `comprovante.${field}`, value);
         const successEdge = selectAiRouteEdge(input.definition.edges, node.id, routeId);
         if (!successEdge) throw new NodeExecutionError('DEAD_END', `O nó ${node.id} não possui uma saída válida.`);
         const quote=config.autoSendResponse===true?consumeQuote(aiContext):{context:aiContext};

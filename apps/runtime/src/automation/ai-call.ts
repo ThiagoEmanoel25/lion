@@ -1,7 +1,8 @@
+import { EMPTY_RECEIPT, parseReceipt, type Receipt } from '@nexo/domain';
 export type AiMedia = { contentType: string; data: Buffer; fileName: string | null };
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | Array<Record<string, unknown>> };
 export type AiRouting = { identifyReceipt: boolean; conditionals: Array<{ id: string; label: string; instruction: string }> };
-export type AiCallResult = { ok: true; text: string; tokens: number; routeId: string | null; receiptValid: boolean } | { ok: false; reason: string };
+export type AiCallResult = { ok: true; text: string; tokens: number; routeId: string | null; receiptValid: boolean; receipt: Receipt } | { ok: false; reason: string };
 export type AiTranscriptionResult = { ok: true; text: string } | { ok: false; reason: string };
 
 export function buildAiMessages(input: { systemPrompt: string; userMessage: string; history: Array<{ role: 'user' | 'assistant'; content: string }>; media?: AiMedia | null }): ChatMessage[] {
@@ -22,8 +23,12 @@ function routedMessages(messages: ChatMessage[], routing: AiRouting | undefined)
   if (!routing || (!routing.identifyReceipt && !routing.conditionals.length)) return messages;
   const routes = routing.conditionals.map((item, index) => `${index + 1}. ${item.id} — ${item.label}: ${item.instruction}`).join('\n');
   const instruction = [
-    'Responda SOMENTE com JSON válido no formato {"response":"texto para o cliente","receiptValid":false,"conditionId":null}.',
-    routing.identifyReceipt ? 'receiptValid só pode ser true quando a imagem ou PDF for um comprovante de pagamento legível e válido.' : 'Mantenha receiptValid como false.',
+    routing.identifyReceipt
+      ? 'Responda SOMENTE com JSON válido no formato {"response":"texto para o cliente","receiptValid":false,"conditionId":null,"receipt":{"valor":null,"nome_pagador":null,"data":null,"referencia":null}}.'
+      : 'Responda SOMENTE com JSON válido no formato {"response":"texto para o cliente","receiptValid":false,"conditionId":null}.',
+    routing.identifyReceipt
+      ? 'receiptValid só pode ser true quando a imagem ou PDF for um comprovante de pagamento legível e válido. Quando for, preencha receipt lendo o próprio comprovante: valor como número, nome_pagador como texto, data no formato dd/mm/aaaa e referencia com o identificador da transação. Use null em cada campo que não estiver legível, sem inventar.'
+      : 'Mantenha receiptValid como false.',
     routes ? `Escolha no máximo uma condição abaixo, por prioridade, e coloque o id em conditionId. Se nenhuma corresponder, use null:\n${routes}` : 'Mantenha conditionId como null.',
     'O campo response deve conter a resposta normal que seria enviada ao cliente.'
   ].join('\n');
@@ -46,18 +51,20 @@ export async function callOpenAi(input: { apiKey: string; model: string; message
     if (message?.refusal) return { ok: false, reason: `A IA recusou: ${message.refusal}`.slice(0, 500) };
     const raw = message?.content?.trim();
     if (!raw) return { ok: false, reason: 'A IA não retornou texto.' };
-    let text = raw; let routeId: string | null = null; let receiptValid = false;
+    let text = raw; let routeId: string | null = null; let receiptValid = false; let receipt: Receipt = { ...EMPTY_RECEIPT };
     if (input.routing && (input.routing.identifyReceipt || input.routing.conditionals.length)) {
       try {
-        const parsed = JSON.parse(raw) as { response?: unknown; conditionId?: unknown; receiptValid?: unknown };
+        const parsed = JSON.parse(raw) as { response?: unknown; conditionId?: unknown; receiptValid?: unknown; receipt?: unknown };
         if (typeof parsed.response !== 'string' || !parsed.response.trim()) throw new Error('invalid response');
         text = parsed.response.trim();
         const validIds = new Set(input.routing.conditionals.map(item => item.id));
         routeId = typeof parsed.conditionId === 'string' && validIds.has(parsed.conditionId) ? parsed.conditionId : null;
         receiptValid = input.routing.identifyReceipt && parsed.receiptValid === true;
+        // Só lê os campos de um comprovante que a própria IA considerou válido.
+        if (receiptValid) receipt = parseReceipt(parsed.receipt);
       } catch { return { ok: false, reason: 'A IA retornou uma classificação inválida.' }; }
     }
-    return { ok: true, text: text.slice(0, 8000), tokens: (body.usage?.prompt_tokens ?? 0) + (body.usage?.completion_tokens ?? 0), routeId, receiptValid };
+    return { ok: true, text: text.slice(0, 8000), tokens: (body.usage?.prompt_tokens ?? 0) + (body.usage?.completion_tokens ?? 0), routeId, receiptValid, receipt };
   } catch (error) {
     return { ok: false, reason: error instanceof Error && error.name === 'AbortError' ? 'A IA não respondeu em 60 segundos.' : 'Não foi possível conectar à OpenAI.' };
   } finally {
