@@ -9,9 +9,9 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 | Item | Estado | Entrega |
 |---|---|---|
 | 1.1 Fluxos padrão + palavras-chave | Em validação funcional | Spec H, migration aplicada, API transacional, roteamento do runtime, eventos de encerramento, tela por conexão, ação em massa e associação visível no Gatilho. Compilação e testes automatizados passaram; falta validar as três rotas de entrada com um canal WhatsApp conectado. |
-| 1.2 Chats ao vivo | Implementado em 21/10/2026; validação funcional pendente | Filas Aguardando/Atendendo/Resolvidos, contadores, filtros, transições pela lista, novo chat, canal visível, não respondidas e mensagens agendadas canceláveis. |
-| 1.3 Respostas rápidas | Implementado em 21/10/2026; validação funcional pendente | CRUD com mídia, busca por `/atalho` no composer e inserção sem envio automático. |
-| 1.4 Variáveis globais | Implementado em 21/10/2026; validação funcional pendente | CRUD cifrado, mascaramento, seletor no editor e resolução no runtime sem persistir segredos no contexto. |
+| 1.2 Chats ao vivo | Implementado e coberto automaticamente; validação no navegador pendente | Filas e contadores, filtros, transições otimistas, novo chat idempotente, leitura só ao abrir e agendamentos BullMQ com histórico, auditoria, cancelamento e reivindicação atômica. |
+| 1.3 Respostas rápidas | Implementado e coberto automaticamente; validação no navegador pendente | CRUD pesquisável com mídia e pré-visualização, `/atalho` no composer, teclado completo, inserção sem envio e limpeza de assets órfãos. |
+| 1.4 Variáveis globais | Implementado e coberto automaticamente; validação no navegador pendente | CRUD cifrado, confirmação por referências, seletores textuais, importação de `{g_nome}`, runtime sem persistir segredos e simulação com bloqueio de sobrescrita sensível. |
 | 2.1 Simulador em chat | Implementado em 22–23/10/2026; nunca aberto em navegador | Motor puro em `packages/domain`, sessões efêmeras na API e painel de chat no editor. |
 | 2.2 Intervalo inteligente | Implementado em 22–23/10/2026 | Abas Intervalo/Data/Horários, agendamento no fuso do workspace. |
 | 2.3 Manipulador | Implementado em 22–23/10/2026; SQL nunca rodou contra Postgres | Definir/Somar/Subtrair/Multiplicar/Dividir com `jsonb_set` atômico. |

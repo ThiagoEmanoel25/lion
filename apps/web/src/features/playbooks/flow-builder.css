@@ -212,3 +212,4 @@
 .automation-node .automation-node-head b{margin:0;font-size:13px;white-space:normal}
 .automation-node .node-config-preview>strong,.automation-node .node-button-list div{border-color:color-mix(in srgb,var(--node-accent) 50%,#10231d);background:color-mix(in srgb,var(--node-accent) 20%,#10231d)}
 .automation-node .react-flow__handle{background:var(--node-accent)}
+.variable-textarea{position:relative;display:grid}.variable-textarea>select{position:absolute;right:8px;bottom:8px;width:auto;min-width:48px;padding:5px;border-radius:7px;background:var(--surface,#fff)}.variable-textarea>textarea{padding-bottom:42px!important}.variable-textarea.invalid>textarea{border-color:#c35d50}
