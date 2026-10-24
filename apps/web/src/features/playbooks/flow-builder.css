@@ -186,3 +186,29 @@
 .sim-advanced{background:#fff;border-top:1px solid #e1e8e4;max-height:40%;overflow:auto}.sim-advanced>button{width:100%;display:flex;align-items:center;justify-content:space-between;border:0;background:none;padding:9px 14px;font-size:12px;font-weight:700;color:#47665a}.sim-advanced>div{padding:0 14px 12px;display:flex;flex-direction:column;gap:8px}.sim-advanced label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700}.sim-advanced textarea{width:100%;box-sizing:border-box;font:12px ui-monospace,monospace;border:1px solid #d3dfd8;border-radius:8px;padding:8px}.sim-advanced small,.sim-hint{font-size:11px;color:#6a8478;margin:0;font-weight:400}.sim-advanced .check-field{flex-direction:row}
 @media(max-width:1100px){.sim-panel{bottom:70px}}
 @media(max-width:600px){.sim-panel{position:fixed;inset:0;width:100%!important;max-width:none;border-radius:0;border:0;z-index:300;height:100dvh}.sim-resize{display:none}.sim-msg{max-width:92%}}
+
+/* Padrão Leona em TODOS os blocos: cabeçalho em degradê, ícone em círculo grande e caixas internas
+   tingidas pela cor do bloco. Cada tipo só declara seu acento; o resto é compartilhado. */
+.automation-node{--node-accent:#2f73eb;--node-accent-light:#6ba4ff;border-color:var(--node-accent)}
+.automation-node-trigger{--node-accent:#20b958;--node-accent-light:#3ed87c}
+.automation-node-wait_response{--node-accent:#dc5f1c;--node-accent-light:#f08a3c}
+.automation-node-ai{--node-accent:#6846a7;--node-accent-light:#9b73d8}
+.automation-node-agent{--node-accent:#834fdb;--node-accent-light:#a877ef}
+.automation-node-condition{--node-accent:#3f93e2;--node-accent-light:#6cc4f4}
+.automation-node-delay{--node-accent:#ed620d;--node-accent-light:#ff8f4d}
+.automation-node-webhook{--node-accent:#d9810c;--node-accent-light:#f0a93f}
+.automation-node-assign{--node-accent:#159d92;--node-accent-light:#2fc9bb}
+.automation-node-tag{--node-accent:#4f46e5;--node-accent-light:#6b6ff7}
+.automation-node-pixel{--node-accent:#1565c0;--node-accent-light:#4d93f0}
+.automation-node-kanban{--node-accent:#12806b;--node-accent-light:#2bb79c}
+.automation-node-flow_jump{--node-accent:#d83d5d;--node-accent-light:#ec6a87}
+.automation-node-distributor{--node-accent:#de8208;--node-accent-light:#f5a63d}
+.automation-node-manipulator{--node-accent:#0b8577;--node-accent-light:#16bba7}
+.automation-node-notification{--node-accent:#7448ce;--node-accent-light:#a07ef5}
+.automation-node-handoff{--node-accent:#cf4e52;--node-accent-light:#e9898c}
+.automation-node-outcome{--node-accent:#15996a;--node-accent-light:#3fd398}
+.automation-node .automation-node-head{grid-template-columns:44px minmax(0,1fr) auto;gap:10px;padding:14px 12px;background:linear-gradient(135deg,var(--node-accent-light),var(--node-accent))}
+.automation-node .automation-node-head .automation-node-icon{width:40px;height:40px;border-color:#ffffffb3;background:#ffffff26}
+.automation-node .automation-node-head b{margin:0;font-size:13px;white-space:normal}
+.automation-node .node-config-preview>strong,.automation-node .node-button-list div{border-color:color-mix(in srgb,var(--node-accent) 50%,#10231d);background:color-mix(in srgb,var(--node-accent) 20%,#10231d)}
+.automation-node .react-flow__handle{background:var(--node-accent)}
