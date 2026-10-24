@@ -26,6 +26,8 @@ Cada item tem: **o quê**, **por quê**, **frontend**, **backend/runtime** e **p
 | 3.4 Dashboard (recorte do MVP) | Implementado em 23/10/2026 | Filtro por conexão em todas as métricas, Leads novos, Taxa de conversão, movimento por horário no fuso do workspace e quebra por conexão. |
 | 3.1 Produtos · 3.2 Venda aprovada · 3.5 PIX | **Fora do MVP** | Decisão de 23/10/2026: este MVP não tem cobrança nem pagamento. Vendas, faturamento, ROAS, lucro e o bloco PIX ficam para depois. |
 | 3.3 Comprovante estruturado | Implementado em 23/10/2026; nunca rodou contra a OpenAI | O bloco de IA preenche `comprovante.valor`, `nome_pagador`, `data` e `referencia`. **Falta** combinar com a Kovil um endpoint que receba esse objeto no corpo. |
+| Transversal 5 Responsividade | Verificada por leitura do CSS, não em navegador | Telas da fase 1 já tinham os cortes em 900 e 600 px. Os seis cards do dashboard passaram para três colunas e os filtros empilham abaixo de 760 px. |
+| Transversal 6 Estados vazios | Dispensado | As listas já mostram o botão de criar ao lado do texto de vazio; um segundo botão para a mesma ação não agrega. |
 | Fase 4 | Não iniciado | Specs individuais preparadas em `docs/superpowers/specs/`. |
 
 ---
