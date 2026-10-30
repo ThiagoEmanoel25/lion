@@ -1,556 +1,521 @@
-# Automação de WhatsApp e construtor de fluxos: o que levar para outra ferramenta
+# Automação de WhatsApp e construtor de fluxos: especificação para reimplementar
 
-Escrito para quem vai reconstruir este sistema em outra base de código. Não é um tutorial do Nexo:
-é o conjunto de decisões, contratos e armadilhas que custaram caro para descobrir aqui, para que a
-próxima construção não pague de novo.
+Este documento descreve a automação de WhatsApp e o construtor de fluxos do Nexo com detalhe
+suficiente para reconstruir ambos em outra base de código, em outra linguagem se for o caso.
 
-Leia a seção **Armadilhas** antes de escrever qualquer linha. Metade dos erros listados lá passou por
-revisão de código e só apareceu em teste de mutação ou em produção.
+Ele não é um tutorial da nossa base: é a lista do que precisa existir, por quê, e **onde nós
+erramos**. A seção [Armadilhas](#8-armadilhas-que-nos-custaram-caro) é a parte mais valiosa — cada
+item ali é um bug que chegou a existir no código e custou tempo para encontrar. Ler só ela já reduz
+falhas.
+
+Escrito em 29/10/2026, a partir do código em `packages/contracts`, `packages/domain`,
+`apps/runtime/src/automation` e `apps/api/src/modules/playbooks`.
 
 ---
 
-## 1. A decisão central: o fluxo é dado, não código
+## 1. As quatro peças obrigatórias
 
-Um fluxo é um **JSON versionado**, interpretado por um motor. Não é código gerado, não é uma máquina
-de estados compilada, não é uma classe por bloco.
+Qualquer reimplementação precisa separar estas quatro responsabilidades. A separação não é estética:
+cada fronteira existe porque atravessá-la causou problema.
 
-```
-definition = {
-  start: "<id do nó inicial>",
-  nodes: [{ id, kind, name, config, position: {x,y} }],
-  edges: [{ id, source, target, label?, condition?, isDefault?, priority, port? }],
-  settings: { maxSteps, timeoutSeconds }
+| Peça | Responsabilidade | Por que separada |
+|---|---|---|
+| **Contratos** | Schemas de validação do JSON do fluxo e de cada config de bloco | É o único lugar onde a forma do fluxo é definida. Editor, API e motor validam contra o mesmo schema |
+| **Domínio puro** | Seleção de aresta, interpolação, escrita no contexto, cálculo de espera, condições | Sem I/O, sem banco, sem relógio implícito. É o que permite um simulador que não divirja do motor |
+| **Motor** | Executa um passo por vez, persiste estado, agenda retomadas | Único dono do estado da execução |
+| **Editor** | Desenha o grafo e edita as configs | Consome só os **tipos** dos contratos, nunca os valores |
+
+**A regra que mais nos poupou:** o editor importa apenas tipos dos contratos, nunca valores. As
+constantes que o editor precisa (rótulos, limites, catálogo de condições) são espelhadas localmente.
+Sem isso, o bundle do front arrasta zod e dependências de servidor. Se a sua stack não tem essa
+separação, duplique as constantes de propósito e deixe um teste que compare as duas listas.
+
+**A regra que compramos com dor:** a lógica de caminhar o grafo existe **uma vez**, no domínio puro,
+e o motor a importa. Enquanto o simulador tinha a própria cópia, as duas divergiram em silêncio e o
+simulador aprovava fluxos que quebravam em produção.
+
+---
+
+## 2. O contrato do fluxo
+
+Um fluxo é um grafo dirigido, versionado, guardado como JSON:
+
+```jsonc
+{
+  "start": "node-1",              // id do nó inicial
+  "nodes": [
+    {
+      "id": "node-1",             // 1..80 caracteres, único
+      "kind": "message",          // uma das 22 variedades
+      "name": "Boas-vindas",      // rótulo no canvas, 1..120
+      "config": { },              // forma depende de kind
+      "position": { "x": 100, "y": 180 }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "source": "node-1",
+      "target": "node-2",
+      "port": "success",          // success | failure | reply | timeout (ausente = success)
+      "condition": {              // só em condicional e menu
+        "field": "contact.stage",
+        "operator": "equals",
+        "value": "qualified"
+      },
+      "isDefault": false,         // o caminho "caso contrário"
+      "priority": 0               // menor primeiro
+    }
+  ],
+  "settings": { "maxSteps": 30, "timeoutSeconds": 300 }
 }
 ```
 
-Consequências que você herda ao aceitar isso, e que são o motivo de ele ser a escolha certa:
+**Limites que aplicamos:** 100 nós, 200 arestas, `maxSteps` de 1 a 100, `timeoutSeconds` de 5 a
+3600. Os limites de nós e arestas não são arbitrários: sem eles, um fluxo importado com 500 nós
+derruba a validação e o editor.
 
-- **Publicar é congelar.** Cada publicação cria uma versão imutável (`version`, `definition`,
-  `checksum`). Uma execução guarda o id da versão, não o do fluxo. Editar um fluxo com mil conversas
-  rodando não muda o caminho de nenhuma delas. Sem isso, toda edição é um incidente.
-- **O editor nunca fala com o motor.** O editor produz JSON; o motor consome JSON. As duas pontas só
-  compartilham o esquema.
-- **Migração de formato é inevitável.** Fluxos salvos há seis meses têm campos que não existem mais.
-  Todo leitor de `config` precisa tolerar o formato antigo (ver armadilha 12).
+**Versionamento:** cada salvamento cria uma versão nova e imutável. A publicação aponta a versão
+ativa. Uma execução guarda **o id da versão**, não o do fluxo — uma execução em andamento precisa
+terminar com a definição com que começou. Sem isso, editar um fluxo quebra conversas em curso.
+
+**Salvamento otimista:** o salvamento manda `expectedVersion`; divergência responde 409. Dois
+atendentes no mesmo fluxo é comum.
 
 ---
 
-## 2. Arquitetura mínima
+## 3. Os 22 blocos
 
-Quatro peças. Menos que isso e você vai juntar responsabilidades que precisam escalar separado.
+`kind` é a chave. Os blocos marcados com portas escolhem a saída em tempo de execução
+(seção [5](#5-selecao-de-aresta)); os outros seguem a primeira aresta.
 
-| Peça | Responsabilidade | O que **não** pode estar aqui |
+| kind | O que faz | Portas | Config essencial |
+|---|---|---|---|
+| `trigger` | Ponto de entrada, não executa nada | — | `event` (`message.received`, `tag.added`, `conversation.created`), `oncePerContact` |
+| `message` | Sequência de conteúdos (texto, mídia, arquivo, contato, sticker, pausa) | — | `items[]`, até 30 |
+| `image` / `audio` / `sticker` | Um conteúdo só, formato antigo | — | `url`, `caption`, `ptt` |
+| `buttons` | Menu de opções | por opção + `timeout` | `mode` (`buttons` até 3, `list` até 10), `text`, `buttons[]`, `timeoutSeconds` |
+| `condition` | Ramifica por regras sobre o contexto | — (usa `isDefault`) | `logic` (`all`/`any`), `rules[]` até 20 |
+| `delay` | Espera | — | `mode`: `duration`, `date` ou `schedule` |
+| `wait_response` | Para e espera o contato responder | `reply`, `timeout` | `waitIndefinitely`, `timeoutValue`+`timeoutUnit`, `bufferSeconds`, `saveReplyTo`, `message` |
+| `ai` | Chama o modelo, classifica e roteia | `success`, `failure` + rotas | `systemPrompt`, `userMessage`, `smartConditionals[]`, `identifyReceipt`, `responseVariable` |
+| `agent` | Delega a um agente configurado | — | `agentId` |
+| `webhook` | Requisição HTTP e leitura da resposta | `success`, `failure` | `url`, `method`, `headers`, `body`, `responseFields[]` |
+| `manipulator` | Escreve em campo do contato ou variável do fluxo | `success`, `failure` | `target`, `operation` (definir, somar, subtrair, multiplicar, dividir), `value` |
+| `assign` | Atribui departamento e responsável | — | `departmentId`, `assigneeId` |
+| `tag` | Adiciona ou remove etiquetas | — | `mode`, `tagIds[]` |
+| `handoff` | Controlador de chat | — | `state` (`AWAITING`/`ATTENDING`/`RESOLVED`), `departmentId`, `reason`, `returnToAi` |
+| `kanban` | Cria ou move cartão | — | `boardId`, `columnId`, `mode` |
+| `pixel` | Evento de conversão para o Facebook | `success`, `failure` | `pixelId`, `eventName`, `value`, `currency` |
+| `flow_jump` | Salta para outro fluxo, com teto de 10 saltos encadeados | — | `targetPlaybookId` |
+| `distributor` | Reparte contatos entre saídas por peso | por saída | `outputs[]` (2 a 10, com `weight`), `preventRepeat` |
+| `notification` | Avisa um número interno | — | `phone` (E.164), `message` |
+| `outcome` | Registra desfecho e encerra | terminal | `type` |
+
+### Decisões de forma que valem copiar
+
+- **`strict()` em toda config.** Campo desconhecido é erro, não silêncio. Pegou vários erros de
+  importação que, aceitos, teriam virado comportamento invisível.
+- **Configs legadas normalizam na leitura, nunca são reescritas em massa.** O controlador de chat
+  aceita `{queue, reason}` antigo e deduz `state: 'ATTENDING'`; o delay aceita `{seconds}`. Migração
+  de dados em massa de JSON é irreversível quando dá errado; normalizar na leitura não é.
+- **Valor de bloco antigo nunca é rejeitado.** `typingSeconds` mínimo virou 3 s, mas fluxos salvos
+  com 1 ou 2 são **lidos como 3** em vez de falharem a publicação. Um fluxo no ar tem que continuar
+  publicável depois de um aperto de regra.
+
+---
+
+## 4. O motor
+
+### Estados
+
+`Execution`: `RUNNING` → `WAITING` → `RUNNING` → `SUCCEEDED` | `FAILED` | `CANCELLED`.
+`ExecutionStep` por nó visitado: `RUNNING` → `SUCCEEDED` | `FAILED`, com `input` e `output`.
+
+Os passos não são só auditoria: é por eles que a retomada sabe onde estava, e o contador de passos
+`SUCCEEDED` é o que aplica `maxSteps` entre retomadas.
+
+### O laço
+
+```
+trava distribuída no id da execução (sem ela, dois workers executam o mesmo nó)
+  carrega execução; se terminal, sai
+  se WAITING: confirma que o job é o esperado (ver "retomada"); se não, sai
+  valida a definição da versão
+  enquanto houver nó atual:
+    se passos >= maxSteps → falha MAX_STEPS_EXCEEDED
+    relê status e contexto do banco (cancelamento no meio é respeitado)
+    seleciona a aresta de saída ANTES de executar o nó
+    cria ou reaproveita o passo RUNNING daquele nó
+    executa o nó → 'continue' | 'waiting' | 'terminal' | { next }
+    sem próximo nó → execução SUCCEEDED
+```
+
+**Dois detalhes que não são óbvios:**
+
+1. **A aresta é escolhida antes do nó executar.** O nó recebe `nextNodeId` já resolvido. Isso é o
+   que permite ao bloco detectar que *não tem* saída e encerrar o fluxo de propósito.
+2. **O contexto é relido do banco a cada volta**, não carregado uma vez. Um nó pode gravar contexto
+   dentro da própria transação, e a volta seguinte precisa ver isso.
+
+### Esperas e retomada
+
+Três tipos, cada um com a própria marca no contexto, sob uma chave `_runtime`:
+
+| Marca | Quem espera | Retomada |
 |---|---|---|
-| **API** | CRUD de fluxos, validação, publicação, versões | Enviar mensagem, rodar fluxo |
-| **Runtime** | Motor de execução, filas, sessão do WhatsApp | Regra de validação de fluxo |
-| **Domínio (pacote puro)** | Seleção de aresta, interpolação, condições, cálculos de tempo | I/O, banco, `fetch`, `Date.now()` escondido |
-| **Web** | Editor de canvas e telas | Lógica de execução duplicada |
+| `pendingDelayStepId` | `delay` | job agendado, ação `resume` |
+| `pendingWait {stepId, nodeId, kind}` | `wait_response`, menu | mensagem recebida (`menu_reply`) ou estouro (`menu_timeout`) |
+| `pendingSequence {stepId, index}` | item de mensagem no meio de uma sequência | o worker de envio chama de volta no `index + 1` |
 
-### A regra que salva o domínio
+**A regra de ouro da retomada:** ao acordar, o motor **confirma que o job corresponde à espera
+registrada** antes de continuar. Job de delay só retoma se `pendingDelayStepId` for aquele passo;
+sequência só se o índice for exatamente o seguinte. Sem essa checagem, um job duplicado ou atrasado
+avança o fluxo duas vezes — e em WhatsApp isso é mensagem repetida para o cliente.
 
-O pacote de domínio é **puro e testado sem banco**. Toda a lógica que decide *o que acontece* mora
-lá e é usada **pelo motor real e pelo simulador**. Se o simulador tiver a sua própria cópia da
-seleção de aresta, as duas divergem em semanas e o simulador passa a mentir.
+**Idempotência:** todo job agendado tem `jobId` fixo e derivado — por exemplo
+`automation-seq-<stepId>-<index>`. Tanto o motor (ao pausar) quanto o worker de envio (ao confirmar
+o envio) agendam a continuação; com `jobId` fixo, a fila descarta a segunda. **Não dá para confiar
+em "só um lugar agenda":** nós tentamos, e a retentativa do worker depois de um envio já confirmado
+reintroduziu o envio duplicado.
 
-Mantenha um teste de pureza automatizado que falha se alguém importar `fetch`, cliente de banco ou ler
-o relógio dentro do pacote. O nosso teve um furo (armadilha 10) e deixou passar exatamente isso.
+### Falha
 
-### A regra do pacote de contratos
-
-O front importa **só tipos** do pacote de contratos, nunca valores. Constante que o front precisa é
-espelhada localmente. Motivo: o pacote de contratos carrega zod e dependências de servidor; importar
-um valor arrasta a árvore inteira para o bundle do navegador. É uma regra chata e não negociável —
-coloque no lint, não na revisão humana.
+Erro de nó carrega um código (`CHANNEL_UNAVAILABLE`, `EMPTY_MESSAGE`, `INVALID_NODE_CONFIG`…), marca
+o passo como `FAILED` com o motivo, e grava o código no contexto para que a tela mostre o que
+aconteceu. Códigos genéricos custam horas de depuração depois.
 
 ---
 
-## 3. Modelo de dados
+## 5. Seleção de aresta
 
-O essencial, sem o que não dá para funcionar:
+A parte mais sutil do sistema. A regra completa:
 
-| Tabela | Por que existe |
+```
+candidatas = arestas com source = nó, ordenadas por priority (menor primeiro)
+
+se o nó é menu E tem saída por opção:
+    primeira cuja condition casa com o contexto, senão a isDefault
+se o nó não é condicional:
+    a primeira candidata
+senão (condicional):
+    se tem rules: avalia todas; logic 'all' exige todas, 'any' exige uma
+        casou   → primeira candidata que NÃO é isDefault
+        não casou → a candidata isDefault
+    sem rules: primeira cuja condition casa, senão a isDefault
+```
+
+**Blocos com portas** não passam por aqui: eles escolhem a porta (`success`, `failure`, `reply`,
+`timeout`) e o motor procura a aresta daquela porta.
+
+### A decisão de produto que simplificou tudo
+
+**Saída não conectada encerra o fluxo.** Não é erro de publicação, é aviso. Uma condicional sem o
+caminho "caso contrário" simplesmente termina a conversa quando a condição não bate.
+
+Essa escolha veio de paridade com o Leona, e destravou funis importados que não publicavam. Se você
+está reimplementando, decida isso cedo: a alternativa (exigir todas as saídas conectadas) obriga o
+usuário a desenhar blocos de fim por todo canto.
+
+### Aresta sem porta vale `success`
+
+Arestas salvas antes das portas existirem não têm `port`. Elas são lidas como `success`. Qualquer
+esquema de portas adicionado depois precisa desse padrão, ou todo fluxo antigo perde as saídas.
+
+---
+
+## 6. Contexto e interpolação
+
+O contexto é um objeto JSON que acompanha a execução. Grupos que entregamos:
+
+| Caminho | Origem |
 |---|---|
-| `Workspace` | Tenant. **Toda** consulta filtra por ele (ver armadilha 1) |
-| `Channel` | Um número de WhatsApp conectado, com estado da sessão |
-| `Contact` | Pessoa. `consentAt` para opt-in, `optedOutAt` para lista de saída |
-| `Conversation` | Thread por (contato, canal), com `status` e `mode` (IA ou humano) |
-| `Message` | Cada mensagem, com `externalId` do WhatsApp e `status` de entrega |
-| `Playbook` | O fluxo. Aponta para a versão ativa |
-| `PlaybookVersion` | `version`, `definition` (JSON), `checksum`, `publishedAt`. Único por (fluxo, versão) |
-| `Execution` | Uma corrida do fluxo: `status`, `currentNode`, `context` (JSON) |
-| `ExecutionStep` | Cada passo: `nodeId`, `kind`, `status`, `input`, `output`, `reason`, `durationMs`, `costCents` |
-| `OutboxEvent` | **A espinha dorsal.** `type`, `payload`, `availableAt`, `processedAt`, `attempts` |
-| `ChannelFlowConfig` | Qual fluxo roda em qual gatilho de qual canal |
-| `ChannelKeyword` | Palavra recebida → fluxo |
+| `contact.name`, `contact.firstName`, `contact.phone`, `contact.email`, `contact.stage`, `contact.tagIds` | contato, relido no momento da condicional |
+| `conversation.status`, `conversation.mode`, `conversation.queue`, `conversation.window24h` | conversa, relida no momento da condicional |
+| `system.date`, `system.time`, `system.weekday` | relógio, no fuso do workspace |
+| `last_message`, `last_message_type` | última mensagem recebida |
+| `menu.choice` | opção escolhida no menu |
+| `ai.response`, `ai.route`, `ai.receiptValid` | bloco de IA |
+| `comprovante.valor`, `.nome_pagador`, `.data`, `.referencia` | leitura estruturada de comprovante |
+| `global.*` | variáveis globais do workspace |
+| `_runtime` | estado interno do motor, nunca exibido ao usuário |
 
-`ExecutionStep` parece opcional e não é: sem o histórico passo a passo, depurar "por que esse contato
-recebeu isso" é impossível. Guarde `input` e `output` de cada passo desde o primeiro dia.
+**Interpolação:** `{{caminho}}`, com `undefined` e `null` virando string vazia e objeto virando
+JSON. Regex: `/\{\{\s*([\w.-]+)\s*\}\}/g`.
+
+**Condicionais releem o contato e a conversa do banco antes de avaliar.** Uma condição sobre etiqueta
+precisa ver a etiqueta aplicada há dois segundos por um atendente, não o retrato do início da
+execução. Esse "contexto vivo" é mesclado só nos nós condicionais, para não pesar cada passo.
+
+**Variáveis globais não são persistidas no contexto.** Elas entram via
+`Object.defineProperty(..., {enumerable: false})`, então ficam legíveis para a interpolação e **não
+são serializadas** junto do contexto da execução. Uma chave PIX ou token guardado como variável
+global não pode ficar gravado em cada passo de cada execução para sempre.
 
 ---
 
-## 4. O outbox é a peça que você não deve improvisar
+## 7. O caminho de uma mensagem
 
-Nada envia mensagem direto. Tudo grava uma linha em `OutboxEvent` **dentro da mesma transação** que
-mudou o estado, e um relay entrega.
-
-```
-OutboxEvent { workspaceId, aggregate, aggregateId, type, payload, attempts, availableAt, processedAt }
-índice: (processedAt, availableAt)
-```
-
-O relay roda a cada segundo, pega 50 eventos com `processedAt = null`, `availableAt <= agora` e
-`attempts < 10`, e despacha para a fila certa.
-
-Por que isso importa mais do que parece:
-
-- **Atomicidade.** Criar a mensagem e pedir o envio na mesma transação elimina o caso "mensagem no
-  banco que nunca sai" e o caso "enviou e não registrou".
-- **`availableAt` é agendamento de graça.** Mensagem agendada, espera, disparo em massa espaçado: tudo
-  é um evento com `availableAt` no futuro. Não construa uma segunda fila de agendamento — já está aqui.
-- **Cancelar é marcar `processedAt`.** Cancelar um agendamento ou pausar um disparo é fechar os eventos
-  pendentes. Sem fila paralela, sem job órfão.
-
-Tipos de evento que usamos, como referência de granularidade:
+Nenhum nó fala com o WhatsApp direto. O caminho é sempre:
 
 ```
-message.send.requested          message.delete.requested
-scheduled_message.send.requested  broadcast.recipient.requested
-notification.send.requested     reaction.send.requested
-automation.execution.requested  automation.inbound.received
-automation.trigger.requested    automation.channel_slot.requested
-automation.sequence.continue.requested
+nó                → cria Message (PENDING) + evento de outbox, na MESMA transação
+outbox (relay)    → vira job na fila de saída
+worker de saída   → presença "digitando" → envia pelo Baileys → Message SENT + externalId
+                  → libera a continuação da sequência (jobId fixo)
 ```
 
-### Idempotência: as duas técnicas
+**Por que outbox e não enfileirar direto:** a mensagem e a intenção de enviar nascem na mesma
+transação. Se o processo morre entre `commit` e `enqueue`, a mensagem existiria sem nunca ser
+enviada. O relay varre o outbox a cada segundo.
 
-Toda retentativa precisa ser inofensiva. Use as duas:
+**`availableAt` no evento de outbox é o agendador mais barato que existe.** Mensagem agendada e
+disparo em massa não têm fila própria: criam eventos com `availableAt` no futuro. Retentativa,
+cancelamento (marcar `processedAt`) e ordenação vêm de graça. Se a sua stack tem outbox, use isso
+antes de montar um scheduler.
 
-**1. `jobId` fixo e determinístico.** O id do job é derivado do que ele faz, nunca aleatório:
+**Sequência de conteúdos:** um bloco de mensagem com N itens envia **um por vez**, cada um liberando
+o próximo depois do envio confirmado. A pausa entre itens é um item do tipo `pause` com faixa
+aleatória. Não envie os N de uma vez: o WhatsApp entrega fora de ordem e o número fica marcado.
 
+---
+
+## 8. Armadilhas que nos custaram caro
+
+Cada item aqui é um bug que existiu no código.
+
+### 8.1 Poluição de protótipo na escrita de contexto (segurança)
+
+A função que grava no contexto (`setContextPath`) recebia caminho do usuário — webhook, IA,
+manipulador. Com `__proto__.x` como caminho, ela envenenava `Object.prototype` **do processo
+inteiro, atravessando workspaces**.
+
+```js
+// correção, no sink compartilhado
+if (parts.some(p => p === '__proto__' || p === 'constructor' || p === 'prototype')) return next;
 ```
-outbox-<eventId>
-automation-seq-<stepId>-<index>
-automation-wait-reply-<stepId>
-automation-menu-timeout-<executionId>-<stepId>
-automation-resume-<executionId>-<stepId>
+
+Corrija **no ponto único de escrita**, não em cada chamador. Tínhamos três chamadores e dois estavam
+desprotegidos.
+
+### 8.2 Escape de vCard que era um no-op
+
+```js
+value.replace(/;/g, '\;')   // ERRADO: '\;' === ';' em JS. Não faz nada.
+value.replace(/;/g, '\;')  // certo
 ```
 
-A fila rejeita o duplicado. Isso é o que impede o motor e o worker de agendarem a mesma continuação
-duas vezes — situação real, porque os dois têm motivo para agendar.
+Pior: **o teste usava o mesmo literal errado**, então nunca poderia falhar. Ao escrever teste de
+escape, use `String.raw` ou escreva a saída esperada caractere por caractere.
 
-**2. Reivindicação condicional.** Para transições que disparam efeito externo, mude o estado com uma
-condição e **confie na contagem**:
+### 8.3 O teste que não pega o bug
+
+Duas vezes um teste passou com o bug reintroduzido. A técnica que resolveu: **reintroduza o bug de
+propósito e confirme que o teste falha**. Em lógica de escape, ritmo, fuso e idempotência, faça
+isso sempre. No disparo em massa, meu primeiro teste de virada de dia passava com a mutação — a
+asserção certa não era "os horários crescem", era "a distância entre envios consecutivos nunca fica
+abaixo do mínimo".
+
+### 8.4 Classe de CSS que nunca casava
+
+O destaque do nó ativo no simulador — a função principal da tela — era invisível, porque a regra era
+`.no-ativo .no` e a biblioteca de grafo põe a classe no elemento **de fora**: `.grafo__no.ativo .no`.
+O padrão certo já existia no mesmo arquivo, três linhas acima. Ao estilizar nó de grafo, confirme
+em qual elemento a classe cai.
+
+### 8.5 Mensagem vazia depois da interpolação
+
+`{{nome}}` com a variável ausente vira string vazia, e o WhatsApp recusa mensagem vazia. Produção
+lançava `EMPTY_MESSAGE`; o simulador **aceitava** e seguia. Validadores e simuladores precisam
+recusar exatamente o que produção recusa, ou aprovam fluxos que quebram no cliente.
+
+### 8.6 Encerrar conversa duas vezes
+
+A transição para "resolvido" disparava um evento que mandava mensagem de encerramento. Retentativa
+ou dois cliques mandavam duas. A correção é **reivindicar a transição condicionalmente**:
 
 ```sql
-UPDATE conversation SET status='RESOLVED' WHERE id=? AND status <> 'RESOLVED'
--- count = 0 → outra corrida já resolveu: não emita o evento
+UPDATE ... WHERE id = ? AND status <> 'RESOLVED'
+-- 0 linhas afetadas = outro já resolveu: não emite nada
 ```
 
-Executar duas vezes manda duas mensagens para o cliente. A reivindicação é o que garante "exatamente
-uma vez" sem lock distribuído.
+O mesmo padrão resolveu "apagar mensagem ao aplicar etiqueta": a regra sai de `PENDING` para
+`REQUESTED` com `updateMany` condicional, e só quem conseguiu a mudança enfileira a exclusão.
+
+### 8.7 Arquivar um fluxo tornou outro insalvável
+
+O fluxo A saltava para o B. Arquivar o B fez a validação de A produzir erro; o salvamento recusa
+qualquer erro; resultado: 422 e trabalho perdido ao editar A. **Mudança de estado em um registro não
+pode tornar outro insalvável.** Destino inexistente é erro; destino arquivado é aviso.
+
+### 8.8 Comparação de status por substring
+
+O importador reconhecia status com `includes`, e `"unresolved"` casava com `RESOLVED`. Comparação de
+enum é sempre exata e ancorada. Valor não reconhecido vai para um padrão seguro **e deixa uma
+pendência visível** — nunca adivinhe em silêncio.
+
+### 8.9 Fuso horário errado em espera agendada
+
+O simulador caía num fuso fixo em vez do fuso do workspace, e todo bloco de agenda ou data previa a
+hora errada fora daquele fuso. Fuso é parâmetro, nunca constante, e fuso inválido (`"BRT"` existe em
+dados reais) tem que cair num padrão em vez de quebrar:
+
+```js
+try { fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false }); }
+catch { fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: '2-digit', hour12: false }); }
+```
+
+A hora `"24"` aparece à meia-noite em alguns runtimes: use `% 24`.
+
+### 8.10 Regressão por escrever campo não configurado
+
+O controlador de chat em "atendimento" gravava fila e responsável **mesmo quando a config não os
+tinha**, zerando a fila de conversas já em atendimento em fluxos publicados. Só escreva o campo que
+a config realmente traz. Config legada sem o campo não quer dizer "apague o valor".
+
+### 8.11 Importador que derrubava a importação inteira
+
+Um fuso não-IANA num nó fazia a importação de 40 nós falhar inteira. Conversor de dado externo trata
+cada item isoladamente, e o item problemático vira pendência no relatório.
+
+### 8.12 Varredura de pureza vazia
+
+Tínhamos um teste garantindo que o domínio puro não faz I/O, e ele não cobria dois arquivos novos e
+a checagem de relógio era vazia. **Plantamos um `fetch()` de propósito** para confirmar que o teste
+pegava. Teste de "não existe X" precisa ser verificado plantando X.
+
+### 8.13 Sessão vazando contra o limite
+
+Sessões de simulação tinham teto por usuário e vazavam ao recarregar a página, respondendo 429 para
+quem não tinha culpa. Para recurso efêmero, **o servidor evita o mais antigo** em vez de recusar o
+novo.
+
+### 8.14 Salto de fluxo em laço
+
+Fluxo A salta para B, B salta para A: laço infinito criando execuções. O contador de profundidade
+viaja no contexto (`_runtime.jumpDepth`) e o teto é 10. Qualquer bloco que inicie outro fluxo
+precisa de um contador assim, no contexto e não na memória do processo.
+
+### 8.15 Número bloqueado por rajada
+
+No disparo em massa, intervalo fixo e sem teto diário é o caminho curto para o número ser bloqueado.
+O que aplicamos: intervalo **sorteado** entre mínimo e máximo, piso de 20 s que a API recusa baixar,
+cota por janela de 24 h, e opt-in como regra e não opção. E a checagem de "pediu para sair" é
+**refeita no momento do envio**, porque o pedido pode chegar depois do disparo ser criado.
 
 ---
 
-## 5. Saídas nomeadas (o contrato das conexões)
+## 9. Realidades do WhatsApp não oficial
 
-Uma aresta tem `source`, `target`, `priority`, e opcionalmente `port`, `condition`, `isDefault`.
+Usamos Baileys. O que vale saber antes de começar:
 
-```
-portas possíveis: success | failure | reply | timeout
-
-webhook       → success, failure
-ai            → success, failure
-pixel         → success, failure
-manipulator   → success, failure
-wait_response → reply, timeout
-```
-
-Arestas salvas antes das portas existirem não têm `port`: **leia ausência como `success`**. Essa única
-linha de compatibilidade evitou migrar dados.
-
-### A ordem de seleção da próxima aresta
-
-Exatamente esta, e a ordem importa:
-
-1. Candidatas = arestas cuja origem é o nó, **ordenadas por `priority` crescente**.
-2. **Menu com rotas por opção:** primeira candidata cuja condição casa com a escolha; se nenhuma, a
-   marcada como `isDefault`.
-3. **Condicional:** avalia as regras com `logic` (`all` ou `any`). Casou → primeira aresta **não**
-   default. Não casou → a aresta default.
-4. **Outros nós:** primeira candidata cuja condição casa, senão a default, senão a primeira.
-
-### A regra de produto que simplifica tudo
-
-**Um caminho sem conexão encerra o fluxo.** Não é erro de validação, não bloqueia publicação, não é
-exceção em tempo de execução. O contato simplesmente para ali.
-
-Adotamos isso porque o concorrente faz assim e porque a alternativa — exigir que todo caminho termine
-em um nó terminal — bloqueava a publicação de fluxos legítimos importados. Vire erros de "falta saída"
-em **avisos**. Isso destravou metade dos fluxos importados.
-
----
-
-## 6. O motor: laço, estados e as três esperas
-
-O laço é simples: carrega a execução, resolve o nó atual, executa, escolhe a aresta, repete até
-terminar, esperar ou estourar `maxSteps`.
-
-O que **não** é simples é a espera. Um fluxo de WhatsApp passa a maior parte da vida parado esperando
-gente. Existem três esperas e cada uma precisa do seu próprio estado:
-
-```
-_runtime: {
-  pendingDelayStepId?: string              // intervalo / agendamento
-  pendingWait?: { stepId, nodeId, kind: 'menu' | 'reply', since? }
-  pendingSequence?: { stepId, index }      // item N de uma mensagem de vários conteúdos
-  quoteNext?, jumpDepth?, error?
-}
-```
-
-### A regra que evita o bug mais difícil desta categoria
-
-Quando um job de retomada chega, **confira se ele é o job que a execução está esperando**:
-
-```
-delayDue    = job.action==='resume'       && pending.pendingDelayStepId === job.resumeStepId
-menuDue     = job.action==='menu_reply'   && pendingWait.stepId        === job.resumeStepId
-sequenceDue = job.action==='sequence_next'&& pendingSequence.stepId    === job.resumeStepId
-                                          && pendingSequence.index     === job.sequenceIndex
-```
-
-Sem essa checagem, um job atrasado de uma espera já resolvida retoma a execução de um ponto que não
-existe mais, e o contato recebe uma mensagem do meio do fluxo sem contexto. **Retome por `stepId`,
-nunca por "o nó atual".**
-
-### Buffer de resposta
-
-Quando o fluxo espera resposta, o contato manda três mensagens em dez segundos. Sem buffer, o fluxo
-processa a primeira e ignora as outras duas, ou pior, roda três vezes.
-
-Solução: uma janela de buffer (máximo 300 s no nosso caso) com `jobId` fixo por `stepId`. Mensagens
-dentro da janela são deduplicadas pelo job, e quando ele roda, lê **todas** as mensagens da janela e
-junta os corpos com `\n` numa única `last_message`. O tipo é o da última mensagem.
-
-### Limites que você precisa ter desde o início
-
-```
-maxSteps por execução           (padrão 30)   → erro MAX_STEPS_EXCEEDED
-conteúdos por bloco de mensagem 30
-"digitando"                     3 a 60 s
-pausa entre conteúdos           até 300 s
-espera por resposta             até 2.678.400 s (31 dias)
-buffer de resposta              até 300 s
-profundidade de salto de fluxo  jumpDepth, para fluxo que chama fluxo em ciclo
-```
-
-Um fluxo com ciclo e sem `maxSteps` roda para sempre e consome a conta de IA inteira. O limite não é
-refinamento, é contenção de incêndio.
-
----
-
-## 7. Catálogo de blocos
-
-22 tipos. A coluna de saídas é o que importa para o motor.
-
-| Bloco | O que faz | Saídas |
-|---|---|---|
-| `trigger` | Ponto de entrada. Não tem editor próprio: o gatilho mora na configuração do canal | 1 |
-| `message` | Vários conteúdos em sequência: texto, mídia, arquivo, contato (vCard), sticker, pausa | 1 |
-| `image` `audio` `sticker` | Mídia avulsa | 1 |
-| `buttons` | Menu de opções (até 3 botões ou 10 itens de lista) | 1 por opção + inatividade |
-| `wait_response` | Espera o contato responder, com buffer e salvamento da resposta | `reply`, `timeout` |
-| `ai` | Chama o modelo, roteia por classificação, lê comprovante | `success`, `failure` + 1 por rota |
-| `agent` | Entrega a conversa a um agente de IA com base de conhecimento | 1 |
-| `condition` | Regras sobre o contexto, com `all` ou `any` | casou / não casou |
-| `delay` | Intervalo fixo, data específica ou faixa de horários por dia da semana | 1 |
-| `webhook` | HTTP para fora, grava a resposta no contexto | `success`, `failure` |
-| `assign` | Departamento e responsável, resolvidos no momento da execução | 1 |
-| `tag` | Adiciona ou remove etiquetas | 1 |
-| `manipulator` | Define, soma, subtrai, multiplica ou divide um campo | `success`, `failure` |
-| `handoff` | Controlador de chat: Aguardando, Atendimento, Resolvido | 1 (opcional) |
-| `kanban` | Cria ou move cartão | 1 |
-| `flow_jump` | Salta para outro fluxo | 0 |
-| `distributor` | Divide contatos entre saídas por peso, com contagem persistida | 1 por saída |
-| `notification` | Avisa a equipe pelo próprio canal | 1 |
-| `pixel` | Evento de conversão para o Facebook | `success`, `failure` |
-| `outcome` | Registra o desfecho (qualificado, venda, agendamento…) | 0 |
-
-### Blocos cujo detalhe some na reconstrução
-
-- **`message` é uma sequência, não uma mensagem.** Um bloco manda N conteúdos com pausas entre eles.
-  Isso obriga a terceira espera (`pendingSequence`) e é a razão de a entrega ser por item, não por
-  bloco. Se você modelar "um bloco = uma mensagem", vai refazer depois.
-- **`buttons` tem dois comportamentos.** Com as saídas ligadas por opção, ele **espera** a escolha.
-  Com uma saída única, ele manda e segue. O segundo caso existe por causa de fluxos antigos; decida
-  explicitamente se você quer manter.
-- **Escolha de menu precisa de três formas de casar.** O contato toca no botão (vem o id), digita o
-  texto do botão, ou digita o número da opção. Clientes de WhatsApp sem suporte interativo só
-  permitem os dois últimos. Implementar só o id quebra para parte da base.
-- **`distributor` precisa de contador persistido**, senão o rateio reinicia a cada deploy.
-
----
-
-## 8. Gatilhos: onde o fluxo começa
-
-Decisão importante: **o gatilho não mora no fluxo, mora no canal.** Cada canal tem quatro encaixes:
-
-```
-WELCOME               primeira mensagem do contato
-DEFAULT_RESPONSE      contato escreve e nenhum fluxo está rodando, com janela em horas (padrão 24)
-CONVERSATION_RESOLVED conversa finalizada
-HANDOFF_CLOSED        atendimento finalizado
-```
-
-Mais **palavras-chave** por canal: palavra recebida → fluxo, com casamento `EXACT` ou `CONTAINS`.
-
-### A ordem de roteamento de uma mensagem recebida
-
-Exatamente esta:
-
-1. Execução esperando resposta? **Retoma** — e para aqui. Nunca inicie um fluxo novo com a mensagem
-   que respondeu a uma espera. (Esse foi um bug real: o contato respondia e recebia, ao mesmo tempo,
-   a continuação do fluxo e as boas-vindas de novo.)
-2. Casa com palavra-chave? Inicia o fluxo dela. **`EXACT` antes de `CONTAINS`**, e entre dois
-   `CONTAINS`, a palavra mais longa ganha — senão "pix" rouba "pixel".
-3. É a primeira mensagem do contato naquele canal? Inicia o de boas-vindas.
-4. Nenhuma execução rodou dentro da janela? Inicia a resposta padrão.
-5. Nada.
-
-Os eventos internos de gatilho (`message.received`, `tag.added`, `conversation.created`) continuam
-existindo para fluxo disparado por etiqueta, com `oncePerContact` para não repetir.
-
----
-
-## 9. Contexto, variáveis e interpolação
-
-O contexto da execução é um JSON que cresce conforme o fluxo anda:
-
-```
-contact: { name, firstName, phone, email, stage, customFields, tags, tagIds }
-conversation: { status, mode, queue, assigneeId, window24h }
-system: { weekday, time, date }      ← no fuso do workspace
-global: { ... }                      ← variáveis globais do workspace
-last_message, last_message_type
-ai: { response, route, receiptValid }
-comprovante: { valor, nome_pagador, data, referencia }
-_runtime: { ... }                    ← estado do motor, nunca exposto ao usuário
-```
-
-Interpolação: `{{ caminho.com.ponto }}`. Valor ausente vira **string vazia**, objeto vira JSON.
-
-### Duas regras não óbvias
-
-**1. Condições leem o estado de agora, não o do início.** Quando a execução pausa 3 dias num
-intervalo, o contato pode ter ganhado etiqueta, mudado de etapa, sido atribuído. Reconstrua a parte
-"viva" do contexto (contato, conversa, relógio) **no momento de avaliar**, e mescle sobre o contexto
-guardado. Avaliar condição com o retrato de três dias atrás dá a resposta errada sem nenhum sinal.
-
-**2. Mensagem que ficou vazia é erro, não mensagem vazia.** Se `{{nome}}` não existe e o texto era só
-isso, o resultado é `""`. Enviar string vazia pelo WhatsApp falha de forma obscura. Falhe explícito
-(`EMPTY_MESSAGE`) e mande pela saída de erro. **E faça o simulador falhar igual** (armadilha 7).
+- **A sessão pertence a um worker.** O socket vive na memória de um processo. Com várias instâncias,
+  decida quem é o dono do canal e trate "sessão indisponível" como erro retentável, não como falha
+  definitiva.
+- **Sticker tem que ser WebP.** Verifique o arquivo antes de enviar; o cliente recusa em silêncio.
+- **Apagar mensagem tem janela.** Precisa de `remoteJid`, `fromMe: true` e o id externo. Janela
+  expirada é falha definitiva: marque e pare, não fique retentando.
+- **Botão interativo é instável.** Trate sempre a resposta digitada como alternativa: o contato
+  responde com o texto da opção ou com o número dela. Nossa resolução de escolha aceita os três
+  (id, rótulo, número).
+- **Guarde o id externo de toda mensagem enviada.** Sem ele não há reação, resposta citada nem
+  exclusão depois.
+- **Presença "digitando"** antes do envio é o que faz a conversa não parecer robô. Aplicada por
+  item, não por bloco.
 
 ---
 
 ## 10. Validação: erro versus aviso
 
-Duas classes, e a diferença é operacional:
+Duas categorias, e a diferença importa muito para a experiência:
 
-- **Erro bloqueia publicação.** Reserve para o que torna o fluxo impossível: nó inicial inexistente,
-  aresta apontando para nó que não existe, config que não passa no esquema, ciclo sem saída.
-- **Aviso não bloqueia.** Caminho sem conexão, nó inalcançável, fluxo de destino arquivado.
+**Erro** (bloqueia publicar): saída de menu sem rota ou com rota duplicada, rota de IA inválida,
+saída de distribuidor sem destino, porta inválida ou duplicada, destino de salto ausente ou
+inexistente, desfecho sem tipo, atribuição sem alvo, agente ausente.
 
-Erre para o lado do aviso. Cada erro a mais é um fluxo importado que o cliente não consegue publicar,
-e ele não vai entender por quê.
+**Aviso** (publica mesmo assim): bloco sem saída (`MISSING_OUTPUT`), condicional sem um dos caminhos
+(`CONDITION_ENDS_FLOW`), destino de salto **arquivado**.
 
-Códigos que valem copiar como checklist de validação: nó inicial ausente ou não-gatilho, ids
-duplicados de nó e de aresta, aresta com origem ou destino inexistente, auto-laço, ciclo, nó sem
-entrada, nó inalcançável, porta inválida para o tipo do nó, duas arestas na mesma porta, opção de
-menu sem rota, rota de menu para opção que não existe, prioridade duplicada em ramos, nó terminal com
-saída, e um por tipo para config inválida.
-
-### A armadilha de salvar
-
-Se a validação roda no salvamento **e** o salvamento rejeita qualquer erro, um fluxo pode se tornar
-insalvável por causa de uma mudança em **outro** fluxo. Aconteceu aqui: arquivar o fluxo B fez o
-fluxo A, que saltava para B, virar insalvável — e quem estava editando A perdeu o trabalho (armadilha 4).
-
-**Regra: nada que aconteça fora de um fluxo pode impedir que ele seja salvo.**
+A regra que extraímos: **erro é o que vai quebrar em execução; aviso é escolha de desenho.** Quando
+em dúvida, aviso — erro que bloqueia publicação de fluxo que já funcionava é a pior falha de
+produto que cometemos.
 
 ---
 
 ## 11. Simulador
 
-Vale muito e é mais barato do que parece, **se** o motor de simulação for o mesmo código puro do motor
-real. Um simulador separado mente.
+Vale construir, e vale construir do jeito certo: um **motor puro separado**, que recebe
+`(estado, entrada)` e devolve novo estado, sem banco, sem fila, sem rede.
 
-Forma que funcionou: função pura `stepSimulation(state, input)` com `input` sendo
-`start | reply | choice | advance | port`, estado serializável em JSON, limites de 200 passos e 100
-mensagens. Sessões efêmeras no servidor, teto por usuário com descarte do mais antigo (não erro 429).
-
-Três coisas que o simulador precisa recusar exatamente como a produção: mensagem vazia por variável
-ausente, fuso do workspace nos cálculos de data, e chamada externa de verdade só com confirmação
-explícita.
+- Entradas: `start`, `reply`, `choice`, `advance`, `port`.
+- Estado inteiramente serializável em JSON, para caber numa sessão efêmera.
+- Tetos (200 passos, 100 mensagens) que resultam em **erro**, não em laço.
+- Ele importa a mesma seleção de aresta e a mesma interpolação do motor real. Se duplicar, divergem.
+- "Executar de verdade" (chamar IA ou webhook mesmo) exige confirmação explícita **por sessão**, não
+  um botão que fica ligado.
 
 ---
 
-## 12. Armadilhas
+## 12. Como um fluxo começa
 
-Esta é a parte que justifica o documento. Cada item aconteceu, passou por revisão, e custou tempo.
+Separe o gatilho do desenho do fluxo. Um fluxo não deve decidir quando ele mesmo começa.
 
-### 1. Poluição de protótipo no gravador de contexto
+Por conexão de WhatsApp, quatro posições e uma lista de palavras-chave:
 
-A função que escreve `contexto.caminho = valor` aceitava `__proto__.x` e envenenava
-`Object.prototype` **do processo inteiro, para todos os workspaces**. A entrada vinha de webhook, de
-resposta de IA e do manipulador — três portas para o mesmo lugar.
+| Posição | Quando |
+|---|---|
+| Boas-vindas | primeira mensagem do contato naquela conexão |
+| Resposta padrão | contato escreve e nenhuma execução rodou dentro da janela (24 h por padrão) |
+| Conversa finalizada | conversa é resolvida |
+| Atendimento finalizado | atendente encerra |
 
-Conserto: barrar `__proto__`, `constructor` e `prototype` **no sumidouro compartilhado**, não em cada
-chamador. Um dos chamadores sempre escapa.
+**Ordem de decisão na mensagem recebida** — nessa ordem, e ela é o que evita começar fluxo em cima
+de fluxo:
 
-### 2. Uma barra invertida que não existia
-
-O escape de ponto e vírgula do vCard estava escrito `'\;'` em JavaScript. Isso **é** `';'` — a barra
-some. O código não escapava nada.
-
-O que fez isso sobreviver: **o teste usava o mesmo literal quebrado na expectativa**, então passava
-com e sem o bug. Em testes de escape, escreva a expectativa com string literal crua e nunca com a
-mesma construção que o código usa.
-
-### 3. Seletor de CSS que nunca casava
-
-A biblioteca de canvas coloca a classe no nó-contêiner dela, não no elemento interno. O destaque do
-nó em execução no simulador — a função principal da entrega — era invisível. O padrão correto já
-existia três linhas acima no mesmo arquivo, para outro estado.
-
-Lição: se a entrega é visual, **alguém precisa abrir no navegador**. Nenhum teste nosso pegaria isso.
-
-### 4. Um fluxo arquivado deixando outro insalvável
-
-Ver seção 10. Erro de nível alto em condição externa ao fluxo.
-
-### 5. O fuso errado no simulador
-
-O simulador caía num fuso fixo em vez do fuso do workspace. Todo cálculo de agendamento e de data
-previa horário diferente da produção para quem não estava naquele fuso. Passe o fuso explicitamente;
-nunca tenha um padrão plausível (foi justamente o padrão plausível que escondeu o bug).
-
-### 6. Regressão por escrever campo não configurado
-
-O bloco que coloca a conversa em atendimento passou a **limpar** fila e responsável em fluxos já
-publicados que não configuravam esses campos. Escreva só o que foi configurado:
-
-```js
-{ ...(queue ? { queue } : {}), ...(assigneeId ? { assigneeId } : {}) }
+```
+1. existe execução esperando resposta? → retoma, e NÃO inicia nada
+2. a mensagem casa com palavra-chave?  → inicia o fluxo dela
+3. é a primeira mensagem do contato?   → Boas-vindas
+4. nenhuma execução na janela?         → Resposta padrão
+5. nada                                 → não faz nada
 ```
 
-### 7. O simulador sendo mais tolerante que a produção
-
-Onde a produção lança `EMPTY_MESSAGE`, o simulador seguia feliz. O usuário testava, funcionava, e
-quebrava no cliente. **Toda divergência de rigor entre simulador e produção é um bug do simulador.**
-
-### 8. Importador casando por substring
-
-Ao importar fluxos de outra ferramenta, o estado `"unresolved"` casou como `RESOLVED` por conter a
-palavra. Ancore comparações de enum; o que não reconhecer deve cair num padrão seguro **e gerar
-pendência visível**, nunca um palpite silencioso.
-
-### 9. Importador derrubando a importação inteira
-
-Um fuso não-IANA (`BRT`) num fluxo de cinquenta jogava exceção e perdia tudo. Toda conversão de dado
-externo entra em `try/catch` que termina em pendência, não em exceção.
-
-### 10. Teste de pureza vazio
-
-O teste que garantia que o pacote de domínio não faz I/O não cobria dois arquivos novos, e a
-verificação de leitura de relógio era vacuamente verdadeira. Confirmei plantando `fetch()` dentro do
-pacote: o teste passou.
-
-**Teste de garantia precisa ser testado por mutação.** Plante o problema e veja o teste falhar.
-Fizemos isso em todo guarda crítico deste sistema e encontramos dois testes inúteis.
-
-### 11. Campo preenchido com string vazia em silêncio
-
-O importador, quando não conseguia adivinhar a chave do valor, gravava `''` no campo do contato.
-Vazio é um valor; ele passa por validação e estraga o dado. Prefira pendência a palpite.
-
-### 12. Config antiga que não existe mais
-
-Depois de mudar fila de texto livre para id de cadastro, fluxos antigos continuam tendo o texto. O
-leitor precisa aceitar os dois, preferir o novo, e a interface precisa mostrar o legado como
-pendência em vez de apagá-lo. O mesmo vale para aresta sem `port`.
-
-### 13. Validação faltando no caminho menos usado
-
-O sticker avulso não era validado como WebP, só o sticker dentro da sequência de mensagem. O caminho
-"avulso" de cada tipo de conteúdo esquece a validação do caminho principal. Liste os dois e compare.
-
-### 14. Regra criada antes do envio existir
-
-A regra "apagar esta mensagem quando a etiqueta for aplicada" precisa do id da mensagem no WhatsApp,
-que só existe **depois** do envio confirmado. Criar a regra no momento do agendamento gera regra
-órfã apontando para mensagem que nunca saiu. Crie efeitos que dependem de id externo no retorno do
-envio, não na intenção.
-
-### 15. O teste que não pegava o bug que eu tinha acabado de plantar
-
-No disparo em massa, mutei o guarda de virada de dia e o teste continuou verde. O teste checava se a
-agenda era **crescente**; o bug violava o **intervalo mínimo**. Duas propriedades diferentes, e só
-uma importava para o risco real (bloqueio do número).
-
-Escreva o teste contra a propriedade que você precisa garantir, não contra uma consequência dela.
-
-### 16. Multi-tenant: o filtro que não pode faltar
-
-Toda consulta filtra por workspace, incluindo as de dentro de transação e as que buscam por id
-primário. Buscar por id "porque id é único" é a forma mais comum de vazar dado entre clientes: o id
-vem da config do fluxo, que vem do JSON, que pode ter sido importado de qualquer lugar.
+Palavra-chave casa por texto normalizado (minúsculas, espaços colapsados), com `EXACT` antes de
+`CONTAINS` e, no empate, a palavra mais longa primeiro. Sem essa ordenação, uma palavra curta
+engole as específicas.
 
 ---
 
-## 13. WhatsApp não oficial: o que a biblioteca não avisa
+## 13. Ordem de construção recomendada
 
-- **Sessão é estado, e estado precisa de dono.** Uma sessão aberta em dois processos derruba as duas.
-  Decida quem é o dono da sessão de cada canal e falhe claro quando não for você.
-- **Enviar em rajada bloqueia o número.** Qualquer envio em volume precisa de intervalo aleatório
-  entre mensagens e teto por dia. Piso de 20 segundos entre envios foi o nosso mínimo defensável.
-- **Opt-in é regra, não opção.** Só alcance quem registrou consentimento. E quem responde "SAIR",
-  "PARAR" e equivalentes sai da lista na hora — compare a **mensagem inteira**, não por pedaço, senão
-  "não pare de mandar novidades" tira a pessoa da lista. Reconfira a saída **no momento do envio**: o
-  pedido pode chegar depois de o disparo ser criado.
-- **Apagar mensagem tem janela.** Expirou, não volta. Marque a falha como definitiva em vez de
-  retentar para sempre.
-- **"Digitando" é presença, não atraso.** São duas chamadas distintas, e a presença precisa ser
-  encerrada depois.
+A ordem importa: cada etapa é testável sozinha e as seguintes dependem dela.
 
----
+1. **Contratos**: schema do fluxo e de 3 blocos (mensagem, condicional, espera). Nada mais.
+2. **Domínio puro**: seleção de aresta e interpolação, com testes. Aqui mora a lógica difícil.
+3. **Motor com um nó só**: mensagem. Com outbox e idempotência desde o primeiro dia — enxertar
+   idempotência depois é refatoração grande.
+4. **Esperas**: `delay` e `wait_response`, com a confirmação de retomada da seção 4.
+5. **Condicional e menu**: as duas únicas ramificações de verdade.
+6. **Editor**: canvas, modais com Cancelar/Salvar, aviso de alteração não salva.
+7. **Validação**: erro versus aviso.
+8. **Simulador**, reusando o domínio puro.
+9. **Os outros blocos**, um por vez. Nenhum deles é estrutural.
 
-## 14. Ordem de construção recomendada
-
-Nesta ordem, cada etapa é testável sozinha e nenhuma trava a seguinte:
-
-1. **Esquema do fluxo + versionamento + validação.** Sem motor. Só salvar, validar, publicar, versão
-   imutável.
-2. **Outbox + relay + fila.** Com um tipo de evento só (enviar mensagem). É a fundação.
-3. **Motor com três blocos:** gatilho, mensagem de texto, condicional. Prova o laço, a seleção de
-   aresta e o contexto.
-4. **As três esperas**, uma por vez: intervalo, espera por resposta, sequência de conteúdos. Cada uma
-   com seu teste de retomada por `stepId` e de job duplicado.
-5. **Gatilhos por canal** (os quatro encaixes + palavras-chave) com a ordem de roteamento da seção 8.
-6. **O resto dos blocos**, em qualquer ordem. A partir daqui é repetição de um padrão.
-7. **Simulador**, reusando o domínio puro.
-8. **Editor de canvas.** Deliberadamente por último: é a parte mais visível e a que menos decide
-   arquitetura. Construir primeiro gera um editor que luta contra o motor.
+Duas coisas para fazer no dia 1, não depois: **idempotência de job** e **um ponto único de escrita
+no contexto**. As duas são caras de enxertar e as duas causaram os piores bugs aqui.
 
 ---
 
-## 15. O que eu repensaria
+## 14. O que não copiar de nós
 
-- **Flexibilidade de config por bloco cobrou caro.** Aceitar nomes alternativos de campo "para
-  compatibilidade" multiplicou os caminhos de leitura. Um esquema estrito por versão de bloco, com
-  migração explícita na publicação, teria sido mais barato.
-- **O nó de IA faz coisas demais:** responde, classifica rota, lê comprovante, transcreve áudio.
-  Deveriam ser blocos separados compartilhando uma chamada.
-- **Erro versus aviso deveria ter uma terceira classe:** "pendência de dado", para o que veio de
-  importação e precisa de decisão humana. Empurrar isso para "aviso" mistura coisas de natureza
-  diferente na mesma lista.
-- **Decidir o fuso por workspace, não por canal,** foi certo, mas devia ter sido parâmetro
-  obrigatório em toda função de tempo desde o início. Padrão plausível esconde bug (armadilha 5).
+Em nome da honestidade, para não propagar erro:
+
+- **Nossa densidade de código.** O editor é um arquivo de mais de mil linhas em JSX de linha única.
+  Funciona e é consistente com o resto do projeto, mas não é um padrão a imitar.
+- **A ausência de teste de interface.** O pacote web não tem ambiente de DOM, então nada do editor
+  ou do simulador tem teste automatizado. Toda a confiança vem de tipos e de revisão.
+- **`providerPayload` como saco de propriedades.** Carregamos `typingSeconds`, `sequence`,
+  `quotedMessageId`, `deleteOnTagId` e o tipo de mídia todos no mesmo JSON da mensagem. Funciona,
+  mas colunas ou uma tabela de intenção de envio seriam mais claras.
+- **O bloco `handoff` chamado assim.** O nome na interface é "Controlador de Chat" desde a paridade
+  com o Leona, mas o `kind` continua `handoff` em todo lugar. Nomeie certo desde o começo.
