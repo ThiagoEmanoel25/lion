@@ -3,6 +3,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.production.example
 coverage/
 *.log
 .DS_Store
@@ -18,3 +19,10 @@ docs/json-leona.txt
 
 # Exports reais da Leona (contêm chaves)
 docs/[Ff]luxo*.json
+
+# Playwright (prints e relatórios são artefatos de CI)
+e2e/screenshots/
+e2e/results/
+e2e/report/
+playwright-report/
+test-results/
