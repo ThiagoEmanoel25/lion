@@ -1,0 +1,58 @@
+name: Deploy (VPS)
+
+# Só roda depois que o CI passar na main, ou manualmente.
+# O environment "production" deve exigir aprovação de revisor em Settings > Environments.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configurar SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Atualizar e reiniciar no servidor
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USER_: ${{ secrets.VPS_USER }}
+          APP_PATH: ${{ secrets.VPS_PATH }}
+          REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$USER_@$HOST" \
+            "APP_PATH='$APP_PATH' REF='$REF' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_PATH"
+          git fetch --all --prune
+          git checkout --detach "$REF"
+          npm ci
+          npm run db:generate
+          npm run db:deploy
+          npm run build
+          pm2 startOrReload ecosystem.config.cjs --env production
+          pm2 save
+          REMOTE
+      - name: Health check
+        env:
+          URL: ${{ secrets.VPS_HEALTH_URL }}
+        run: |
+          for i in 1 2 3 4 5 6; do curl -fsS "$URL" && exit 0; sleep 5; done
+          echo "health check falhou"; exit 1
