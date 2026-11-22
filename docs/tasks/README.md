@@ -14,3 +14,6 @@ Proibido: commit, push, deploy, credenciais. Banco/Redis de teste: containers te
 | 05 | E2E Playwright + prints do que mudou | feita (10 testes, 33 prints) | `e2e/` |
 
 Ordem: 00, 01, 02 e 03 em paralelo (arquivos disjuntos) -> 04 -> 05.
+
+## Fase 2: segurança
+Plano em [`SEGURANCA.md`](SEGURANCA.md) (tasks 10 a 20, derivadas de `docs/REVISAO.md`). Todas pendentes.

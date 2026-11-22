@@ -1,6 +1,8 @@
 import {useEffect,useMemo,useState} from 'react';
+import {Link} from 'react-router-dom';
 import {Pause,Play,X} from 'lucide-react';
 import {EmptyState,ErrorState,LoadingState} from '../../shared/ui/AsyncState';
+import {useToast} from '../../shared/ui/Toast';
 import {useBroadcastAction,useBroadcastDependencies,useBroadcastPreview,useBroadcasts,useCreateBroadcast,type BroadcastAudience,type BroadcastInput} from './api/queries';
 import './broadcasts.css';
 
@@ -12,6 +14,7 @@ const formatDate=(value:string)=>new Intl.DateTimeFormat('pt-BR',{day:'2-digit',
 export function BroadcastsPage(){
   const list=useBroadcasts(),dependencies=useBroadcastDependencies();
   const create=useCreateBroadcast(),action=useBroadcastAction(),preview=useBroadcastPreview();
+  const toast=useToast();
   const [open,setOpen]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [form,setForm]=useState<BroadcastInput>({name:'',channelId:'',body:'',startAt:localNow(),minIntervalSeconds:45,maxIntervalSeconds:180,dailyQuota:200,audience:emptyAudience});
@@ -26,16 +29,17 @@ export function BroadcastsPage(){
     setError(null);
     try{
       await create.mutateAsync({...form,startAt:new Date(form.startAt).toISOString()});
-      setOpen(false);setForm(current=>({...current,name:'',body:'',audience:emptyAudience}));
-    }catch(failure){setError(failure instanceof Error?failure.message:'Não foi possível criar o disparo.')}
+      setOpen(false);setForm(current=>({...current,name:'',body:'',audience:emptyAudience}));toast.success('Disparo criado como rascunho. Clique em Começar quando estiver pronto.');
+    }catch(failure){const message=failure instanceof Error?failure.message:'Não foi possível criar o disparo.';setError(message);toast.error(message)}
   }
 
   if(list.isLoading)return <div className="page"><LoadingState/></div>;
-  if(list.isError)return <div className="page"><ErrorState error={list.error} retry={()=>list.refetch()}/></div>;
+  if(list.isError)return <div className="page"><ErrorState title="Não foi possível carregar os disparos." error={list.error} retry={()=>list.refetch()}/></div>;
+  const run=(id:string,kind:'start'|'pause'|'cancel',done:string)=>action.mutate({id,action:kind},{onSuccess:()=>toast.success(done),onError:error=>toast.error(error.message||'Não foi possível concluir a ação.')});
   const eligible=preview.data?.eligible??0;
   return <div className="page">
-    <div className="heading"><div><small>OPERAÇÕES</small><h1>Disparos em massa</h1><p>Envio para a base com intervalo aleatório e cota diária, porque o WhatsApp bloqueia número que envia em rajada.</p></div><button className="primary" onClick={()=>setOpen(true)} disabled={!connected.length}>＋ Novo disparo</button></div>
-    {!connected.length&&<div className="broadcast-warning">Nenhuma conexão conectada. Conecte um número antes de criar um disparo.</div>}
+    <div className="heading"><div><small>OPERAÇÕES</small><h1>Disparos em massa</h1><p>Envio para a base com intervalo aleatório e cota diária, porque o WhatsApp bloqueia número que envia em rajada.</p></div><button className="primary" onClick={()=>setOpen(true)} disabled={!connected.length} title={connected.length?undefined:'Conecte um número para criar disparos'}>＋ Novo disparo</button></div>
+    {!connected.length&&<div className="broadcast-warning">Nenhum número conectado. Conecte um número em <Link to="/connections">Conexões</Link> antes de criar um disparo.</div>}
 
     {open&&<section className="panel broadcast-form">
       <header><div><h2>Novo disparo</h2><p>Só entram contatos com consentimento registrado que não pediram para sair.</p></div><button onClick={()=>setOpen(false)} aria-label="Fechar"><X size={16}/></button></header>
@@ -68,11 +72,11 @@ export function BroadcastsPage(){
             <p className="broadcast-body">{item.body}</p>
             <div className="broadcast-progress"><i><em style={{width:`${percent}%`}}/></i><span>{item.progress.sent} de {item.progress.total} enviados{item.progress.failed?` · ${item.progress.failed} falharam`:''}{item.progress.cancelled?` · ${item.progress.cancelled} cancelados`:''}</span></div>
             <footer>
-              {(item.status==='DRAFT'||item.status==='PAUSED')&&<button onClick={()=>action.mutate({id:item.id,action:'start'})} disabled={action.isPending}><Play size={14}/> {item.status==='PAUSED'?'Retomar':'Começar'}</button>}
-              {item.status==='RUNNING'&&<button onClick={()=>action.mutate({id:item.id,action:'pause'})} disabled={action.isPending}><Pause size={14}/> Pausar</button>}
-              {item.status!=='DONE'&&item.status!=='CANCELLED'&&<button className="danger" onClick={()=>{if(window.confirm('Cancelar este disparo? Os envios que ainda não saíram não serão enviados.'))action.mutate({id:item.id,action:'cancel'})}} disabled={action.isPending}>Cancelar</button>}
+              {(item.status==='DRAFT'||item.status==='PAUSED')&&<button onClick={()=>run(item.id,'start',item.status==='PAUSED'?'Disparo retomado.':'Disparo iniciado.')} disabled={action.isPending}><Play size={14}/> {item.status==='PAUSED'?'Retomar':'Começar'}</button>}
+              {item.status==='RUNNING'&&<button onClick={()=>run(item.id,'pause','Disparo pausado.')} disabled={action.isPending}><Pause size={14}/> Pausar</button>}
+              {item.status!=='DONE'&&item.status!=='CANCELLED'&&<button className="danger" onClick={()=>{if(window.confirm('Cancelar este disparo? Os envios que ainda não saíram não serão enviados.'))run(item.id,'cancel','Disparo cancelado.')}} disabled={action.isPending}>Cancelar</button>}
             </footer>
           </article>})}</div>
-      : <EmptyState title="Nenhum disparo criado">Um disparo envia a mesma mensagem para a base, com intervalo aleatório entre os envios e um teto por dia.</EmptyState>}
+      : <EmptyState title="Nenhum disparo criado" actionLabel={connected.length?'Criar primeiro disparo':undefined} onAction={()=>setOpen(true)}>Um disparo envia a mesma mensagem para a base, com intervalo aleatório entre os envios e um teto por dia.</EmptyState>}
   </div>
 }
