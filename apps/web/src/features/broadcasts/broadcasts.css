@@ -31,3 +31,4 @@
 .broadcast-list article>footer button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 13px;font-size:8px;font-weight:750}
 .broadcast-list article>footer button.danger{color:#a34336}
 @media(max-width:600px){.broadcast-fields{grid-template-columns:1fr}.broadcast-list article>footer{flex-wrap:wrap}}
+@media(max-width:760px){.broadcast-form input,.broadcast-form select,.broadcast-form button,.broadcast-chips button,.broadcast-list article>footer button{min-height:var(--touch-target,44px)}.broadcast-form>header{gap:8px}}
