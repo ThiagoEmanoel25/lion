@@ -22,3 +22,11 @@ Notas: manter `nexo-runtime` em 1 instância (sessões Baileys). Não rode o see
 
 `npm run test:e2e:install` (1ª vez), `docker compose -f infra/docker-compose.yml up -d`, `npm run db:deploy && npm run db:seed`, `npm run test:e2e`.
 Prints em `e2e/screenshots/{desktop,mobile}/`; relatório em `e2e/report/`. Rode a cada mudança de frontend e revise os prints.
+
+## Logs e observabilidade
+
+- API e runtime logam em JSON (pino) com `service`, `time` ISO, `reqId`; requisições autenticadas incluem `userId` e `workspaceId` e `responseTime`. O header `x-request-id` é aceito e devolvido em toda resposta: peça ao usuário esse id para achar o erro (`grep REQ_ID logs/*.log`).
+- 4xx saem como `warn`, 5xx como `error`; `unhandledRejection`/`uncaughtException` são registrados antes de encerrar. Segredos (authorization, cookie, password, token, apiKey) são mascarados com `[REDACTED]`.
+- `LOG_LEVEL` (debug|info|warn|error) controla o nível; `debug` também loga queries Prisma (não usar em produção).
+- PM2 grava em `logs/out.log` e `logs/err.log`. Rotação: `pm2 install pm2-logrotate && pm2 set pm2-logrotate:max_size 20M && pm2 set pm2-logrotate:retain 14`. Ver ao vivo: `pm2 logs`; filtrar: `pm2 logs nexo-api | jq 'select(.level>=50)'`.
+- Próximo passo opcional: enviar os logs a Loki/Grafana, Datadog ou Better Stack e criar alerta para `level>=50` e para `/ready` 503; não implementado.
