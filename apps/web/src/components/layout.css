@@ -11,3 +11,35 @@
 
 /* Tablet: the sidebar becomes the icon rail so pages keep their width. */
 @media(min-width:761px) and (max-width:1100px){.shell.shell{--sidebar-w:56px}.shell .sidebar{padding:25px 8px;overflow:hidden}.shell .sidebar header>div,.shell .workspace-card,.shell .nav-group>small,.shell .quota,.shell .sidebar footer>div,.shell .sidebar footer button{display:none}.shell .sidebar header{padding:0 0 22px;justify-content:center;flex-wrap:wrap;gap:12px}.shell .sidebar-toggle{margin:0}.shell .sidebar nav a{font-size:0;justify-content:center;padding:11px 0}.shell .sidebar nav a span{width:auto}.shell .sidebar footer{justify-content:center;grid-template-columns:auto}.shell .sidebar nav{margin-bottom:auto}.sidebar-toggle{display:none}}
+
+/* Base de UX: contraste, foco e alvos de toque da navegação. */
+.sidebar nav a:focus-visible,.sidebar button:focus-visible,.workspace-card:focus-visible,.quota>a:focus-visible {
+  outline:2px solid #cfe66f;
+  outline-offset:-2px;
+}
+.nav-group>small{font-size:10px;color:#9db1a8}
+.workspace-card small,.quota small,.sidebar footer small{font-size:10px;color:#9db1a8}
+.sidebar header small{color:#9db1a8;font-size:10px}
+.quota>a{font-size:11px}
+.sidebar footer button{font-size:11px;color:#c3d2cb;min-height:36px;padding:0 8px;border-radius:8px}
+.sidebar footer button:hover{color:#fff;background:#1f3a2f}
+.sidebar-toggle,.sidebar-close{min-width:36px;min-height:36px}
+.topbar>div{color:#2f5c4b}
+@media(max-width:760px){
+  .mobile-menu-button{width:44px;height:44px;border-radius:12px}
+  .sidebar-close{width:44px;height:44px;border-radius:12px;color:#dce8e2}
+  .sidebar-close:hover{background:#1f3a2f}
+  .sidebar.open nav a,.nav-group>a{min-height:44px}
+  .sidebar.open footer button{min-height:44px;min-width:44px}
+  .workspace-card{min-height:44px}
+  .quota>a{padding:13px 8px}
+  .topbar>div{display:none}
+  .sidebar.open{overflow-y:auto}
+}
+@media(prefers-reduced-motion:no-preference){
+  .sidebar.open{animation:drawer-in .2s ease-out}
+  .sidebar-backdrop{animation:fade-in .2s ease-out}
+}
+@keyframes drawer-in{from{transform:translateX(-24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+
