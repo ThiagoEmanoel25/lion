@@ -8,7 +8,9 @@ const common = {
   max_restarts: 10,
   min_uptime: '10s',
   kill_timeout: 15000, // dá tempo ao shutdown gracioso
-  time: true,
+  merge_logs: true,
+  out_file: 'logs/out.log',
+  error_file: 'logs/err.log',
   env: { NODE_ENV: 'production' },
 };
 
