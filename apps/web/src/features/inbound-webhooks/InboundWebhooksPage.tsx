@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useState,type FormEvent} from 'react';
 import {EmptyState,ErrorState,LoadingState} from '../../shared/ui/AsyncState';
+import {useToast} from '../../shared/ui/Toast';
 import {useCreateInboundWebhook,useDisableInboundWebhook,useInboundWebhooks,useReplayWebhook,useRotateWebhookSecret,useUpdateInboundWebhook,useWebhookDependencies,useWebhookLogs,type InboundWebhook,type WebhookInput} from './api/queries';
 import {parseWebhookVariables} from './form';
 import './inbound-webhooks.css';
@@ -10,6 +11,7 @@ function absoluteHookUrl(path:string){const configured=import.meta.env.VITE_API_
 function formatDate(value:string){return new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date(value))}
 
 export function InboundWebhooksPage(){
+  const toast=useToast();
   const endpoints=useInboundWebhooks(),dependencies=useWebhookDependencies();
   const [selectedId,setSelectedId]=useState<string|null>(null),[editing,setEditing]=useState<InboundWebhook|null>(null),[form,setForm]=useState<WebhookInput>(emptyForm),[variables,setVariables]=useState('{}'),[secret,setSecret]=useState<string|null>(null),[formError,setFormError]=useState('');
   const create=useCreateInboundWebhook(),update=useUpdateInboundWebhook(),disable=useDisableInboundWebhook(),rotate=useRotateWebhookSecret(),replay=useReplayWebhook();
@@ -19,7 +21,7 @@ export function InboundWebhooksPage(){
   function startCreate(){setEditing(null);setForm(emptyForm);setVariables('{}');setFormError('')}
   function startEdit(item:InboundWebhook){setEditing(item);setForm({name:item.name,playbookId:item.playbookId,channelId:item.channelId,mapping:item.mapping,isActive:item.isActive});setVariables(JSON.stringify(item.mapping.variables,null,2));setFormError('')}
   async function submit(event:FormEvent){event.preventDefault();setFormError('');try{const input={...form,mapping:{...form.mapping,variables:parseWebhookVariables(variables)}};if(editing){await update.mutateAsync({id:editing.id,...input});setEditing(null)}else{const result=await create.mutateAsync(input);setSecret(result.secret);setSelectedId(result.id)}setForm(emptyForm);setVariables('{}')}catch(error){setFormError(error instanceof Error?error.message:'Não foi possível salvar o webhook.')}}
-  async function rotateSecret(){if(!selected||!window.confirm('O segredo atual deixará de funcionar imediatamente. Continuar?'))return;const result=await rotate.mutateAsync(selected.id);setSecret(result.secret)}
+  async function rotateSecret(){if(!selected||!window.confirm('O segredo atual deixará de funcionar imediatamente. Continuar?'))return;try{const result=await rotate.mutateAsync(selected.id);setSecret(result.secret);toast.success('Segredo renovado.')}catch{toast.error('Não foi possível renovar o segredo.')}}
 
   return <div className="page inbound-hooks-page">
     <header className="heading"><div><small>OPERAÇÕES / INTEGRAÇÕES</small><h1>Webhooks de entrada</h1><p>Receba eventos externos assinados e inicie fluxos publicados.</p></div><button className="primary" onClick={startCreate}>＋ Novo webhook</button></header>
