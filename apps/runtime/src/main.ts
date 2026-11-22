@@ -16,3 +16,5 @@ const shutdown = async () => {
 };
 process.once('SIGINT', () => { void shutdown(); });
 process.once('SIGTERM', () => { void shutdown(); });
+process.on('unhandledRejection', reason => console.error(JSON.stringify({ level: 'error', service: 'nexo-runtime', msg: 'unhandledRejection', err: String(reason) })));
+process.on('uncaughtException', error => { console.error(JSON.stringify({ level: 'fatal', service: 'nexo-runtime', msg: 'uncaughtException', err: error.stack ?? String(error) })); process.exit(1); });

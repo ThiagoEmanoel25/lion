@@ -24,7 +24,7 @@ import {dispatchScheduledMessage} from './scheduled-message.js';
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   private readonly workers: Worker[] = [];
   private readonly queues: Queue[] = [];
-  private readonly logger = pino().child({ module: 'runtime-workers' });
+  private readonly logger = pino({ level: process.env.LOG_LEVEL ?? 'info', base: { service: 'nexo-runtime' }, timestamp: pino.stdTimeFunctions.isoTime, redact: { paths: ['*.password', '*.token', '*.apiKey', '*.accessToken'], censor: '[REDACTED]' } }).child({ module: 'runtime-workers' });
   private outboxTimer?: NodeJS.Timeout;
   private mediaTimer?: NodeJS.Timeout;
   private relayingOutbox = false;

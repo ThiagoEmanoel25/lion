@@ -25,7 +25,7 @@ type LiveSession = { socket: WASocket; lease: LockLease; renewTimer: NodeJS.Time
 @Injectable()
 export class WhatsAppSessionManager implements OnModuleDestroy {
   private readonly sessions = new Map<string, LiveSession>();
-  private readonly logger = pino({ level: loadConfig().logLevel }).child({ module: 'whatsapp' });
+  private readonly logger = pino({ level: loadConfig().logLevel, base: { service: 'nexo-runtime' }, timestamp: pino.stdTimeFunctions.isoTime, redact: { paths: ['*.password', '*.token', '*.apiKey', '*.accessToken', '*.creds', '*.keys'], censor: '[REDACTED]' } }).child({ module: 'whatsapp' });
   private readonly connectionQueue: Queue<ConnectionJob>;
 
   constructor(
@@ -52,7 +52,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
       const { state, saveCreds } = await this.authStore.load(channelId);
       const socket = makeWASocket({
         auth: state,
-        browser: Browsers.ubuntu('Nexo'),
+        browser: Browsers.ubuntu('Zuno Flow'),
         logger: this.logger,
         printQRInTerminal: false,
         markOnlineOnConnect: false,
