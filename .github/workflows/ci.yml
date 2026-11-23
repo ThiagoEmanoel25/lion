@@ -82,6 +82,11 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       JWT_SECRET: ci-only-jwt-secret-not-for-production-0123456789
       FIELD_ENCRYPTION_KEY: Y2ktb25seS1maWVsZC1rZXktMzItYnl0ZXMtcGFkZGluZyE=
+      # Suítes E2E longas fazem muitos logins: afrouxa os limites só neste banco/servidor de teste.
+      LOGIN_RATE_MAX: 1000
+      LOGIN_LOCKOUT_MAX_FAILS: 1000
+      INVITE_RATE_MAX: 1000
+      RESET_RATE_MAX: 1000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

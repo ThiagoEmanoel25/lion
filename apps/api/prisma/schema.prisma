@@ -201,11 +201,27 @@ model User {
   updatedAt                 DateTime            @updatedAt
   memberships               Membership[]
   sessions                  Session[]
+  passwordResetTokens       PasswordResetToken[]
   assignedConversations     Conversation[]      @relation("ConversationAssignee")
   ownedContacts             Contact[]           @relation("ContactOwner")
   createdFlowImportSessions FlowImportSession[] @relation("FlowImportCreatedBy")
   createdFlowShareCodes     FlowShareCode[]     @relation("FlowShareCreatedBy")
   broadcasts                Broadcast[]
+}
+
+/// Token de redefinição de senha emitido pelo operador (uso único; só o hash SHA-256 é guardado).
+model PasswordResetToken {
+  id          String    @id @default(cuid())
+  userId      String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  /// 'operator' ou id do usuário que emitiu.
+  createdById String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
 }
 
 model Membership {
