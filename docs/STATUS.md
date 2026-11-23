@@ -29,9 +29,9 @@
 - Prisma Client gerado com sucesso.
 - Typecheck dos três workspaces aprovado.
 - Build de produção dos três workspaces aprovado.
-- 49 testes automatizados aprovados: 31 na API, 10 no runtime e 8 no web.
+- 538 testes automatizados aprovados (2026-11-22): 223 na API, 158 no runtime, 54 no web e 103 no domain.
 - Smoke test autenticado aprovado nas 11 rotas principais em desktop e viewport móvel, sem erros de console ou HTTP.
-- `npm audit --omit=dev`: zero vulnerabilidades de produção.
+- `npm audit --omit=dev` (2026-11-22): 1 vulnerabilidade high restante (zod 3.25.76, DoS de memória em coleções grandes, GHSA-mrhx-c7xc-m3w5), risco aceito (ver BOARD.md). Corrigidas: effect/prisma (override effect ^3.22.5, prisma 6.19.3), follow-redirects e fast-uri. Antes: 6 (5 high, 1 moderate).
 
 ## Ambiente local validado
 
