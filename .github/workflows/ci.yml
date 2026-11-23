@@ -25,9 +25,34 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run db:generate
+      - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
+      - name: Testes com cobertura (text-summary + lcov)
+        run: npm run test:coverage
+      - name: Publicar cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            apps/*/coverage/
+            packages/*/coverage/
+          if-no-files-found: warn
       - run: npm run build
+
+  audit:
+    name: Auditoria de dependências (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Gate bloqueante: high ou critical (zod migrado para 4.x na task 21).
+      - name: npm audit (bloqueia em high)
+        run: npm audit --omit=dev --audit-level=high
 
   e2e:
     name: E2E Playwright (com prints)
@@ -66,6 +91,12 @@ jobs:
       - run: npm ci
       - run: npm run db:generate
       - run: npm run db:deploy
+      # Testes de isolamento multi-tenant (script criado em paralelo; --if-present até existir em todos os branches).
+      - name: Testes de isolamento (API)
+        env:
+          TEST_DATABASE_URL: postgresql://nexo:nexo@127.0.0.1:5432/nexo?schema=public
+          TEST_REDIS_URL: redis://127.0.0.1:6379
+        run: npm run test:isolation -w @nexo/api --if-present
       - run: npm run db:seed
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e

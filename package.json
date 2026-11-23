@@ -19,16 +19,23 @@
     "db:deploy": "prisma migrate deploy --schema apps/api/prisma/schema.prisma",
     "db:seed": "npm run db:seed -w @nexo/api",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "lint": "eslint .",
+    "test:coverage": "npm run test --workspaces --if-present -- --coverage.enabled --coverage.provider=v8 --coverage.reporter=text-summary --coverage.reporter=lcov"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.65.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "concurrently": "^9.1.2",
-    "typescript": "^5.7.3"
+    "eslint": "^9.39.5",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.73.0"
   },
   "overrides": {
     "fast-jwt": "^6.3.4",
-    "deepmerge-ts": "^8.0.0"
+    "deepmerge-ts": "^8.0.0",
+    "effect": "^3.22.5"
   },
   "engines": {
     "node": ">=22"
