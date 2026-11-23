@@ -9,17 +9,33 @@ export * from './integration.js';
 export const RoleSchema = z.enum(['OWNER','ADMIN','SUPERVISOR','AGENT','VIEWER']);
 export type Role = z.infer<typeof RoleSchema>;
 
+/**
+ * Gera o schema de PATCH: todos os campos opcionais e SEM aplicar `.default()` aos omitidos
+ * (no zod 4, `.partial()` mantém o default e o PATCH resetaria campos não enviados).
+ * O schema original (POST/criação) continua com seus defaults.
+ */
+export function partialWithoutDefaults<T extends z.ZodObject<z.ZodRawShape>>(schema:T){
+  const shape:Record<string,z.ZodTypeAny>={};
+  for(const [key,field] of Object.entries(schema.shape as Record<string,z.ZodTypeAny>))shape[key]=((field instanceof z.ZodDefault?field.removeDefault():field) as z.ZodTypeAny).optional();
+  return z.object(shape) as unknown as z.ZodObject<{[K in keyof T['shape']]:z.ZodOptional<T['shape'][K] extends z.ZodDefault<infer I>?I:T['shape'][K]>}>;
+}
 export const UpdateWorkspaceInput=z.object({name:z.string().trim().min(2).max(100).optional(),timezone:z.string().trim().min(3).max(80).optional(),locale:z.string().trim().min(2).max(10).optional()}).refine(value=>Object.keys(value).length>0);
 export const CreateWorkspaceInviteInput=z.object({email:z.string().email(),name:z.string().trim().min(2).max(100).optional(),role:RoleSchema.exclude(['OWNER']).default('AGENT')});
 export const AcceptWorkspaceInviteInput=z.object({token:z.string().min(32),name:z.string().trim().min(2).max(100),password:z.string().min(12).max(128)});
 export const UpdateMembershipInput=z.object({role:RoleSchema.optional(),isActive:z.boolean().optional()}).refine(value=>Object.keys(value).length>0);
 export const DepartmentInput=z.object({name:z.string().trim().min(2).max(80),description:z.string().trim().max(240).optional(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#17765b'),isActive:z.boolean().default(true),memberIds:z.array(z.string().cuid()).max(100).default([])});
-export const UpdateDepartmentInput=DepartmentInput.partial().refine(value=>Object.keys(value).length>0);
+export const UpdateDepartmentInput=partialWithoutDefaults(DepartmentInput).refine(value=>Object.keys(value).length>0);
 export const BusinessHourDaySchema=z.object({day:z.number().int().min(0).max(6),enabled:z.boolean(),open:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),close:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)}).refine(value=>!value.enabled||value.open<value.close,{message:'O horário de abertura deve ser anterior ao fechamento.'});
 export const BusinessHoursInput=z.object({timezone:z.string().trim().min(3).max(80),days:z.array(BusinessHourDaySchema).length(7).refine(days=>new Set(days.map(item=>item.day)).size===7,{message:'Informe os sete dias da semana.'}),outsideMessage:z.string().trim().max(500).default('No momento estamos fora do horário de atendimento.')});
 
-export const LoginInput = z.object({email:z.string().email(),password:z.string().min(8)});
+export const LoginInput = z.object({email:z.string().email(),password:z.string().min(8),workspaceId:z.string().min(1).max(64).optional()});
+export const LogoutInput = z.object({refreshToken:z.string().min(1).optional(),all:z.boolean().optional()}).default({});
 export const RefreshTokenInput = z.object({refreshToken:z.string().min(32)});
+// Consentimento (LGPD): origem curta e rastreável. given:false revoga e mantém a trilha (revokedAt + auditoria).
+// reconsent:true é a confirmação explícita exigida para reativar quem pediu para sair (SAIR/PARAR).
+export const ConsentSourceSchema = z.string().trim().min(1).max(40).regex(/^[a-z0-9_.-]+$/i,'Origem inválida.');
+export const ContactConsentInput = z.object({given:z.boolean(),source:ConsentSourceSchema.default('manual'),reconsent:z.boolean().optional()});
+export const BulkContactConsentInput = z.object({contactIds:z.array(z.string().trim().min(1).max(64)).min(1).max(500),given:z.boolean(),source:ConsentSourceSchema.default('manual'),reconsent:z.boolean().optional()});
 export const CreateContactInput = z.object({
   name:z.string().trim().min(1).max(120).optional(),
   phone:z.string().trim().min(8).max(24),
@@ -28,7 +44,8 @@ export const CreateContactInput = z.object({
   stage:z.string().max(60).default('new'),
   ownerId:z.string().cuid().nullable().optional(),
   customFields:z.record(z.string(),z.unknown()).default({}),
-  tagIds:z.array(z.string().cuid()).max(30).default([])
+  tagIds:z.array(z.string().cuid()).max(30).default([]),
+  consent:ContactConsentInput.optional()
 });
 export const UpdateContactInput = z.object({
   name:z.string().trim().min(1).max(120).nullable().optional(),
@@ -38,7 +55,8 @@ export const UpdateContactInput = z.object({
   stage:z.string().trim().min(1).max(60).optional(),
   ownerId:z.string().cuid().nullable().optional(),
   customFields:z.record(z.string(),z.unknown()).optional(),
-  tagIds:z.array(z.string().cuid()).max(30).optional()
+  tagIds:z.array(z.string().cuid()).max(30).optional(),
+  consent:ContactConsentInput.optional()
 }).refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});
 export const ImportContactsInput = z.object({csv:z.string().min(1).max(2_000_000),updateExisting:z.boolean().default(true)});
 export const CreateContactTagInput = z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#17765b')});
@@ -156,7 +174,7 @@ export const AutomationWebhookConfigSchema=z.object({
 }).strict();
 export const TestIntegrationInput=z.object({
   config:AutomationWebhookConfigSchema.pick({url:true,method:true,headers:true,body:true}),
-  variables:z.record(z.unknown()).default({})
+  variables:z.record(z.string(),z.unknown()).default({})
 }).strict();
 export const AutomationAiConditionalSchema=z.object({
   id:z.string().trim().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9_-]*$/,'Use letras, números, _ ou -, começando por letra.'),
@@ -249,6 +267,7 @@ export const UpdateKanbanBoardInput=z.object({name:KanbanNameSchema.optional(),p
 export const CreateKanbanColumnInput=z.object({name:KanbanNameSchema,color:z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#17765b')});
 export const UpdateKanbanColumnInput=z.object({name:KanbanNameSchema.optional(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),position:z.number().int().min(0).optional()}).refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});
 export const DeleteKanbanColumnInput=z.object({destinationColumnId:z.string().cuid().optional()});
+export const CreateKanbanCardInput=z.object({contactId:z.string().min(1).max(64),columnId:z.string().min(1).max(64).optional(),title:z.string().trim().min(1).max(120).optional(),note:z.string().trim().min(1).max(2000).optional()});
 export const MoveKanbanCardInput=z.object({columnId:z.string().cuid(),position:z.number().int().min(0).optional()});
 export const AutomationNodeSchema=z.object({id:z.string().trim().min(1).max(80),kind:AutomationNodeKindSchema,name:z.string().trim().min(1).max(120),config:z.record(z.string(),z.unknown()).default({}),position:z.object({x:z.number().finite(),y:z.number().finite()})});
 export const AutomationEdgeConditionSchema=z.object({field:z.string().trim().min(1).max(120),operator:z.enum(CONDITION_OPERATORS),value:z.unknown().optional()}).superRefine((rule,ctx)=>{
@@ -269,9 +288,9 @@ export const AiAgentInput=z.object({
   objective:z.string().trim().min(10).max(2000),systemPrompt:z.string().trim().min(10).max(12000),
   tone:z.enum(['professional','friendly','concise','consultative']).default('professional'),
   confidenceThreshold:z.number().min(0).max(1).default(.7),handoffMessage:z.string().trim().min(3).max(500),
-  isActive:z.boolean().default(true),knowledgeSourceIds:z.array(z.string().cuid()).max(30).default([])
+  isActive:z.boolean().default(true),knowledgeSourceIds:z.array(z.string().cuid()).max(30).transform(ids=>[...new Set(ids)]).default([])
 });
-export const UpdateAiAgentInput=AiAgentInput.partial().refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});
+export const UpdateAiAgentInput=partialWithoutDefaults(AiAgentInput).refine(value=>Object.keys(value).length>0,{message:'Informe ao menos um campo.'});
 export const TestAiAgentInput=z.object({message:z.string().trim().min(1).max(4096)});
 
 export type LoginInputDto=z.infer<typeof LoginInput>;
