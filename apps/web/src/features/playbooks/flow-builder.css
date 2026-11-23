@@ -129,7 +129,7 @@
 .condition-node-else{position:relative;margin:0;padding:0 8px;color:#7cc4f5;font-size:11px;line-height:1.4;text-align:center}
 .automation-node-condition .condition-node-body .react-flow__handle{right:-16px}
 .automation-node-condition .condition-node-note{margin-top:-4px;display:block;font-size:10px;letter-spacing:0;text-transform:none;color:#9fb0dc}
-.automation-node-condition p.condition-node-else{max-width:none;margin:0;font-size:11px;color:#7cc4f5;white-space:normal;overflow:visible}
+.automation-node-condition div.condition-node-else{max-width:none;margin:0;font-size:11px;color:#7cc4f5;white-space:normal;overflow:visible}
 /* Narrow screens: save/publish move to the bottom-right so they never cover the tools button. */
 @media(max-width:1100px){.flow-editor-actions{top:auto;bottom:15px;left:auto;width:auto}.flow-editor-shell .react-flow__minimap{display:none}}
 @media(max-width:720px){.flow-editor-actions{bottom:10px;right:10px}.flow-editor-actions button:not(.primary){display:block}.tools-dropdown{left:8px;width:calc(100vw - 16px);max-height:calc(100dvh - 140px)}}
@@ -213,3 +213,6 @@
 .automation-node .node-config-preview>strong,.automation-node .node-button-list div{border-color:color-mix(in srgb,var(--node-accent) 50%,#10231d);background:color-mix(in srgb,var(--node-accent) 20%,#10231d)}
 .automation-node .react-flow__handle{background:var(--node-accent)}
 .variable-textarea{position:relative;display:grid}.variable-textarea>select{position:absolute;right:8px;bottom:8px;width:auto;min-width:48px;padding:5px;border-radius:7px;background:var(--surface,#fff)}.variable-textarea>textarea{padding-bottom:42px!important}.variable-textarea.invalid>textarea{border-color:#c35d50}
+.flow-small-dialog{width:min(440px,calc(100vw - 32px));z-index:130}.flow-small-dialog h2{margin:0 0 12px;font-size:20px}.flow-small-dialog label{display:grid;gap:6px;font-weight:650}.flow-small-dialog input{min-height:44px}.flow-small-dialog footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.flow-small-dialog footer button{min-height:44px}.flow-small-dialog .danger-action{background:#b3261e;border-color:#b3261e;color:#fff}
+.tools-dropdown>button:focus-visible{outline:2px solid #cfe66f;outline-offset:2px}.tools-dropdown>button{cursor:pointer}
+@media(max-width:700px){.import-order-tip span{display:block}}
