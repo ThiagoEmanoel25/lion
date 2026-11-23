@@ -72,7 +72,11 @@ async function validateForWorkspace(prisma:unknown,workspaceId:string,value:unkn
     if(status==='ARCHIVED')return [{level:'warning' as const,code:'FLOW_JUMP_TARGET_NOT_FOUND',message:'O fluxo de destino está arquivado; o salto não será executado.',nodeId:node.id}];
     return [];
   });
-  const issues=[...validation.issues,...flowJumpIssues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
+  // nexo-asset:// ids must belong to this workspace (a shared/copied flow may carry another account's asset id).
+  const assetIds=[...new Set([...JSON.stringify(validation.definition).matchAll(/nexo-asset:\/\/([a-z0-9]{20,32})/gi)].map(match=>match[1]!))];
+  const ownAssets=assetIds.length?new Set((await (prisma as {playbookAsset:{findMany(args:unknown):Promise<Array<{id:string}>>}}).playbookAsset.findMany({where:{workspaceId,id:{in:assetIds}},select:{id:true}})).map(asset=>asset.id)):new Set<string>();
+  const assetIssues=assetIds.filter(id=>!ownAssets.has(id)).map(id=>({level:'error' as const,code:'ASSET_NOT_FOUND',message:'Um arquivo usado no fluxo não existe neste workspace. Envie o arquivo novamente.',nodeId:validation.definition!.nodes.find(node=>JSON.stringify(node.config).includes(id))?.id??''}));
+  const issues=[...validation.issues,...flowJumpIssues,...assetIssues,...await kanbanReferenceIssues(prisma,workspaceId,validation.definition),...await pixelReferenceIssues(prisma,workspaceId,validation.definition)];
   return {...validation,valid:!issues.some(issue=>issue.level==='error'),issues};
 }
 
@@ -333,6 +337,9 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       if (playbook.status === 'PAUSED') throw new DomainError('PLAYBOOK_NOT_PUBLISHED', 'A automação está pausada.', 409);
       const conversation = await tx.conversation.findFirst({ where: { id: input.conversationId, workspaceId: request.auth.workspaceId } });
       if (!conversation) throw new DomainError('CONVERSATION_NOT_FOUND', 'Conversa não encontrada.', 404);
+      // Lock consultivo por conversa+versão até o fim da transação: a checagem de execução ativa e a criação
+      // viram atômicas, então chamadas simultâneas esperam e as demais veem a execução já criada (409).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`execution:${request.auth.workspaceId}:${input.conversationId}:${playbook.activeVersion.id}`}, 0))`;
       const running = await tx.execution.findFirst({ where: { workspaceId: request.auth.workspaceId, conversationId: input.conversationId, playbookVersionId: playbook.activeVersion.id, status: { in: ['RUNNING', 'WAITING'] } } });
       if (running) throw new DomainError('EXECUTION_ALREADY_ACTIVE', 'Já existe uma execução ativa desta automação na conversa.', 409, { executionId: running.id });
       const execution = await tx.execution.create({ data: { workspaceId: request.auth.workspaceId, conversationId: input.conversationId, playbookVersionId: playbook.activeVersion.id, currentNode: null, context: json(input.context) } });

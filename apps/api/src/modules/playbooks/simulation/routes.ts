@@ -8,7 +8,7 @@ import {decryptWebhookSecret} from '../../webhooks/generic.js';
 import {integrationTestRateLimit,testIntegrationRequest} from '../integration-test.js';
 import {createSessionStore,type SessionRedis,type SimulationSession} from './sessions.js';
 
-const CreateInput=z.object({definition:z.unknown(),variables:z.record(z.unknown()).default({}),liveActions:z.boolean().default(false),confirmLiveActions:z.boolean().default(false)}).strict();
+const CreateInput=z.object({definition:z.unknown(),variables:z.record(z.string(),z.unknown()).default({}),liveActions:z.boolean().default(false),confirmLiveActions:z.boolean().default(false)}).strict();
 const MessageInput=z.union([
   z.object({text:z.string()}).strict(),
   z.object({optionId:z.string().min(1).max(200)}).strict(),

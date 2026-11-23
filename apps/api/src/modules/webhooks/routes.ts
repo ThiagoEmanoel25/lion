@@ -3,8 +3,10 @@ import {Prisma} from '@prisma/client';
 import {createHash,createHmac,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {Readable} from 'node:stream';
 import {z} from 'zod';
-import {DomainError} from '@nexo/domain';
+import {DomainError,normalizePhone} from '@nexo/domain';
 import {audit} from '../../core/audit.js';
+import {assertWorkspaceQuota} from '../billing/service.js';
+import {findContactByPhone} from '../contacts/phone.js';
 import {decryptWebhookSecret,encryptWebhookSecret,mappedVariables,MAX_WEBHOOK_BYTES,readPath,validWebhookSignature} from './generic.js';
 
 const path=z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/,'Use um caminho como lead.phone.');
@@ -15,7 +17,7 @@ const logQuery=z.object({status:z.enum(['RECEIVED','PROCESSING','PROCESSED','FAI
 type Mapping=z.infer<typeof mappingSchema>;
 type EndpointWithVersion=Prisma.InboundWebhookEndpointGetPayload<{include:{playbook:{include:{activeVersion:true}}}}>;
 
-function validMetaSignature(raw:string,signature:string|undefined,secret:string){if(!signature)return false;const expected='sha256='+createHmac('sha256',secret).update(raw).digest('hex');return expected.length===signature.length&&timingSafeEqual(Buffer.from(expected),Buffer.from(signature))}
+export function validMetaSignature(raw:Buffer,signature:string|undefined,secret:string){if(!signature)return false;const expected=Buffer.from('sha256='+createHmac('sha256',secret).update(raw).digest('hex')),got=Buffer.from(signature);return expected.length===got.length&&timingSafeEqual(expected,got)}
 function header(request:FastifyRequest,name:string){const value=request.headers[name];return Array.isArray(value)?value[0]:value}
 function secret(){return `whsec_${randomBytes(32).toString('base64url')}`}
 function publicEndpoint(item:{id:string;publicId:string;name:string;playbookId:string;channelId:string;secretHint:string;mapping:Prisma.JsonValue;isActive:boolean;createdAt:Date;updatedAt:Date;playbook?:{name:string}|null;channel?:{displayName:string}|null}){return {id:item.id,publicId:item.publicId,path:`/v1/hooks/${item.publicId}`,name:item.name,playbookId:item.playbookId,playbookName:item.playbook?.name,channelId:item.channelId,channelName:item.channel?.displayName,secretHint:item.secretHint,mapping:item.mapping,isActive:item.isActive,createdAt:item.createdAt,updatedAt:item.updatedAt}}
@@ -27,11 +29,16 @@ function stringAt(payload:unknown,valuePath:string,required=false){const value=r
 async function processEvent(app:Parameters<FastifyPluginAsync>[0],endpoint:EndpointWithVersion,eventId:string,payload:unknown,idempotencyKey:string){
   if(!endpoint.playbook.activeVersion)throw new DomainError('PLAYBOOK_NOT_PUBLISHED','O fluxo deste webhook não está publicado.',409);
   if(endpoint.playbook.status==='PAUSED')throw new DomainError('PLAYBOOK_NOT_PUBLISHED','O fluxo deste webhook está pausado.',409);
-  const mapping=mappingSchema.parse(endpoint.mapping) as Mapping,phone=stringAt(payload,mapping.phonePath,true)!,name=mapping.namePath?stringAt(payload,mapping.namePath):undefined,email=mapping.emailPath?stringAt(payload,mapping.emailPath):undefined;
-  if(phone.length<8||phone.length>24)throw new DomainError('WEBHOOK_MAPPING_FAILED','O telefone mapeado é inválido.',422);
+  const mapping=mappingSchema.parse(endpoint.mapping) as Mapping,rawPhone=stringAt(payload,mapping.phonePath,true)!,name=mapping.namePath?stringAt(payload,mapping.namePath):undefined,email=mapping.emailPath?stringAt(payload,mapping.emailPath):undefined;
+  const phone=normalizePhone(rawPhone);
+  if(!phone)throw new DomainError('WEBHOOK_MAPPING_FAILED','O telefone mapeado é inválido.',422);
   const variables=mappedVariables(payload,mapping.variables);
+  const known=await findContactByPhone<{id:string}>(app.prisma,endpoint.workspaceId,phone);
+  if(!known)await assertWorkspaceQuota(app.prisma,endpoint.workspaceId,'contacts');
+  await assertWorkspaceQuota(app.prisma,endpoint.workspaceId,'executionsMonthly');
   return app.prisma.$transaction(async tx=>{
-    const contact=await tx.contact.upsert({where:{workspaceId_phone:{workspaceId:endpoint.workspaceId,phone}},create:{workspaceId:endpoint.workspaceId,phone,name,email,source:mapping.source},update:{...(name?{name}:{}),...(email?{email}:{}),source:mapping.source}});
+    const contactUpdate={...(name?{name}:{}),...(email?{email}:{}),source:mapping.source};
+    const contact=known?await tx.contact.update({where:{id:known.id,workspaceId:endpoint.workspaceId},data:{phone,...contactUpdate}}):await tx.contact.upsert({where:{workspaceId_phone:{workspaceId:endpoint.workspaceId,phone}},create:{workspaceId:endpoint.workspaceId,phone,name,email,source:mapping.source},update:contactUpdate});
     let conversation=await tx.conversation.findFirst({where:{workspaceId:endpoint.workspaceId,channelId:endpoint.channelId,contactId:contact.id,status:{not:'RESOLVED'}},orderBy:{createdAt:'desc'}});
     conversation??=await tx.conversation.create({data:{workspaceId:endpoint.workspaceId,channelId:endpoint.channelId,contactId:contact.id,status:'AUTOMATED',mode:'AI'}});
     const execution=await tx.execution.create({data:{workspaceId:endpoint.workspaceId,conversationId:conversation.id,playbookVersionId:endpoint.playbook.activeVersion!.id,context:{...variables,webhook:{endpointId:endpoint.id,eventId,idempotencyKey}} as Prisma.InputJsonValue}});
@@ -43,7 +50,13 @@ async function processEvent(app:Parameters<FastifyPluginAsync>[0],endpoint:Endpo
 
 export const webhookRoutes:FastifyPluginAsync=async app=>{
   app.get('/v1/webhooks/meta',async(request,reply)=>{const q=request.query as Record<string,string>;if(q['hub.mode']==='subscribe'&&q['hub.verify_token']===process.env.META_VERIFY_TOKEN)return reply.type('text/plain').send(q['hub.challenge']);return reply.status(403).send()});
-  app.post('/v1/webhooks/meta',async(request,reply)=>{const raw=JSON.stringify(request.body);if(process.env.META_APP_SECRET&&!validMetaSignature(raw,header(request,'x-hub-signature-256'),process.env.META_APP_SECRET))return reply.status(401).send({error:'invalid_signature'});const payload=request.body as any;const externalId=payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id??createHash('sha256').update(raw).digest('hex');await app.prisma.rawWebhookEvent.upsert({where:{provider_externalId:{provider:'meta',externalId}},create:{provider:'meta',externalId,payload,status:'RECEIVED'},update:{}});return reply.status(200).send({received:true})});
+  app.post('/v1/webhooks/meta',{bodyLimit:MAX_WEBHOOK_BYTES,preParsing:captureRawBody},async(request,reply)=>{
+    const raw=(request as FastifyRequest&{rawBody:Buffer}).rawBody,appSecret=process.env.META_APP_SECRET;
+    if(!appSecret){
+      if(process.env.NODE_ENV==='production'){request.log.error('META_APP_SECRET ausente em produção; webhook Meta recusado.');return reply.status(503).send({code:'META_WEBHOOK_NOT_CONFIGURED',message:'Webhook Meta não configurado.'})}
+      request.log.warn('META_APP_SECRET ausente: assinatura do webhook Meta não verificada (somente fora de produção).');
+    }else if(!validMetaSignature(raw,header(request,'x-hub-signature-256'),appSecret)){request.log.warn({ip:request.ip},'Assinatura inválida no webhook Meta.');return reply.status(401).send({error:'invalid_signature'})}
+    const payload=request.body as any;const externalId=payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id??createHash('sha256').update(raw).digest('hex');await app.prisma.rawWebhookEvent.upsert({where:{provider_externalId:{provider:'meta',externalId}},create:{provider:'meta',externalId,payload,status:'RECEIVED'},update:{}});return reply.status(200).send({received:true})});
 
   app.post('/v1/hooks/:publicId',{bodyLimit:MAX_WEBHOOK_BYTES,preParsing:captureRawBody},async(request,reply)=>{
     const {publicId}=request.params as {publicId:string};const endpoint=await app.prisma.inboundWebhookEndpoint.findUnique({where:{publicId},include:{playbook:{include:{activeVersion:true}}}});
@@ -53,7 +66,14 @@ export const webhookRoutes:FastifyPluginAsync=async app=>{
     if(!idempotencyKey||idempotencyKey.length>200)throw new DomainError('IDEMPOTENCY_KEY_REQUIRED','Envie o header Idempotency-Key.',400);
     if(!validWebhookSignature(decryptWebhookSecret(endpoint.encryptedSecret),timestamp,signature,raw))throw new DomainError('INVALID_SIGNATURE','Assinatura ausente, inválida ou expirada.',401);
     const payload=request.body;if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new DomainError('INVALID_PAYLOAD','O payload precisa ser um objeto JSON.',422);
-    let event;try{event=await app.prisma.rawWebhookEvent.create({data:{workspaceId:endpoint.workspaceId,channelId:endpoint.channelId,webhookEndpointId:endpoint.id,provider:`generic:${endpoint.publicId}`,externalId:idempotencyKey,signature,payload:payload as Prisma.InputJsonValue,status:'PROCESSING',attempts:1}})}catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')return reply.status(200).send({received:true,duplicate:true});throw error}
+    const provider=`generic:${endpoint.publicId}`;let event;try{event=await app.prisma.rawWebhookEvent.create({data:{workspaceId:endpoint.workspaceId,channelId:endpoint.channelId,webhookEndpointId:endpoint.id,provider,externalId:idempotencyKey,signature,payload:payload as Prisma.InputJsonValue,status:'PROCESSING',attempts:1}})}catch(error){
+      if(!(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002'))throw error;
+      // Só é duplicado se o evento anterior já foi aceito (processado ou em andamento). Falhou => reprocessa; o claim atômico impede dois reprocessamentos simultâneos.
+      const previous=await app.prisma.rawWebhookEvent.findUnique({where:{provider_externalId:{provider,externalId:idempotencyKey}}});
+      const claimed=previous?.status==='FAILED'?await app.prisma.rawWebhookEvent.updateMany({where:{id:previous.id,status:'FAILED'},data:{status:'PROCESSING',error:null,signature,payload:payload as Prisma.InputJsonValue,attempts:{increment:1}}}):{count:0};
+      if(!previous||!claimed.count)return reply.status(200).send({received:true,duplicate:true});
+      event=previous;
+    }
     try{const result=await processEvent(app,endpoint,event.id,payload,idempotencyKey);return reply.status(202).send({received:true,eventId:event.id,...result})}catch(error){await app.prisma.rawWebhookEvent.update({where:{id:event.id},data:{status:'FAILED',error:(error instanceof Error?error.message:'Falha no processamento').slice(0,1000)}});throw error}
   });
 
