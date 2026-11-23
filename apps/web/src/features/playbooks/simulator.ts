@@ -52,3 +52,9 @@ export function traceClass(trace:SimTrace|null,nodeId:string,base?:string){
   return [base,extra].filter(Boolean).join(' ')||undefined;
 }
 export const clampPanelWidth=(width:number,viewport:number)=>Math.round(Math.min(SIM_PANEL_MAX,Math.max(SIM_PANEL_MIN,Math.min(width,viewport-80))));
+const ISO_STAMP=/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+/** Troca timestamps ISO (UTC) vindos do simulador por data e hora locais em pt-BR. */
+export function formatSimText(text:string|null|undefined):string{
+  if(!text)return '';
+  return text.replace(ISO_STAMP,iso=>{const date=new Date(iso);return Number.isNaN(date.getTime())?iso:date.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})});
+}

@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {clampPanelWidth,composerEnabled,endReason,limitWarning,parseVariables,portChoices,simulatorError,skipAction,traceClass,traceOf,type SimView} from './simulator';
+import {formatSimText,clampPanelWidth,composerEnabled,endReason,limitWarning,parseVariables,portChoices,simulatorError,skipAction,traceClass,traceOf,type SimView} from './simulator';
 
 const view=(patch:Partial<SimView>={}):SimView=>({messages:[],activeNodeId:null,visitedNodeIds:[],waiting:null,completed:false,...patch});
 describe('simulator helpers',()=>{
@@ -52,5 +52,15 @@ describe('simulator helpers',()=>{
     expect(limitWarning(view({messages:Array.from({length:95},(_,i)=>({id:String(i),role:'bot' as const,nodeId:null,kind:'text' as const,text:'x',at:''}))}))).toMatch(/100/);
     expect(limitWarning(view())).toBeNull();
     expect(clampPanelWidth(100,1400)).toBe(320);expect(clampPanelWidth(900,1400)).toBe(640);expect(clampPanelWidth(500,500)).toBe(420);
+  });
+});
+describe('formatSimText',()=>{
+  it('formata timestamps ISO em pt-BR sem tocar no resto',()=>{
+    const out=formatSimText('Espera até a data: 2026-11-24T12:30:27.565Z.');
+    expect(out).not.toMatch(/T12:30|Z\./);
+    expect(out).toMatch(/\d{2}\/\d{2}\/2026/);
+    expect(out.startsWith('Espera até a data: ')).toBe(true);
+    expect(formatSimText('sem data')).toBe('sem data');
+    expect(formatSimText(null)).toBe('');
   });
 });
