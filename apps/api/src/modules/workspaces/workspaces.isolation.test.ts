@@ -96,7 +96,7 @@ describe.skipIf(!hasTestDb)('isolamento entre workspaces: workspaces (membros, c
     const r = await t.app.inject({ method: 'POST', url: '/v1/invitations/accept', payload: { token: inviteToken, name: 'Intruso', password: 'senha-super-segura-1', email: t.B.email, workspaceId: t.B.workspaceId, role: 'OWNER' } });
     expect(r.statusCode).toBe(201);
     const user = await t.prisma.user.findUniqueOrThrow({ where: { email: inviteA.email } }); extraUsers.push(user.id);
-    expect(r.json().workspaceId).toBe(t.A.workspaceId);
+    expect(r.json().workspace.id).toBe(t.A.workspaceId);
     const ms = await t.prisma.membership.findMany({ where: { userId: user.id } });
     expect(ms).toHaveLength(1); expect(ms[0]!.workspaceId).toBe(t.A.workspaceId); expect(ms[0]!.role).toBe('AGENT');
     expect(await t.prisma.membership.count({ where: { workspaceId: t.B.workspaceId } })).toBe(1);
