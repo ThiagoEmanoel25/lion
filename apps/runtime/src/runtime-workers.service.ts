@@ -19,6 +19,12 @@ import { sequenceJobOptions, sequenceOf } from './automation/message-sequence.js
 import { deleteOnTagIdOf } from './automation/message-deletion.js';
 import {selectInboundRoute} from './automation/channel-routing.js';
 import {dispatchScheduledMessage} from './scheduled-message.js';
+import {sendOutsideHoursNotice} from './automation/outside-hours.js';
+
+const OUTBOX_LEASE_MS = 120_000;
+const OUTBOX_MAX_ATTEMPTS = 10;
+const BROADCAST_RECONNECT_MAX_ATTEMPTS = 10;
+const BROADCAST_RECONNECT_RE = /^Canal reconectando: nova tentativa (\d+)\//;
 
 @Injectable()
 export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
@@ -217,11 +223,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
     this.relayingOutbox = true;
     try {
     const events = await this.prisma.outboxEvent.findMany({
-      where: { type: { in: ['message.send.requested','message.delete.requested','broadcast.recipient.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
+      where: { type: { in: ['message.send.requested','message.delete.requested','broadcast.recipient.requested','scheduled_message.send.requested','notification.send.requested','reaction.send.requested', 'automation.execution.requested', 'automation.execution.cancelled', 'automation.sequence.continue.requested', 'automation.inbound.received', 'automation.trigger.requested','automation.channel_slot.requested', 'knowledge.index.requested'] }, processedAt: null, availableAt: { lte: new Date() }, attempts: { lt: 10 } },
       take: 50,
       orderBy: { createdAt: 'asc' }
     });
     for (const event of events) {
+      // Claim atômico (lease por availableAt): só a réplica cujo UPDATE condicional afeta 1 linha processa o evento.
+      // Se ela cair, o lease expira sozinho e o evento volta a ser elegível (claim órfão recuperado).
+      const claimed = await this.prisma.outboxEvent.updateMany({ where: { id: event.id, processedAt: null, attempts: event.attempts, availableAt: event.availableAt }, data: { availableAt: new Date(Date.now() + OUTBOX_LEASE_MS) } });
+      if (claimed.count !== 1) continue;
       const payload = event.payload as { messageId?: string; ruleId?: string; recipientId?: string; scheduledMessageId?:string; executionId?: string; resumeStepId?:string; sequenceIndex?:number; conversationId?: string; contactId?:string; tagId?:string; event?:string;slot?:'CONVERSATION_RESOLVED'|'HANDOFF_CLOSED'; sourceId?:string; content?:string|null;channelId?:string;phone?:string;text?:string;messageExternalId?:string;emoji?:string };
       const valid = event.type === 'message.send.requested' ? Boolean(payload.messageId)
         : event.type === 'message.delete.requested' ? Boolean(payload.ruleId)
@@ -246,6 +256,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
           removeOnComplete: { age: 86_400, count: 10_000 },
           removeOnFail: { age: 604_800, count: 10_000 }
         };
+        // Aviso de fora do expediente: só acrescenta uma mensagem (1x/conversa/12h) e não impede fluxo nem atendimento humano.
+        if(event.type==='automation.inbound.received')await sendOutsideHoursNotice(this.prisma,this.redis,{workspaceId:event.workspaceId,conversationId:payload.conversationId!});
         if(event.type==='scheduled_message.send.requested'){
           const scheduled=await this.prisma.scheduledMessage.findUnique({where:{id:payload.scheduledMessageId!},select:{id:true,jobId:true,scheduledFor:true,status:true}});
           if(scheduled?.status==='PENDING')await scheduledQueue.add('send',{scheduledMessageId:scheduled.id},{...commonOptions,jobId:scheduled.jobId??`scheduled-${scheduled.id}`,delay:Math.max(0,scheduled.scheduledFor.getTime()-Date.now())});
@@ -273,18 +285,31 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
             slot:payload.slot,
             jobOptions: commonOptions
           });
+        } else if (event.type === 'automation.execution.cancelled') {
+          await this.cancelExecutionJobs(automationQueue, payload.executionId!);
         } else if (event.type === 'automation.execution.requested') {
           await automationQueue.add('start', { executionId: payload.executionId!, action: 'start' }, commonOptions);
         } else {
           await outboundQueue.add('send', { messageId: payload.messageId! }, commonOptions);
         }
         await this.prisma.outboxEvent.update({ where: { id: event.id }, data: { processedAt: new Date() } });
-      } catch {
+      } catch (error) {
         const attempts = event.attempts + 1;
-        await this.prisma.outboxEvent.update({
-          where: { id: event.id },
-          data: { attempts, availableAt: new Date(Date.now() + Math.min(3_600, 2 ** attempts) * 1_000) }
-        });
+        const exhausted = attempts >= OUTBOX_MAX_ATTEMPTS;
+        const log = { eventId: event.id, type: event.type, aggregateId: event.aggregateId, workspaceId: event.workspaceId, attempts, err: error };
+        if (exhausted) this.logger.error(log, 'outbox event exhausted its attempts; giving up'); else this.logger.warn(log, 'outbox event failed; will retry');
+        try {
+          await this.prisma.outboxEvent.update({
+            where: { id: event.id },
+            data: { attempts, availableAt: new Date(Date.now() + Math.min(3_600, 2 ** attempts) * 1_000) }
+          });
+          if (exhausted && event.type === 'message.send.requested') {
+            const messageId = (event.payload as { messageId?: string }).messageId;
+            if (messageId) await this.prisma.message.updateMany({ where: { id: messageId, direction: 'OUTBOUND', status: { in: ['PENDING', 'QUEUED'] } }, data: { status: 'FAILED', errorCode: 'OUTBOX_RELAY_EXHAUSTED' } });
+          }
+        } catch (innerError) {
+          this.logger.error({ eventId: event.id, type: event.type, err: innerError }, 'failed to record outbox failure; lease will expire and the event will be retried');
+        }
       }
     }
     } finally {
@@ -296,6 +321,9 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
   // retentativa e registro no inbox são os mesmos de uma resposta humana.
   private async dispatchBroadcastRecipient(id:string){
     await this.prisma.$transaction(async tx=>{
+      // Claim atômico: o UPDATE condicional trava a linha; uma segunda réplica espera o commit, reavalia status=PENDING e recebe count 0.
+      const claim=await tx.broadcastRecipient.updateMany({where:{id,status:'PENDING'},data:{status:'PENDING'}});
+      if(claim.count!==1)return;
       const recipient=await tx.broadcastRecipient.findUnique({where:{id},include:{broadcast:{include:{channel:{select:{id:true,status:true}}}},contact:{select:{id:true,optedOutAt:true}}}});
       if(!recipient||recipient.status!=='PENDING')return;
       const {broadcast}=recipient;
@@ -304,6 +332,15 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       const skip=async(reason:string)=>{await tx.broadcastRecipient.update({where:{id},data:{status:'SKIPPED',reason}})};
       // A checagem de saída é refeita aqui: entre criar o disparo e chegar a vez dele, o contato pode ter pedido para sair.
       if(recipient.contact.optedOutAt)return skip('O contato pediu para sair da lista.');
+      if(broadcast.channel.status==='DEGRADED'||broadcast.channel.status==='PENDING'){
+        // Queda transitória (reconectando): reagenda com backoff em vez de descartar; só desiste depois de várias tentativas.
+        const attempt=Number(BROADCAST_RECONNECT_RE.exec(recipient.reason??'')?.[1]??0)+1;
+        if(attempt>BROADCAST_RECONNECT_MAX_ATTEMPTS)return skip('A conexão não voltou a tempo para o envio.');
+        const when=new Date(Date.now()+Math.min(900,30*2**(attempt-1))*1_000);
+        await tx.broadcastRecipient.update({where:{id},data:{scheduledFor:when,reason:`Canal reconectando: nova tentativa ${attempt}/${BROADCAST_RECONNECT_MAX_ATTEMPTS}`}});
+        await tx.outboxEvent.create({data:{workspaceId:broadcast.workspaceId,aggregate:'BroadcastRecipient',aggregateId:id,type:'broadcast.recipient.requested',availableAt:when,payload:{recipientId:id}}});
+        return;
+      }
       if(broadcast.channel.status!=='CONNECTED')return skip('A conexão estava desconectada no horário do envio.');
       let conversation=await tx.conversation.findFirst({where:{workspaceId:broadcast.workspaceId,channelId:broadcast.channelId,contactId:recipient.contactId,status:{not:'RESOLVED'}},orderBy:{createdAt:'desc'},select:{id:true}});
       conversation??=await tx.conversation.create({data:{workspaceId:broadcast.workspaceId,channelId:broadcast.channelId,contactId:recipient.contactId,status:'NEW',mode:'HUMAN'},select:{id:true}});
@@ -313,6 +350,17 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       const left=await tx.broadcastRecipient.count({where:{broadcastId:broadcast.id,status:'PENDING'}});
       if(left===0)await tx.broadcast.update({where:{id:broadcast.id},data:{status:'DONE',finishedAt:new Date()}});
     });
+  }
+
+  // Cancelamento: o banco já marca CANCELLED (a engine ignora execução cancelada); aqui só se remove o que ainda
+  // espera na fila (atrasado/aguardando). Job em andamento termina sem efeito. Idempotente: sem job, nada a fazer.
+  private async cancelExecutionJobs(automationQueue: Queue<AutomationJob>, executionId: string) {
+    await this.prisma.execution.updateMany({ where: { id: executionId, status: { in: ['RUNNING', 'WAITING'] } }, data: { status: 'CANCELLED', finishedAt: new Date() } });
+    const jobs = await automationQueue.getJobs(['delayed', 'waiting', 'prioritized', 'paused'], 0, 1_000);
+    for (const job of jobs) {
+      if (job?.data?.executionId !== executionId) continue;
+      try { await job.remove(); } catch { /* já em execução ou removido: sem efeito */ }
+    }
   }
 
   private async resumeWaitingExecution(automationQueue: Queue<AutomationJob>, conversationId: string, messageId: string | undefined, jobOptions: Record<string, unknown>) {
@@ -341,6 +389,8 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
       ? await this.prisma.conversation.findUnique({ where: { id: input.conversationId }, include })
       : await this.prisma.conversation.findFirst({ where: { contactId: input.contactId!, status: { not: 'RESOLVED' } }, include, orderBy: { updatedAt: 'desc' } });
     if(!conversation)return;
+    // Atendimento humano/pausado: respostas automáticas por mensagem recebida (palavra-chave, boas-vindas, padrão) não disparam.
+    if(input.triggerEvent==='message.received'&&conversation.mode!=='AI'){this.logger.debug({conversationId:conversation.id,mode:conversation.mode},'skip inbound flow: conversation is not in AI mode');return}
     let selected=conversation.channel.activePlaybook;let routeReason='legacy';
     if(input.slot){selected=conversation.channel.flowConfigs.find(item=>item.slot===input.slot)?.playbook??null;routeReason=input.slot.toLocaleLowerCase()}
     else if(input.triggerEvent==='message.received'){

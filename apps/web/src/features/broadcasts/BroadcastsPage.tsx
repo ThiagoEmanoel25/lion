@@ -4,6 +4,8 @@ import {Pause,Play,X} from 'lucide-react';
 import {EmptyState,ErrorState,LoadingState} from '../../shared/ui/AsyncState';
 import {useToast} from '../../shared/ui/Toast';
 import {useBroadcastAction,useBroadcastDependencies,useBroadcastPreview,useBroadcasts,useCreateBroadcast,type BroadcastAudience,type BroadcastInput} from './api/queries';
+import {describeApiError} from '../settings/errors';
+import {buildAudiencePayload,canCreateBroadcast,hasAudienceFilter,progressPercent,progressSummary} from './audience';
 import './broadcasts.css';
 
 const STATUS={DRAFT:'Rascunho',RUNNING:'Enviando',PAUSED:'Pausado',DONE:'Concluído',CANCELLED:'Cancelado'} as const;
@@ -20,25 +22,28 @@ export function BroadcastsPage(){
   const [form,setForm]=useState<BroadcastInput>({name:'',channelId:'',body:'',startAt:localNow(),minIntervalSeconds:45,maxIntervalSeconds:180,dailyQuota:200,audience:emptyAudience});
   const connected=useMemo(()=>(dependencies.data?.channels??[]).filter(channel=>channel.status==='CONNECTED'),[dependencies.data]);
   const stages=useMemo(()=>(dependencies.data?.stages??[]).filter(item=>item.count>0),[dependencies.data]);
+  const [allContacts,setAllContacts]=useState(false),[confirmedAll,setConfirmedAll]=useState(false);
   const audienceKey=JSON.stringify(form.audience);
   // A prévia roda sozinha a cada mudança de público: quem dispara precisa ver o alcance antes, não depois.
   useEffect(()=>{if(open)preview.mutate(JSON.parse(audienceKey) as BroadcastAudience)},[open,audienceKey]);
+  const filtered=hasAudienceFilter(form.audience);
+  function changeAudience(audience:BroadcastAudience){setForm(current=>({...current,audience}));setAllContacts(false);setConfirmedAll(false)}
 
   function toggle(list:string[],value:string){return list.includes(value)?list.filter(item=>item!==value):[...list,value]}
   async function submit(){
     setError(null);
     try{
-      await create.mutateAsync({...form,startAt:new Date(form.startAt).toISOString()});
-      setOpen(false);setForm(current=>({...current,name:'',body:'',audience:emptyAudience}));toast.success('Disparo criado como rascunho. Clique em Começar quando estiver pronto.');
-    }catch(failure){const message=failure instanceof Error?failure.message:'Não foi possível criar o disparo.';setError(message);toast.error(message)}
+      await create.mutateAsync({...form,audience:buildAudiencePayload(form.audience,allContacts&&confirmedAll),startAt:new Date(form.startAt).toISOString()});
+      setOpen(false);setAllContacts(false);setConfirmedAll(false);setForm(current=>({...current,name:'',body:'',audience:emptyAudience}));toast.success('Disparo criado como rascunho. Clique em Começar quando estiver pronto.');
+    }catch(failure){const message=describeApiError(failure,'Não foi possível criar o disparo.');setError(message);toast.error(message)}
   }
 
   if(list.isLoading)return <div className="page"><LoadingState/></div>;
   if(list.isError)return <div className="page"><ErrorState title="Não foi possível carregar os disparos." error={list.error} retry={()=>list.refetch()}/></div>;
-  const run=(id:string,kind:'start'|'pause'|'cancel',done:string)=>action.mutate({id,action:kind},{onSuccess:()=>toast.success(done),onError:error=>toast.error(error.message||'Não foi possível concluir a ação.')});
+  const run=(id:string,kind:'start'|'pause'|'cancel',done:string)=>action.mutate({id,action:kind},{onSuccess:()=>toast.success(done),onError:error=>toast.error(describeApiError(error,'Não foi possível concluir a ação.'))});
   const eligible=preview.data?.eligible??0;
   return <div className="page">
-    <div className="heading"><div><small>OPERAÇÕES</small><h1>Disparos em massa</h1><p>Envio para a base com intervalo aleatório e cota diária, porque o WhatsApp bloqueia número que envia em rajada.</p></div><button className="primary" onClick={()=>setOpen(true)} disabled={!connected.length} title={connected.length?undefined:'Conecte um número para criar disparos'}>＋ Novo disparo</button></div>
+    <div className="heading"><div><small>OPERAÇÕES</small><h1>Disparos em massa</h1><p>Envio para a base com intervalo aleatório e cota diária, porque o WhatsApp bloqueia número que envia em rajada.</p></div><div style={{display:'flex',gap:8}}><button className="primary" onClick={()=>setOpen(true)} disabled={!connected.length} title={connected.length?undefined:'Conecte um número para criar disparos'}>＋ Novo disparo</button></div></div>
     {!connected.length&&<div className="broadcast-warning">Nenhum número conectado. Conecte um número em <Link to="/connections">Conexões</Link> antes de criar um disparo.</div>}
 
     {open&&<section className="panel broadcast-form">
@@ -54,23 +59,26 @@ export function BroadcastsPage(){
       </div>
       <div className="broadcast-audience">
         <b>Público</b>
-        <div className="broadcast-chips">{(dependencies.data?.tags??[]).map(tag=><button key={tag.id} type="button" className={form.audience.tagIds.includes(tag.id)?'on':''} onClick={()=>setForm({...form,audience:{...form.audience,tagIds:toggle(form.audience.tagIds,tag.id)}})}>{tag.name}</button>)}</div>
-        <div className="broadcast-chips">{stages.map(item=><button key={item.stage} type="button" className={form.audience.stages.includes(item.stage)?'on':''} onClick={()=>setForm({...form,audience:{...form.audience,stages:toggle(form.audience.stages,item.stage)}})}>{item.stage} <small>{item.count}</small></button>)}</div>
-        <p className="broadcast-reach">{preview.isPending?'Calculando alcance…':preview.data
-          ?<>Alcança <b>{eligible}</b> de {preview.data.matched} contatos. Ficam de fora {preview.data.skipped.noConsent} sem consentimento e {preview.data.skipped.optedOut} que pediram para sair.</>
-          :'Escolha etiquetas ou etapas para ver o alcance. Sem filtro, o público é toda a base com consentimento.'}</p>
+        <div className="broadcast-chips">{(dependencies.data?.tags??[]).map(tag=><button key={tag.id} type="button" className={form.audience.tagIds.includes(tag.id)?'on':''} onClick={()=>changeAudience({...form.audience,tagIds:toggle(form.audience.tagIds,tag.id)})}>{tag.name}</button>)}</div>
+        <div className="broadcast-chips">{stages.map(item=><button key={item.stage} type="button" className={form.audience.stages.includes(item.stage)?'on':''} onClick={()=>changeAudience({...form.audience,stages:toggle(form.audience.stages,item.stage)})}>{item.stage} <small>{item.count}</small></button>)}</div>
+        <p className="broadcast-reach" aria-live="polite">{preview.isPending?'Calculando alcance…':preview.data
+          ?<>Alcança <b>{eligible}</b> de {preview.data.matched} contatos encontrados. Ficam de fora <b>sem consentimento: {preview.data.skipped.noConsent}</b> e {preview.data.skipped.optedOut} que pediram para sair.</>
+          :'Escolha etiquetas ou etapas para ver o alcance.'}</p>
+        <p className="broadcast-consent-help">O <b>consentimento</b> é a autorização do contato para receber suas mensagens (exigência da LGPD). Contatos sem consentimento ficam de fora do disparo e não recebem nada. O consentimento é registrado em <Link to="/contacts">Contatos</Link>.</p>
+        {!filtered&&<div className="broadcast-all"><label className="check"><input type="checkbox" checked={allContacts} onChange={event=>{setAllContacts(event.target.checked);setConfirmedAll(false)}}/> Enviar para toda a base com consentimento</label>
+          {allContacts&&<div className="broadcast-all-confirm"><p>Sem filtro, o disparo vai para <b>todos os {eligible} contatos elegíveis</b> da base{preview.data?`; ${preview.data.skipped.noConsent} sem consentimento e ${preview.data.skipped.optedOut} que pediram para sair não recebem`:''}.</p><label className="check"><input type="checkbox" checked={confirmedAll} onChange={event=>setConfirmedAll(event.target.checked)}/> Confirmo o envio para os {eligible} contatos elegíveis</label></div>}</div>}
       </div>
-      {error&&<p className="broadcast-error">{error}</p>}
-      <footer><button onClick={()=>setOpen(false)}>Cancelar</button><button className="primary" onClick={submit} disabled={create.isPending||!form.name.trim()||!form.channelId||!form.body.trim()||eligible===0}>Criar como rascunho</button></footer>
+      {error&&<p className="broadcast-error" role="alert">{error}</p>}
+      <footer><button onClick={()=>setOpen(false)}>Cancelar</button><button className="primary" onClick={submit} disabled={!canCreateBroadcast({name:form.name,channelId:form.channelId,body:form.body,audience:form.audience,allContacts,confirmedAll,eligible,pending:create.isPending})}>Criar como rascunho</button></footer>
     </section>}
 
     {list.data?.length
       ? <div className="broadcast-list">{list.data.map(item=>{
-          const percent=item.progress.total?Math.round(item.progress.sent/item.progress.total*100):0;
+          const percent=progressPercent(item.progress);
           return <article key={item.id} className="panel">
             <header><div><b>{item.name}</b><small>{item.channel.displayName} · início {formatDate(item.startAt)} · {item.minIntervalSeconds}–{item.maxIntervalSeconds}s entre envios · {item.dailyQuota}/dia</small></div><span className={`broadcast-status ${item.status.toLowerCase()}`}>{STATUS[item.status]}</span></header>
             <p className="broadcast-body">{item.body}</p>
-            <div className="broadcast-progress"><i><em style={{width:`${percent}%`}}/></i><span>{item.progress.sent} de {item.progress.total} enviados{item.progress.failed?` · ${item.progress.failed} falharam`:''}{item.progress.cancelled?` · ${item.progress.cancelled} cancelados`:''}</span></div>
+            <div className="broadcast-progress"><i><em style={{width:`${percent}%`}}/></i><span>{progressSummary(item.progress)}</span></div>
             <footer>
               {(item.status==='DRAFT'||item.status==='PAUSED')&&<button onClick={()=>run(item.id,'start',item.status==='PAUSED'?'Disparo retomado.':'Disparo iniciado.')} disabled={action.isPending}><Play size={14}/> {item.status==='PAUSED'?'Retomar':'Começar'}</button>}
               {item.status==='RUNNING'&&<button onClick={()=>run(item.id,'pause','Disparo pausado.')} disabled={action.isPending}><Pause size={14}/> Pausar</button>}

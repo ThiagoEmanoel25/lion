@@ -1,5 +1,5 @@
 import { Inject,Injectable, OnModuleDestroy } from '@nestjs/common';
-import { isOptOutMessage } from '@nexo/domain';
+import { isOptOutMessage, normalizePhone } from '@nexo/domain';
 import { Boom } from '@hapi/boom';
 import makeWASocket, {
   Browsers,
@@ -20,6 +20,11 @@ import { acquireLock, type LockLease } from './distributed-lock.js';
 import { AuthStateStore } from './auth-state.store.js';
 import { MEDIA_MAX_BYTES, ctwaOf, mediaDownloadOptions, menuReply, messageBody, messageType, storableMedia, withCtwa } from './message-content.js';
 
+const LEASE_GRACE_MS = 30_000;
+const INBOUND_MAX_ATTEMPTS = 4;
+const inboundBackoffMs = (attempt: number) => Math.min(5_000, 250 * 2 ** attempt);
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
 type LiveSession = { socket: WASocket; lease: LockLease; renewTimer: NodeJS.Timeout; manualClose: boolean };
 
 @Injectable()
@@ -34,6 +39,11 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
     @Inject(AuthStateStore) private readonly authStore: AuthStateStore
   ) {
     this.connectionQueue = new Queue(QUEUES.whatsappConnection, { connection: this.redis });
+  }
+
+  /** Handlers de evento do socket nunca podem gerar unhandledRejection. */
+  private safely(channelId: string, event: string, run: () => Promise<void>) {
+    void run().catch(error => this.logger.error({ channelId, event, err: error }, 'socket event handler failed'));
   }
 
   getSocket(channelId: string): WASocket | undefined { return this.sessions.get(channelId)?.socket; }
@@ -60,25 +70,39 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
         generateHighQualityLinkPreview: false,
         getMessage: async () => undefined
       });
-      const renewTimer = setInterval(async () => {
-        if (await lease.renew()) {
-          // The session snapshot is intentionally ephemeral so a crashed runtime
-          // cannot look connected forever. Keep its TTL alive while this process
-          // still owns the channel lease.
-          await this.redis.expire(`wa:session:${channelId}`, 300);
-          return;
-        }
-        this.logger.error({ channelId }, 'lost session lease');
-        socket.end(new Error('session lease lost'));
-        await this.dropSession(channelId);
+      let lastRenewedAt = Date.now();
+      const renewTimer = setInterval(() => {
+        void (async () => {
+          try {
+            if (await lease.renew()) {
+              lastRenewedAt = Date.now();
+              // The session snapshot is intentionally ephemeral so a crashed runtime
+              // cannot look connected forever. Keep its TTL alive while this process
+              // still owns the channel lease.
+              await this.redis.expire(`wa:session:${channelId}`, 300);
+              return;
+            }
+            this.logger.error({ channelId }, 'lost session lease');
+          } catch (error) {
+            // Redis indisponível: tolera falhas curtas, mas nunca segue enviando depois que o lock pode ter expirado
+            // (TTL 45s), senão outra réplica assumiria a sessão e as duas enviariam em duplicidade.
+            if (Date.now() - lastRenewedAt < LEASE_GRACE_MS) {
+              this.logger.warn({ channelId, err: error }, 'failed to renew session lease; will retry');
+              return;
+            }
+            this.logger.error({ channelId, err: error }, 'session lease could not be renewed in time; stopping this session');
+          }
+          socket.end(new Error('session lease lost'));
+          await this.dropSession(channelId);
+        })().catch(error => this.logger.error({ channelId, err: error }, 'session lease handler failed'));
       }, 15_000);
       renewTimer.unref();
       this.sessions.set(channelId, { socket, lease, renewTimer, manualClose: false });
 
       socket.ev.on('creds.update', saveCreds);
-      socket.ev.on('connection.update', update => { void this.onConnectionUpdate(channelId, update); });
-      socket.ev.on('messages.upsert', event => { void this.onMessages(channelId, event); });
-      socket.ev.on('messages.update', updates => { void this.onMessageUpdates(channelId, updates); });
+      socket.ev.on('connection.update', update => { this.safely(channelId, 'connection.update', () => this.onConnectionUpdate(channelId, update)); });
+      socket.ev.on('messages.upsert', event => { this.safely(channelId, 'messages.upsert', () => this.onMessages(channelId, event)); });
+      socket.ev.on('messages.update', updates => { this.safely(channelId, 'messages.update', () => this.onMessageUpdates(channelId, updates)); });
 
       if (pairingPhoneNumber && !state.creds.registered) {
         const code = await socket.requestPairingCode(pairingPhoneNumber.replace(/\D/g, ''));
@@ -149,16 +173,53 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Só conversas individuais viram contato. Grupos (@g.us), newsletters, listas de transmissão e status
+   * são ignorados. Um JID @lid só é aceito se o próprio evento trouxer o número real (senderPn).
+   * Retorna o JID individual (@s.whatsapp.net) ou null.
+   */
+  private individualJid(channelId: string, key: { remoteJid?: string | null; senderPn?: string | null }): string | null {
+    const jid = key.remoteJid ?? '';
+    if (jid.endsWith('@s.whatsapp.net')) return jid;
+    if (jid.endsWith('@lid')) {
+      if (key.senderPn?.endsWith('@s.whatsapp.net')) return key.senderPn;
+      this.logger.warn({ channelId, remoteJid: jid }, 'ignoring inbound from @lid JID without a phone number mapping (no contact created)');
+      return null;
+    }
+    this.logger.debug({ channelId, remoteJid: jid }, 'ignoring inbound from non-individual chat (group, newsletter or broadcast)');
+    return null;
+  }
+
   private async onMessages(channelId: string, event: BaileysEventMap['messages.upsert']) {
+    // Cada mensagem é isolada: o erro de uma (após retentativas) não descarta o restante do lote.
     for (const incoming of event.messages) {
-      const remoteJid = incoming.key.remoteJid;
+      const externalId = incoming.key?.id;
+      for (let attempt = 0; attempt < INBOUND_MAX_ATTEMPTS; attempt++) {
+        try {
+          await this.processInbound(channelId, incoming);
+          break;
+        } catch (error) {
+          const last = attempt === INBOUND_MAX_ATTEMPTS - 1;
+          this.logger[last ? 'error' : 'warn']({ channelId, externalId, remoteJid: incoming.key?.remoteJid, attempt: attempt + 1, err: error }, last ? 'failed to persist inbound message; giving up (message not stored)' : 'failed to persist inbound message; retrying');
+          if (!last) await sleep(inboundBackoffMs(attempt));
+        }
+      }
+    }
+  }
+
+  private async processInbound(channelId: string, incoming: BaileysEventMap['messages.upsert']['messages'][number]) {
+    {
       const externalId = incoming.key.id;
-      if (!remoteJid || !externalId || incoming.key.fromMe || remoteJid === 'status@broadcast') continue;
+      if (!externalId || incoming.key.fromMe) return;
+      const remoteJid = this.individualJid(channelId, incoming.key as { remoteJid?: string | null; senderPn?: string | null });
+      if (!remoteJid) return;
       const channel = await this.prisma.channel.findUnique({ where: { id: channelId } });
-      if (!channel) continue;
+      if (!channel) return;
       // Replays on reconnect: skip before downloading media for a message we already stored.
-      if (await this.prisma.rawWebhookEvent.findUnique({ where: { provider_externalId: { provider: 'baileys', externalId: `${channelId}:${externalId}` } }, select: { id: true } })) continue;
-      const phone = `+${remoteJid.split('@')[0]!.split(':')[0]!.replace(/\D/g, '')}`;
+      if (await this.prisma.rawWebhookEvent.findUnique({ where: { provider_externalId: { provider: 'baileys', externalId: `${channelId}:${externalId}` } }, select: { id: true } })) return;
+      const phone = normalizePhone(`+${remoteJid.split('@')[0]!.split(':')[0]!}`);
+      if (!phone) { this.logger.warn({ channelId, remoteJid }, 'ignoring inbound with an invalid phone number'); return; }
+      const legacyPhone = phone.slice(1);
       const body = messageBody(incoming.message);
       const reply = menuReply(incoming.message);
       const media = storableMedia(incoming.message);
@@ -184,11 +245,11 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
               processedAt: new Date()
             }
           });
-          const contact = await tx.contact.upsert({
-            where: { workspaceId_phone: { workspaceId: channel.workspaceId, phone } },
-            create: { workspaceId: channel.workspaceId, phone, name: incoming.pushName, externalRef: remoteJid, source: 'whatsapp' },
-            update: { externalRef: remoteJid, ...(incoming.pushName ? { name: incoming.pushName } : {}) }
-          });
+          // Contatos antigos/da API podem estar gravados sem '+': reaproveita o mesmo contato em vez de duplicar.
+          const existing = await tx.contact.findFirst({ where: { workspaceId: channel.workspaceId, phone: { in: [phone, legacyPhone] } }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+          const contact = existing
+            ? await tx.contact.update({ where: { id: existing.id }, data: { externalRef: remoteJid, ...(incoming.pushName ? { name: incoming.pushName } : {}) } })
+            : await tx.contact.create({ data: { workspaceId: channel.workspaceId, phone, name: incoming.pushName, externalRef: remoteJid, source: 'whatsapp' } });
           let conversation = await tx.conversation.findFirst({
             where: { workspaceId: channel.workspaceId, channelId, contactId: contact.id, status: { not: 'RESOLVED' } },
             orderBy: { createdAt: 'desc' }
@@ -224,8 +285,10 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
           return created;
         });
       } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') continue;
-        this.logger.error({ channelId, externalId, err: error }, 'failed to persist inbound message');
+        // P2002 no rawWebhookEvent = reentrega já gravada (idempotente). Qualquer outro erro sobe para a retentativa.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+          && await this.prisma.rawWebhookEvent.findUnique({ where: { provider_externalId: { provider: 'baileys', externalId: `${channelId}:${externalId}` } }, select: { id: true } })) return;
+        throw error;
       }
     }
   }
