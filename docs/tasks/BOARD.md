@@ -54,7 +54,18 @@ Verificado por mim: 18 arquivos `*.flow.test.ts` em `apps/api/src/modules/*`; co
 | # | Task | Classe | Etapa | Prova exigida | Status |
 |---|---|---|---|---|---|
 | P-1 | API e scripts do operador: consultar convite (`GET /v1/invitations/:token`), redefinir senha por token, trocar senha, editar nome; `scripts/operator.mjs` (criar workspace + dono + link, gerar link de redefinição) | BLOQUEIA | 1 | Testes com banco real; ciclo real: operador cria cliente, dono aceita, redefinição revoga sessões; migração do zero | feita (prova: migração do zero; 12 testes novos; isolamento 138; fluxos 126; ciclo real operador→aceite→login→reset→sessão antiga 401; token só em hash; reversão da revogação de sessões derruba o teste) |
-| P-2 | Telas: aceitar convite, redefinir senha, perfil; E2E da jornada do piloto | BLOQUEIA | 2 (após P-1) | E2E Playwright desktop e mobile com prints: operador cria o cliente, dono abre o link, define a senha, vê o onboarding, troca a senha, o operador redefine | em andamento |
+| P-2 | Telas: aceitar convite, redefinir senha, perfil; E2E da jornada do piloto | BLOQUEIA | 2 (após P-1) | E2E Playwright desktop e mobile com prints: operador cria o cliente, dono abre o link, define a senha, vê o onboarding, troca a senha, o operador redefine | feita (prova: E2E completo 88/88 em banco limpo; jornada real com o script do operador em desktop e mobile; sem guardar a sessão no aceite, 2 specs da jornada falham) |
+| R-1 | Remover número de verdade: botão "Remover número" na UI (hoje só envia `removeAuth:false`), API para arquivar o canal e liberar a cota (não existe DELETE; conversas e disparos impedem apagar), e `disconnect` do runtime à prova de falha do `logout` | BLOQUEIA | feita (prova: migração do zero; 12 testes novos de remoção; isolamento 141; fluxos 135; reversão do `catch` do logout derruba o teste; spec da UI 4/4 em desktop e mobile; prints do diálogo e do cartão conferidos). Limitação: se o logout não chegar ao WhatsApp o aparelho segue listado no celular (a UI avisa) |
+| B-H | 500 intermitente sob concorrência: publicar e arquivar fluxo (`playbooks/routes.ts` ~206 e ~325) usam transação Serializable sem repetir em caso de `P2034`/40001 (o Postgres abortou por "read/write dependencies"); no conjunto de 135 testes de fluxo falha ~1 rodada em 3, em testes diferentes (H2-13 do inbox, caminho feliz de playbooks, "bordas") | P0 | feita (prova: conjunto de fluxos 20 de 20 em banco limpo, 136 testes por rodada; antes falhava ~1 em 3; teste de concorrência falha sem o retry e passa com ele; isolamento 141; runtime 14). Risco: deadlock (40P01) em transações ReadCommitted ainda dá 503 sem retry; `kanban/service` calcula posição de cartão com `count` |
+
+## Fase 5: subir para a VPS (sem domínio)
+
+| # | Task | Depende de | Prova exigida | Status |
+|---|---|---|---|---|
+| V-1 | Scripts de montagem da VPS (`scripts/vps-bootstrap.sh`, compose de produção, doc), testados num Ubuntu 24.04 em container | nada | idempotente (2 execuções), shellcheck limpo, segredos gerados e nunca impressos, `nginx -t` ok | em andamento |
+| V-2 | Montar a VPS real (usuário de deploy, firewall, Docker, Node, Nginx, certbot, banco, Redis, .env, backup agendado) | IP, usuário e chave autorizada; e-mail para o Let's Encrypt | `curl` HTTPS com certificado válido, `/api/ready` ok, só 22/80/443 abertas, backup do dia gravado | aguardando acesso |
+| V-3 | Primeiro deploy e CI: commit + push, secrets do GitHub, workflow de deploy | V-2 | CI verde, deploy com health ok, rollback simulado | pendente |
+| V-4 | Criar o cliente piloto (operador) e conectar o número de WhatsApp | V-3 | login do dono pelo link, QR lido, mensagem recebida | pendente |
 
 ## Fase 3: funcionalidades que faltam para o MVP (nenhuma iniciada)
 Fonte: análise de lacunas de 2026-11-23, com os pontos principais conferidos no código (sem signup, sem redefinição de senha, sem provedor de e-mail, checkout 503, sem DELETE de contato, sem termos/privacidade). Dependem de decisão do dono: gateway de pagamento e planos, provedor e domínio de e-mail, número de WhatsApp de teste, jurídico (termos e LGPD), signup aberto ou por convite, domínio de produção e suporte.
@@ -62,9 +73,9 @@ Fonte: análise de lacunas de 2026-11-23, com os pontos principais conferidos no
 | # | Task | Classe | Esforço | Prova exigida |
 |---|---|---|---|---|
 | F-01 | Adaptador de e-mail (provedor trocável) e e-mail de convite; o link manual segue como fallback | BLOQUEADO (sem provedor) | M | Teste com provedor falso; e-mail real numa caixa de teste |
-| F-02 | Cadastro por convite: tela "Aceitar convite" (hoje só existe a rota da API) e script do operador que cria workspace + dono + link de convite | BLOQUEIA | M | E2E: operador cria o cliente, o dono abre o link, define a senha e vê o dashboard vazio |
-| F-03 | Esqueci/redefinir senha e verificação de e-mail (precisam de e-mail). No piloto: o operador gera um link de redefinição por script | BLOQUEADO (sem provedor); script do operador BLOQUEIA | M | Testes: token reutilizado e expirado recusados |
-| F-04 | Perfil: trocar nome e senha (exige a senha atual) | BLOQUEIA | P | Teste de API e prints desktop e mobile |
+| F-02 | Cadastro por convite: tela "Aceitar convite" (hoje só existe a rota da API) e script do operador que cria workspace + dono + link de convite | BLOQUEIA | M | PRONTA para o piloto (telas P-2 + script do operador P-1); falta só o aceite dos termos, que depende do texto jurídico |
+| F-03 | Esqueci/redefinir senha e verificação de e-mail (precisam de e-mail). No piloto: o operador gera um link de redefinição por script | BLOQUEADO (sem provedor); script do operador BLOQUEIA | M | script do operador e redefinição por token PRONTOS (P-1 e P-2); verificação de e-mail e envio por e-mail seguem BLOQUEADOS (sem provedor) |
+| F-04 | Perfil: trocar nome e senha (exige a senha atual) | BLOQUEIA | P | PRONTA (perfil: trocar nome e senha) |
 | F-05 | Termos e privacidade (páginas públicas); exportar e excluir/anonimizar contato (LGPD) | BLOQUEIA | M | Testes de API; E2E: excluir contato e a exportação sai |
 | F-06 | Cobrança: checkout, portal, webhook assinado e idempotente, troca de plano | DEPOIS (fora do piloto) | G | Gateway em modo teste: assinar, plano muda, cancelar |
 | F-07 | Cotas de mensagens e de IA, com aviso no limite | IMPORTANTE | P | Teste: estourar a cota devolve 402/403 |
@@ -89,6 +100,8 @@ Ordem sugerida para o piloto: F-02, F-04, F-05, F-08, F-09, F-10, F-11 (F-01, F-
 - Grupos de WhatsApp (2026-11-23): confirmado, o bot NÃO responde em grupos (sem opção de configuração).
 - Piloto, primeira leva (2026-11-23): desbloquear o piloto com aceitar convite, script do operador, redefinição de senha pelo operador e perfil. Termos de uso e aceite no cadastro ficam para quando houver texto jurídico.
 
+- VPS (2026-11-24): sem domínio, HTTPS pelo nome `<ip-com-hifens>.sslip.io` + Let's Encrypt; acesso por chave SSH nova `~/.ssh/zuno_vps` (criada com autorização); código chega por commit + push no GitHub e deploy pelo CI; repositório fica PÚBLICO por enquanto (a VPS clona sem credencial; gitleaks: 9 achados, todos falsos positivos de teste/placeholder); Postgres e Redis em Docker na própria VPS, presos a 127.0.0.1.
+
 ## Riscos aceitos
 
 - Assets (task 15): o upload agora recusa (415) tipos fora da lista, ex.: zip, rar, vcf, json, xml e áudios incomuns (amr, aiff, flac). Decisão de produto: ampliar a lista se esses envios forem necessários (2026-11-22).
@@ -109,3 +122,5 @@ Ordem sugerida para o piloto: F-02, F-04, F-05, F-08, F-09, F-10, F-11 (F-01, F-
 - Estado da API: 116 testes de fluxo e 136 de isolamento verdes; 0 bugs H2 abertos.
 - Interface: E2E completo com banco real = 78 de 78 (existente 10 + ui1 30 + ui2 10 + ui3 26 + pag0 2). Pendências de polimento: o nó adicionado por clique na paleta cai no canto e cobre o minimapa; no mobile o editor de fluxos não mostra "Alterações não salvas"; não há seleção múltipla nem ação em lote de consentimento na lista de contatos (a rota `POST /v1/contacts/consent` fica sem uso); não há exportar contatos nem Duplicar/Exportar fluxo (faltam as rotas na API); toasts transbordam à direita no mobile e o cabeçalho do chat fica apertado; `shared/api/client.ts` descarta o corpo dos erros 422 (UI-1 fez `fetch` próprio na importação de CSV).
 - Auth (P-1): o access token (JWT de 15 min) de sessões revogadas segue válido até expirar; só o refresh é cortado. O accept distingue 404/410/409 (o GET do convite é genérico). `GET /v1/auth/me` NÃO vaza a chave OpenAI cifrada (conferido: há um `omit` global no Prisma; só `openaiApiKeyLast4` sai).
+- Remoção de número (conferido em 2026-11-23 com o runtime real, sem número): `disconnect` com `removeAuth:true` leva o canal a DISCONNECTED/LOGGED_OUT e reconectar gera QR novo; mas a UI nunca envia `removeAuth:true`, não há rota de apagar canal e o canal removido continua ocupando a cota (plano growth: 2). Se o `logout` do Baileys falhar com a conexão caída, `disconnect` aborta antes de limpar as credenciais (suspeita, a corrigir na R-1).
+- E2E (2026-11-23): `e2e/r1-remove-number.spec.ts` pula o teste do QR sem `E2E_WITH_RUNTIME=1` (o CI não sobe o runtime) e exige o banco limpo do seed (cota de canais). Bateria completa: 88 de 88 no E2E padrão + 4 de 4 da remoção com runtime ligado.
