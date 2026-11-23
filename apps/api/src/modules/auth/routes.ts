@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import argon2 from 'argon2';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
-import {LoginInput,LogoutInput,RefreshTokenInput} from '@nexo/contracts';
+import {ChangePasswordInput,LoginInput,LogoutInput,PasswordResetConfirmInput,RefreshTokenInput,UpdateMeInput} from '@nexo/contracts';
 import {DomainError} from '@nexo/domain';
-import {loginLockGuard,loginRateConfig,refreshRateConfig,recordLoginFailure,clearLoginFailures} from './rate-limit.js';
+import {loginLockGuard,loginRateConfig,refreshRateConfig,recordLoginFailure,clearLoginFailures,assertLoginNotLocked,clearLoginLock,resetRateConfig,resetTokenGuard} from './rate-limit.js';
 import {audit} from '../../core/audit.js';
 
 const tokenHash=(token:string)=>createHash('sha256').update(token).digest('hex');
@@ -72,5 +72,53 @@ export const authRoutes:FastifyPluginAsync=async app=>{
     return reply.status(204).send();
   });
 
-  app.get('/v1/auth/me',{preHandler:[app.authenticate]},async request=>app.prisma.membership.findUnique({where:{workspaceId_userId:{workspaceId:request.auth.workspaceId,userId:request.auth.userId}},include:{user:{select:{id:true,name:true,email:true}},workspace:true}}));
+  const meView=(request:any)=>app.prisma.membership.findUnique({where:{workspaceId_userId:{workspaceId:request.auth.workspaceId,userId:request.auth.userId}},include:{user:{select:{id:true,name:true,email:true}},workspace:true}});
+  app.get('/v1/auth/me',{preHandler:[app.authenticate]},async request=>meView(request));
+
+  app.patch('/v1/auth/me',{preHandler:[app.authenticate]},async request=>{
+    const input=UpdateMeInput.parse(request.body);
+    const before=await app.prisma.user.findUniqueOrThrow({where:{id:request.auth.userId},select:{name:true}});
+    await app.prisma.user.update({where:{id:request.auth.userId},data:{name:input.name}});
+    await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'auth.profile_updated',targetType:'User',targetId:request.auth.userId,ip:request.ip,userAgent:request.headers['user-agent'],changes:{name:{from:before.name,to:input.name}}});
+    return meView(request);
+  });
+
+  app.post('/v1/auth/change-password',{preHandler:[app.authenticate]},async(request,reply)=>{
+    const input=ChangePasswordInput.parse(request.body);
+    const user=await app.prisma.user.findUnique({where:{id:request.auth.userId}});
+    if(!user||!user.isActive)throw new DomainError('INVALID_CREDENTIALS','Senha atual incorreta.',401);
+    // Mesmo lockout por e-mail do login: senha atual errada conta como falha.
+    await assertLoginNotLocked(app,request,reply,user.email);
+    if(!await argon2.verify(user.passwordHash,input.currentPassword)){await recordLoginFailure(app,request,user.email);throw new DomainError('INVALID_CREDENTIALS','Senha atual incorreta.',401)}
+    if(input.newPassword===input.currentPassword||await argon2.verify(user.passwordHash,input.newPassword))throw new DomainError('PASSWORD_UNCHANGED','A nova senha deve ser diferente da atual.',422);
+    const passwordHash=await argon2.hash(input.newPassword);const now=new Date();
+    const keep=input.refreshToken?tokenHash(input.refreshToken):null;
+    const [,revoked]=await app.prisma.$transaction([
+      app.prisma.user.update({where:{id:user.id},data:{passwordHash}}),
+      app.prisma.session.updateMany({where:{userId:user.id,revokedAt:null,...(keep?{tokenHash:{not:keep}}:{})},data:{revokedAt:now}})
+    ]);
+    await clearLoginFailures(app,request,user.email);
+    await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:user.id,action:'auth.password_changed',targetType:'User',targetId:user.id,ip:request.ip,userAgent:request.headers['user-agent'],changes:{revokedSessions:revoked.count,keptCurrentSession:Boolean(keep)}});
+    return reply.status(204).send();
+  });
+
+  // Público: o token (32+ bytes aleatórios, emitido pelo operador) é a credencial. Uso único, com expiração.
+  app.post('/v1/auth/password-reset/confirm',{config:resetRateConfig(),preHandler:[resetTokenGuard]},async(request,reply)=>{
+    const input=PasswordResetConfirmInput.parse(request.body);
+    const bad=()=>new DomainError('RESET_TOKEN_INVALID','Link de redefinição inválido ou expirado.',400);
+    const row=await app.prisma.passwordResetToken.findUnique({where:{tokenHash:tokenHash(input.token)},include:{user:{include:{memberships:{orderBy:[{createdAt:'asc'},{id:'asc'}],take:1}}}}});
+    if(!row||row.usedAt||row.expiresAt<=new Date()||!row.user.isActive)throw bad();
+    const passwordHash=await argon2.hash(input.password);const now=new Date();
+    await app.prisma.$transaction(async tx=>{
+      const claimed=await tx.passwordResetToken.updateMany({where:{id:row.id,usedAt:null},data:{usedAt:now}});
+      if(!claimed.count)throw bad();
+      await tx.passwordResetToken.updateMany({where:{userId:row.userId,usedAt:null},data:{usedAt:now}});
+      await tx.user.update({where:{id:row.userId},data:{passwordHash}});
+      await tx.session.updateMany({where:{userId:row.userId,revokedAt:null},data:{revokedAt:now}});
+      const workspaceId=row.user.memberships[0]?.workspaceId;
+      if(workspaceId)await audit(tx,{workspaceId,actorId:row.userId,action:'auth.password_reset_confirmed',targetType:'User',targetId:row.userId,ip:request.ip,userAgent:request.headers['user-agent']});
+    });
+    await clearLoginLock(app,row.user.email);
+    return reply.status(204).send();
+  });
 };
