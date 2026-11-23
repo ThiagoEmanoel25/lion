@@ -11,13 +11,14 @@ describe('regras do bloco Kanban',()=>{
   it('não cria card ausente no move_only',()=>expect(kanbanAction('move_only',null,'column-b')).toBe('noop'));
   it('mantém um card que já está na coluna',()=>expect(kanbanAction('create_or_move','column-b','column-b')).toBe('noop'));
   it('exige realocação ao excluir coluna com cards',async()=>{
-    const tx={kanbanColumn:{findFirst:async()=>({id:'column-a',boardId:'board',_count:{cards:2}})}};
+    const tx={playbook:{findMany:async()=>[]},kanbanColumn:{findFirst:async()=>({id:'column-a',boardId:'board',_count:{cards:2}})}};
     const prisma={$transaction:(run:(client:unknown)=>unknown)=>run(tx)};
     await expect(relocateAndDeleteColumn(prisma,{workspaceId:'workspace',columnId:'column-a',actor:{type:'user',id:'user'}})).rejects.toMatchObject({code:'KANBAN_DESTINATION_REQUIRED'});
   });
   it('realoca todos os cards antes de excluir a coluna',async()=>{
     const updates:unknown[]=[];const events:unknown[]=[];let reads=0;
     const tx={
+      playbook:{findMany:async()=>[]},
       kanbanColumn:{findFirst:async()=>++reads===1?{id:'column-a',boardId:'board',_count:{cards:2}}:{id:'column-b'},delete:async()=>({})},
       kanbanCard:{count:async()=>1,findMany:async()=>[{id:'card-1'},{id:'card-2'}],update:async(input:unknown)=>{updates.push(input);return {}}},
       kanbanCardEvent:{create:async(input:unknown)=>{events.push(input);return {}}}

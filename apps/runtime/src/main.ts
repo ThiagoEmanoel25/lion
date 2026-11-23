@@ -3,11 +3,14 @@ import { config } from 'dotenv';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
+import { assertRuntimeConfigOrExit } from '../../../packages/config/src/runtime-config.js';
 import { AppModule } from './app.module.js';
 
 const candidates = [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../../.env')];
 const envPath = candidates.find(existsSync);
 if (envPath) config({ path: envPath });
+
+assertRuntimeConfigOrExit();
 
 const app = await NestFactory.createApplicationContext(AppModule, { logger: ['log', 'warn', 'error'] });
 const shutdown = async () => {

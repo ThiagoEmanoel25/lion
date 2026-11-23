@@ -1,13 +1,14 @@
 import type {FastifyPluginAsync} from 'fastify';
 import {z} from 'zod';
 import {DomainError} from '@nexo/domain';
+import {partialWithoutDefaults} from '@nexo/contracts';
 import {audit} from '../../core/audit.js';
 import {decryptWebhookSecret,encryptWebhookSecret} from '../webhooks/generic.js';
 
 const shortcut=z.string().trim().min(2).max(40).transform(value=>value.replace(/^\/+/,'').toLowerCase()).refine(value=>/^[a-z0-9_-]+$/.test(value),'Atalho inválido.');
 export const QuickReplyInput=z.object({shortcut,body:z.string().trim().min(1).max(4096),assetId:z.string().cuid().nullable().optional()});
 export const GlobalVariableInput=z.object({name:z.string().trim().min(2).max(60).transform(value=>value.toLowerCase()).refine(value=>/^[a-z][a-z0-9_]*$/.test(value),'Nome inválido.'),value:z.string().max(8192),sensitive:z.boolean().default(false)});
-const GlobalVariableUpdate=GlobalVariableInput.partial().refine(value=>Object.keys(value).length>0,'Informe uma alteração.');
+const GlobalVariableUpdate=partialWithoutDefaults(GlobalVariableInput).refine(value=>Object.keys(value).length>0,'Informe uma alteração.');
 
 function duplicate(error:unknown):never{if(error&&typeof error==='object'&&'code'in error&&(error as {code?:string}).code==='P2002')throw new DomainError('ALREADY_EXISTS','Já existe um registro com esse nome.',409);throw error}
 function quickView(row:any){return {...row,asset:row.asset?{...row.asset,url:`nexo-asset://${row.asset.id}`}:null}}
