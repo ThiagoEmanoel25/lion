@@ -12,3 +12,4 @@ const schema=z.object({
 });
 export type AppConfig=z.infer<typeof schema>;
 export function loadConfig(env:NodeJS.ProcessEnv=process.env):AppConfig{return schema.parse(env)}
+export {assertRuntimeConfig,assertRuntimeConfigOrExit,runtimeConfigProblems,resolveCorsOrigin,RuntimeConfigError} from './runtime-config.js';
