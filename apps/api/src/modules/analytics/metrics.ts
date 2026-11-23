@@ -7,14 +7,37 @@ export const percentageChange = (current: number, previous: number): number | nu
 
 export type DailyPoint = { date: string; conversations: number; outcomes: number; resolved: number };
 
-const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+const validZone = (timeZone: string) => { try { new Intl.DateTimeFormat('en-US', { timeZone }); return timeZone; } catch { return 'UTC'; } };
 
-export function buildDailySeries(from: Date, days: number, conversations: Array<{ createdAt: Date; resolvedAt: Date | null }>, outcomes: Array<{ occurredAt: Date }>): DailyPoint[] {
+// Dia (AAAA-MM-DD) de um instante no fuso informado; fuso inválido cai no UTC.
+export const zonedDayKey = (date: Date, timeZone = 'UTC') => new Intl.DateTimeFormat('en-CA', { timeZone: validZone(timeZone), year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+
+export const shiftDayKey = (key: string, days: number) => {
+  const [y, m, d] = key.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+
+// Instante em que o dia local `key` começa no fuso informado.
+export function startOfZonedDayKey(key: string, timeZone = 'UTC'): Date {
+  const zone = validZone(timeZone);
+  const [y, m, d] = key.split('-').map(Number) as [number, number, number];
+  const wall = Date.UTC(y, m - 1, d);
+  const format = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' });
+  let guess = wall;
+  for (let i = 0; i < 3; i++) {
+    const p = Object.fromEntries(format.formatToParts(new Date(guess)).map(part => [part.type, Number(part.value)]));
+    const local = Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!);
+    guess = wall - (local - Math.floor(guess / 1000) * 1000);
+  }
+  return new Date(guess);
+}
+
+export function buildDailySeries(from: Date, days: number, conversations: Array<{ createdAt: Date; resolvedAt: Date | null }>, outcomes: Array<{ occurredAt: Date }>, timeZone = 'UTC'): DailyPoint[] {
   const points = new Map<string, DailyPoint>();
+  const firstKey = zonedDayKey(from, timeZone);
+  const dayKey = (date: Date) => zonedDayKey(date, timeZone);
   for (let index = 0; index < days; index++) {
-    const date = new Date(from);
-    date.setUTCDate(date.getUTCDate() + index);
-    const key = dayKey(date);
+    const key = shiftDayKey(firstKey, index);
     points.set(key, { date: key, conversations: 0, outcomes: 0, resolved: 0 });
   }
   for (const conversation of conversations) {

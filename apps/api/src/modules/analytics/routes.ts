@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { buildDailySeries, buildHourSeries, percentageChange, ratio, startOfUtcDay } from './metrics.js';
+import { buildDailySeries, buildHourSeries, percentageChange, ratio, shiftDayKey, startOfZonedDayKey, zonedDayKey } from './metrics.js';
 
 const Query = z.object({ days: z.coerce.number().int().refine(value => [7, 30, 90].includes(value)).default(7), channelId: z.string().trim().min(1).optional() });
 
@@ -19,13 +19,15 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
     const onChannel = channelId ? { channelId } : {};
     const onChannelConversation = channelId ? { conversation: { channelId } } : {};
     const to = new Date();
-    const from = startOfUtcDay(to);
-    from.setUTCDate(from.getUTCDate() - days + 1);
-    const previousFrom = new Date(from);
-    previousFrom.setUTCDate(previousFrom.getUTCDate() - days);
+    // Janelas e série diária no fuso do workspace, o mesmo do gráfico por hora.
+    const workspace = await app.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { timezone: true } });
+    const timeZone = workspace?.timezone ?? 'UTC';
+    const todayKey = zonedDayKey(to, timeZone);
+    const from = startOfZonedDayKey(shiftDayKey(todayKey, -days + 1), timeZone);
+    const previousFrom = startOfZonedDayKey(shiftDayKey(todayKey, -2 * days + 1), timeZone);
 
-    const [conversations, previousConversations, outcomes, previousOutcomes, usage, previousUsage, open, firstResponses, automatedResolved, failedExecutions, channels, attention, playbooks, workspace, leads, previousLeads, byChannel, channelNames] = await Promise.all([
-      app.prisma.conversation.findMany({ where: { workspaceId, ...onChannel, OR: [{ createdAt: { gte: from, lte: to } }, { resolvedAt: { gte: from, lte: to } }] }, select: { createdAt: true, resolvedAt: true } }),
+    const [conversations, previousConversations, outcomes, previousOutcomes, usage, previousUsage, open, firstResponses, automatedResolved, failedExecutions, channels, attention, playbooks, leads, previousLeads, byChannel, channelNames] = await Promise.all([
+      app.prisma.conversation.findMany({ where: { workspaceId, ...onChannel, OR: [{ createdAt: { gte: from, lte: to } }, { resolvedAt: { gte: from, lte: to } }] }, select: { id: true, createdAt: true, resolvedAt: true } }),
       app.prisma.conversation.count({ where: { workspaceId, ...onChannel, createdAt: { gte: previousFrom, lt: from } } }),
       app.prisma.outcome.findMany({ where: { workspaceId, ...onChannelConversation, occurredAt: { gte: from, lte: to } }, select: { occurredAt: true, type: true, conversationId: true } }),
       app.prisma.outcome.count({ where: { workspaceId, ...onChannelConversation, occurredAt: { gte: previousFrom, lt: from } } }),
@@ -46,7 +48,6 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
         select: { id: true, name: true, activeVersion: { select: { version: true, executions: { where: { startedAt: { gte: from, lte: to } }, select: { status: true } } } } },
         orderBy: { updatedAt: 'desc' }, take: 5
       }),
-      app.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { timezone: true } }),
       // Lead novo é contato criado no período; com filtro de conexão, só os que falaram por ela.
       app.prisma.contact.count({ where: { workspaceId, createdAt: { gte: from, lte: to }, ...(channelId ? { conversations: { some: { channelId } } } : {}) } }),
       app.prisma.contact.count({ where: { workspaceId, createdAt: { gte: previousFrom, lt: from }, ...(channelId ? { conversations: { some: { channelId } } } : {}) } }),
@@ -54,9 +55,12 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
       app.prisma.channel.findMany({ where: { workspaceId }, select: { id: true, displayName: true, phoneNumber: true, status: true }, orderBy: { displayName: 'asc' } })
     ]);
 
-    const conversationCount = conversations.filter(item => item.createdAt >= from && item.createdAt <= to).length;
+    const created = conversations.filter(item => item.createdAt >= from && item.createdAt <= to);
+    const conversationCount = created.length;
     const outcomeCount = outcomes.length;
-    const convertedConversations = new Set(outcomes.map(item => item.conversationId)).size;
+    // Numerador e denominador na mesma coorte: só conta desfecho de conversa criada no período.
+    const createdIds = new Set(created.map(item => item.id));
+    const convertedConversations = new Set(outcomes.map(item => item.conversationId).filter(id => createdIds.has(id))).size;
     const resolved = conversations.filter(item => item.resolvedAt && item.resolvedAt >= from && item.resolvedAt <= to).length;
     const costCents = usage._sum.costCents ?? 0;
     const previousCostCents = previousUsage._sum.costCents ?? 0;
@@ -67,7 +71,7 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
     const degradedChannels = totalChannels - connectedChannels;
     const healthScore = Math.max(0, Math.round(100 - (totalChannels ? degradedChannels / totalChannels * 45 : 15) - Math.min(failedExecutions * 5, 30) - Math.min(open / 20, 10)));
     const aiResolutionRate = ratio(automatedResolved, resolved);
-    const outcomeRate = ratio(convertedConversations, conversationCount);
+    const outcomeRate = Math.min(1, ratio(convertedConversations, conversationCount));
 
     return {
       period: { from: from.toISOString(), to: to.toISOString(), days, channelId: channelId ?? null },
@@ -82,7 +86,7 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
           leads: percentageChange(leads, previousLeads)
         }
       },
-      series: buildDailySeries(from, days, conversations, outcomes),
+      series: buildDailySeries(from, days, conversations, outcomes, timeZone),
       hours: buildHourSeries(conversations.filter(item => item.createdAt >= from && item.createdAt <= to), workspace?.timezone ?? 'UTC'),
       // A quebra por conexão ignora o filtro de conexão de propósito: é onde se escolhe o filtro.
       byChannel: channelNames.map(channel => ({ id: channel.id, name: channel.displayName, phone: channel.phoneNumber, status: channel.status, conversations: byChannel.find(row => row.channelId === channel.id)?._count._all ?? 0 })).sort((a, b) => b.conversations - a.conversations),
