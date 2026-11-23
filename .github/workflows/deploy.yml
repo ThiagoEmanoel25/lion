@@ -30,29 +30,20 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Atualizar e reiniciar no servidor
+      # O script vive no repositorio clonado no servidor: primeiro fetch + checkout do SHA
+      # (assim roda a versao do script do commit alvo), depois executa-o. O script faz
+      # backup do banco, migra, builda, recarrega, checa /health e /ready e, se falhar,
+      # volta o codigo ao SHA anterior e sai com codigo != 0 (o banco nao e revertido).
+      # PREV_SHA e capturado ANTES do checkout do alvo: dentro do script HEAD ja seria o alvo.
+      - name: Deploy no servidor (backup, migracao, health, rollback)
         env:
           HOST: ${{ secrets.VPS_HOST }}
           USER_: ${{ secrets.VPS_USER }}
           APP_PATH: ${{ secrets.VPS_PATH }}
+          HEALTH_URL: ${{ secrets.VPS_HEALTH_URL }}
+          BACKUP_DIR: ${{ secrets.BACKUP_DIR || '/var/backups/zunoflow' }}
+          ENV_FILE: ${{ secrets.ENV_FILE || '.env' }}
           REF: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$USER_@$HOST" \
-            "APP_PATH='$APP_PATH' REF='$REF' bash -s" <<'REMOTE'
-          set -euo pipefail
-          cd "$APP_PATH"
-          git fetch --all --prune
-          git checkout --detach "$REF"
-          npm ci
-          npm run db:generate
-          npm run db:deploy
-          npm run build
-          pm2 startOrReload ecosystem.config.cjs --env production
-          pm2 save
-          REMOTE
-      - name: Health check
-        env:
-          URL: ${{ secrets.VPS_HEALTH_URL }}
-        run: |
-          for i in 1 2 3 4 5 6; do curl -fsS "$URL" && exit 0; sleep 5; done
-          echo "health check falhou"; exit 1
+            "cd '$APP_PATH' && PREV_SHA=\"\$(git rev-parse HEAD)\" && git fetch --all --prune && git checkout --detach '$REF' && PREV_SHA=\"\$PREV_SHA\" APP_PATH='$APP_PATH' HEALTH_URL='$HEALTH_URL' BACKUP_DIR='$BACKUP_DIR' ENV_FILE='$ENV_FILE' bash scripts/deploy-remote.sh '$REF'"

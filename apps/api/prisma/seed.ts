@@ -1,6 +1,7 @@
 import {PrismaClient} from '@prisma/client';import argon2 from 'argon2';import {definitionChecksum} from '../src/modules/playbooks/checksum.js';
 const prisma=new PrismaClient();
 async function main(){
+  if(process.env.NODE_ENV==='production'&&process.env.ALLOW_SEED_IN_PRODUCTION!=='1'){console.error('Seed recusado: NODE_ENV=production cria usuário demo com senha pública. Defina ALLOW_SEED_IN_PRODUCTION=1 apenas se tiver certeza.');process.exit(1)}
   const passwordHash=await argon2.hash('NexoDemo2026!');
   const user=await prisma.user.upsert({where:{email:'admin@nexo.local'},update:{},create:{email:'admin@nexo.local',name:'Thiago',passwordHash}});
   const workspace=await prisma.workspace.upsert({where:{slug:'clinica-aurora'},update:{},create:{name:'Clínica Aurora',slug:'clinica-aurora'}});

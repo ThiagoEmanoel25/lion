@@ -275,9 +275,13 @@ model Session {
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
+  // Cadeia de rotação de um login (null em sessões legadas = a própria sessão).
+  familyId    String?
+  workspaceId String?
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([familyId])
 }
 
 model Channel {
@@ -342,6 +346,9 @@ model Contact {
   stage                  String                      @default("new")
   customFields           Json                        @default("{}")
   consentAt              DateTime?
+  consentSource          String?
+  consentById            String?
+  consentRevokedAt       DateTime?
   optedOutAt             DateTime?
   createdAt              DateTime                    @default(now())
   updatedAt              DateTime                    @updatedAt
@@ -953,6 +960,8 @@ model KanbanCard {
   columnId       String
   contactId      String
   conversationId String?
+  title          String?
+  note           String?
   position       Int               @default(0)
   movedAt        DateTime          @default(now())
   movedByType    String
