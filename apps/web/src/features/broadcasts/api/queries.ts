@@ -1,10 +1,10 @@
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {api} from '../../../shared/api/client';
 import type {Channel,ContactMeta} from '../../../shared/types/api';
-export type BroadcastProgress={total:number;sent:number;pending:number;failed:number;cancelled:number};
+export type BroadcastProgress={total:number;sent:number;skipped:number;pending:number;failed:number;cancelled:number};
 export type Broadcast={id:string;name:string;body:string;channelId:string;channel:{id:string;displayName:string};status:'DRAFT'|'RUNNING'|'PAUSED'|'DONE'|'CANCELLED';minIntervalSeconds:number;maxIntervalSeconds:number;dailyQuota:number;startAt:string;startedAt:string|null;finishedAt:string|null;createdAt:string;progress:BroadcastProgress};
-export type BroadcastAudience={tagIds:string[];stages:string[];contactIds:string[]};
-export type BroadcastPreview={matched:number;eligible:number;skipped:{noConsent:number;optedOut:number};limit:number};
+export type BroadcastAudience={tagIds:string[];stages:string[];contactIds:string[];allContacts?:boolean};
+export type BroadcastPreview={matched:number;eligible:number;skipped:{noConsent:number;optedOut:number};limit:number;requiresAllContactsConfirmation?:boolean};
 export type BroadcastInput={name:string;channelId:string;body:string;startAt:string;minIntervalSeconds:number;maxIntervalSeconds:number;dailyQuota:number;audience:BroadcastAudience};
 
 export function useBroadcasts(){return useQuery({queryKey:['broadcasts'],queryFn:()=>api<Broadcast[]>('/v1/broadcasts'),refetchInterval:15_000})}
