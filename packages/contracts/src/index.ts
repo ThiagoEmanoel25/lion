@@ -31,6 +31,9 @@ export const BusinessHoursInput=z.object({timezone:z.string().trim().min(3).max(
 export const LoginInput = z.object({email:z.string().email(),password:z.string().min(8),workspaceId:z.string().min(1).max(64).optional()});
 export const LogoutInput = z.object({refreshToken:z.string().min(1).optional(),all:z.boolean().optional()}).default({});
 export const RefreshTokenInput = z.object({refreshToken:z.string().min(32)});
+export const PasswordResetConfirmInput = z.object({token:z.string().min(32).max(256),password:z.string().min(12).max(128)});
+export const ChangePasswordInput = z.object({currentPassword:z.string().min(1).max(128),newPassword:z.string().min(12).max(128),refreshToken:z.string().min(1).max(512).optional()});
+export const UpdateMeInput = z.object({name:z.string().trim().min(2).max(100)});
 // Consentimento (LGPD): origem curta e rastreável. given:false revoga e mantém a trilha (revokedAt + auditoria).
 // reconsent:true é a confirmação explícita exigida para reativar quem pediu para sair (SAIR/PARAR).
 export const ConsentSourceSchema = z.string().trim().min(1).max(40).regex(/^[a-z0-9_.-]+$/i,'Origem inválida.');

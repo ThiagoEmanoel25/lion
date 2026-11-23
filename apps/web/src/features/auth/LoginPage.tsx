@@ -1,4 +1,4 @@
-import {useState,type FormEvent} from 'react';import {Navigate,useLocation} from 'react-router-dom';import {useSession} from '../../app/providers/SessionProvider';import {APP_NAME,APP_TAGLINE} from '../../shared/brand';import './login.css';
+import {useState,type FormEvent} from 'react';import {Navigate,useLocation} from 'react-router-dom';import {useSession} from '../../app/providers/SessionProvider';import {APP_NAME,APP_TAGLINE} from '../../shared/brand';import './login.css';import './auth-forms.css';
 
 export function LoginPage(){
   const {session,login,loading}=useSession();const location=useLocation();
@@ -18,5 +18,6 @@ export function LoginPage(){
       <label>E-mail<input name="email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setFieldErrors(state=>({...state,email:undefined}))}} autoComplete="email" aria-invalid={Boolean(fieldErrors.email)||undefined}/></label>{fieldErrors.email&&<div className="form-error" role="alert">{fieldErrors.email}</div>}
       <label>Senha<input name="password" type="password" value={password} onChange={e=>{setPassword(e.target.value);setFieldErrors(state=>({...state,password:undefined}))}} autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)||undefined}/></label>{fieldErrors.password&&<div className="form-error" role="alert">{fieldErrors.password}</div>}
       {error&&<div className="form-error" role="alert">{error}</div>}<button disabled={loading}>{loading?'Entrando…':'Entrar'}</button></form>
+    <p className="login-help">Esqueceu a senha? Peça um novo link de acesso ao administrador da sua conta.</p>
     {import.meta.env.DEV&&<em>Ambiente local de desenvolvimento</em>}</section></main>
 }
