@@ -50,7 +50,7 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
 
   async connect(channelId: string, pairingPhoneNumber?: string) {
     if (this.sessions.has(channelId)) return;
-    const channel = await this.prisma.channel.findFirst({ where: { id: channelId, provider: 'baileys' } });
+    const channel = await this.prisma.channel.findFirst({ where: { id: channelId, provider: 'baileys', archivedAt: null } });
     if (!channel) throw new Error(`Baileys channel ${channelId} not found`);
     const lease = await acquireLock(this.redis, `wa:lock:${channelId}`);
     if (!lease) {
@@ -117,20 +117,74 @@ export class WhatsAppSessionManager implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Desconecta (e, com removeAuth, desvincula) o canal. À prova de falha: um logout que rejeita
+   * ("Connection Closed" com o número pareado e a conexão momentaneamente caída) NUNCA impede derrubar a
+   * sessão, apagar as credenciais, marcar o canal DISCONNECTED e limpar o estado no Redis.
+   * Limitação: se o logout não chegar ao WhatsApp, o aparelho continua listado em "Aparelhos conectados"
+   * no celular até o usuário removê-lo; isso é sinalizado em `unlinkFailed` no estado da sessão.
+   */
   async disconnect(channelId: string, removeAuth = false) {
     const session = this.sessions.get(channelId);
+    let unlinked = true;
     if (session) {
       session.manualClose = true;
       try {
         if (removeAuth) await session.socket.logout();
         else session.socket.end(new Error('manual disconnect'));
+      } catch (error) {
+        unlinked = false;
+        this.logger.warn({ channelId, err: error instanceof Error ? error.message : String(error) }, 'logout failed; clearing local session anyway');
+        try { session.socket.end(new Error('logout failed')); } catch { /* socket já fechado */ }
       } finally {
         await this.dropSession(channelId);
+      }
+    } else if (removeAuth) {
+      // Runtime reiniciado: não há sessão viva. Melhor esforço, com timeout curto, usando as credenciais salvas.
+      try { unlinked = await this.unlinkStoredDevice(channelId); }
+      catch (error) {
+        unlinked = false;
+        this.logger.warn({ channelId, err: error instanceof Error ? error.message : String(error) }, 'could not unlink device without a live session');
       }
     }
     if (removeAuth) await this.authStore.clear(channelId);
     await this.prisma.channel.updateMany({ where: { id: channelId }, data: { status: 'DISCONNECTED', externalPhoneId: null } });
-    await this.setState(channelId, { status: 'DISCONNECTED' });
+    await this.setState(channelId, { status: 'DISCONNECTED', ...(removeAuth ? { unlinkFailed: !unlinked } : {}) });
+  }
+
+  /**
+   * Abre uma sessão efêmera com as credenciais salvas só para chamar logout (desvincula o aparelho).
+   * Retorna true se não havia o que desvincular ou se o logout foi feito; false se não deu (timeout,
+   * sessão em outro runtime). Nunca trava: conexão 10s + logout 5s no máximo.
+   */
+  private async unlinkStoredDevice(channelId: string): Promise<boolean> {
+    const { state } = await this.authStore.load(channelId);
+    if (!state.creds.registered) return true;
+    const lease = await acquireLock(this.redis, `wa:lock:${channelId}`);
+    if (!lease) return false;
+    let socket: WASocket | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      socket = makeWASocket({ auth: state, browser: Browsers.ubuntu('Zuno Flow'), logger: this.logger, printQRInTerminal: false, markOnlineOnConnect: false, syncFullHistory: false, getMessage: async () => undefined });
+      const sock = socket;
+      await new Promise<void>((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('connect timeout')), 10_000);
+        sock.ev.on('connection.update', update => {
+          if (update.connection === 'open') resolve();
+          else if (update.connection === 'close' || update.qr) reject(new Error('connection closed'));
+        });
+      });
+      clearTimeout(timer);
+      await Promise.race([sock.logout(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('logout timeout')), 5_000); })]);
+      return true;
+    } catch (error) {
+      this.logger.warn({ channelId, err: error instanceof Error ? error.message : String(error) }, 'stored-credentials logout failed');
+      return false;
+    } finally {
+      clearTimeout(timer);
+      try { socket?.end(new Error('unlink done')); } catch { /* já fechado */ }
+      await lease.release();
+    }
   }
 
   private async onConnectionUpdate(channelId: string, update: BaileysEventMap['connection.update']) {

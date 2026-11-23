@@ -10,6 +10,8 @@ const CODE_MESSAGES:Record<string,string>={
   KANBAN_COLUMN_EXISTS:'Já existe uma coluna com este nome.',
   AUDIENCE_FILTER_REQUIRED:'Escolha ao menos uma etiqueta, etapa ou contato. Para enviar a toda a base, marque “Enviar para toda a base com consentimento” e confirme.',
   EMPTY_AUDIENCE:'Nenhum contato com consentimento registrado corresponde a esse público.',
+  CHANNEL_IN_USE:'Este número tem disparos em andamento ou agendados. Cancele ou conclua os disparos antes de remover o número.',
+  CHANNEL_PHONE_EXISTS:'Este número já está cadastrado em outro canal deste workspace.',
   CHANNEL_UNAVAILABLE:'A conexão precisa estar conectada para criar o disparo.',
   INVALID_SCHEDULE:'O início do disparo não pode estar no passado.',
   INVALID_PACING:'Os intervalos do disparo estão fora do permitido. Revise intervalo mínimo, máximo e cota diária.'

@@ -90,7 +90,7 @@ export const broadcastRoutes:FastifyPluginAsync=async app=>{
     const pacingIssue=broadcastPacingIssue(input);
     if(pacingIssue)throw new DomainError('INVALID_PACING',pacingIssue,422);
     if(input.startAt.getTime()<Date.now()-60_000)throw new DomainError('INVALID_SCHEDULE','O início não pode estar no passado.',422);
-    const channel=await app.prisma.channel.findFirst({where:{id:input.channelId,workspaceId:request.auth.workspaceId},select:{id:true,status:true}});
+    const channel=await app.prisma.channel.findFirst({where:{id:input.channelId,workspaceId:request.auth.workspaceId,archivedAt:null},select:{id:true,status:true}});
     if(!channel)throw new DomainError('NOT_FOUND','Conexão não encontrada.',404);
     if(channel.status!=='CONNECTED')throw new DomainError('CHANNEL_UNAVAILABLE','A conexão precisa estar conectada para criar um disparo.',409);
     requireAudienceScope(input.audience);
@@ -132,7 +132,7 @@ export const broadcastRoutes:FastifyPluginAsync=async app=>{
     const broadcast=await app.prisma.broadcast.findFirst({where:{id,workspaceId:request.auth.workspaceId}});
     if(!broadcast)throw new DomainError('NOT_FOUND','Disparo não encontrado.',404);
     if(!['DRAFT','PAUSED'].includes(broadcast.status))throw new DomainError('INVALID_STATE','Só um disparo em rascunho ou pausado pode ser iniciado.',409);
-    const channel=await app.prisma.channel.findFirst({where:{id:broadcast.channelId,workspaceId:broadcast.workspaceId},select:{status:true}});
+    const channel=await app.prisma.channel.findFirst({where:{id:broadcast.channelId,workspaceId:broadcast.workspaceId,archivedAt:null},select:{status:true}});
     if(channel?.status!=='CONNECTED')throw new DomainError('CHANNEL_UNAVAILABLE','A conexão está desconectada.',409);
     await app.prisma.$transaction(async tx=>{
       const pending=await tx.broadcastRecipient.findMany({where:{broadcastId:id,status:'PENDING'},select:{id:true,scheduledFor:true},orderBy:[{scheduledFor:'asc'},{id:'asc'}]});

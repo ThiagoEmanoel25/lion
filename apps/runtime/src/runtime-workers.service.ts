@@ -452,7 +452,7 @@ export class RuntimeWorkers implements OnModuleInit, OnModuleDestroy {
 
   private async resumeChannels(queue: Queue<ConnectionJob>) {
     const channels = await this.prisma.channel.findMany({
-      where: { provider: 'baileys', status: { in: ['PENDING', 'CONNECTED', 'DEGRADED'] } },
+      where: { provider: 'baileys', archivedAt: null, status: { in: ['PENDING', 'CONNECTED', 'DEGRADED'] } },
       select: { id: true }
     });
     await Promise.all(channels.map(channel => queue.add('connect', { channelId: channel.id, action: 'connect' }, {

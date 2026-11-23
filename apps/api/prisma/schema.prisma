@@ -312,6 +312,7 @@ model Channel {
   encryptedCredentials    String?
   status                  ChannelStatus            @default(PENDING)
   lastInboundAt           DateTime?
+  archivedAt              DateTime?
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
   workspace               Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -327,6 +328,7 @@ model Channel {
 
   @@index([workspaceId, status])
   @@index([workspaceId, activePlaybookId])
+  @@index([workspaceId, archivedAt])
 }
 
 model WhatsAppAuthState {

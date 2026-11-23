@@ -37,7 +37,7 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
       app.prisma.conversation.findMany({ where: { workspaceId, ...onChannel, createdAt: { gte: from, lte: to }, firstResponseAt: { not: null } }, select: { createdAt: true, firstResponseAt: true } }),
       app.prisma.conversation.count({ where: { workspaceId, ...onChannel, resolvedAt: { gte: from, lte: to }, mode: { not: 'HUMAN' }, executions: { some: { status: 'SUCCEEDED' } } } }),
       app.prisma.execution.count({ where: { workspaceId, startedAt: { gte: from, lte: to }, status: 'FAILED' } }),
-      app.prisma.channel.groupBy({ by: ['status'], where: { workspaceId }, _count: { _all: true } }),
+      app.prisma.channel.groupBy({ by: ['status'], where: { workspaceId, archivedAt: null }, _count: { _all: true } }),
       app.prisma.conversation.findMany({
         where: { workspaceId, ...onChannel, status: { not: 'RESOLVED' }, OR: [{ status: 'QUEUED' }, { mode: 'HUMAN' }, { unreadCount: { gt: 0 } }] },
         select: { id: true, status: true, mode: true, unreadCount: true, assigneeId: true, updatedAt: true, contact: { select: { id: true, name: true, phone: true } } },
@@ -52,7 +52,7 @@ export const analyticsRoutes: FastifyPluginAsync = async app => {
       app.prisma.contact.count({ where: { workspaceId, createdAt: { gte: from, lte: to }, ...(channelId ? { conversations: { some: { channelId } } } : {}) } }),
       app.prisma.contact.count({ where: { workspaceId, createdAt: { gte: previousFrom, lt: from }, ...(channelId ? { conversations: { some: { channelId } } } : {}) } }),
       app.prisma.conversation.groupBy({ by: ['channelId'], where: { workspaceId, createdAt: { gte: from, lte: to } }, _count: { _all: true } }),
-      app.prisma.channel.findMany({ where: { workspaceId }, select: { id: true, displayName: true, phoneNumber: true, status: true }, orderBy: { displayName: 'asc' } })
+      app.prisma.channel.findMany({ where: { workspaceId, archivedAt: null }, select: { id: true, displayName: true, phoneNumber: true, status: true }, orderBy: { displayName: 'asc' } })
     ]);
 
     const created = conversations.filter(item => item.createdAt >= from && item.createdAt <= to);

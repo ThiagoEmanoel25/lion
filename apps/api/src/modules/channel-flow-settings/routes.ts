@@ -32,7 +32,7 @@ async function assertTargets(tx:Prisma.TransactionClient,workspaceId:string,inpu
 }
 async function replace(tx:Prisma.TransactionClient,workspaceId:string,channelIds:string[],input:Settings){
   await assertTargets(tx,workspaceId,input);
-  const channels=await tx.channel.findMany({where:{id:{in:channelIds},workspaceId},select:{id:true}});
+  const channels=await tx.channel.findMany({where:{id:{in:channelIds},workspaceId,archivedAt:null},select:{id:true}});
   if(channels.length!==channelIds.length)throw new DomainError('CHANNEL_NOT_FOUND','Um ou mais canais não foram encontrados.',404);
   await tx.channelFlowConfig.deleteMany({where:{channelId:{in:channelIds}}});
   await tx.channelKeyword.deleteMany({where:{channelId:{in:channelIds}}});
@@ -46,7 +46,7 @@ async function replace(tx:Prisma.TransactionClient,workspaceId:string,channelIds
 export const channelFlowSettingsRoutes:FastifyPluginAsync=async app=>{
   app.get('/v1/channel-flow-settings',{preHandler:[app.authenticate]},async request=>{
     const [channels,playbooks]=await Promise.all([
-      app.prisma.channel.findMany({where:{workspaceId:request.auth.workspaceId},include,orderBy:{displayName:'asc'}}),
+      app.prisma.channel.findMany({where:{workspaceId:request.auth.workspaceId,archivedAt:null},include,orderBy:{displayName:'asc'}}),
       app.prisma.playbook.findMany({where:{workspaceId:request.auth.workspaceId,status:{in:['PUBLISHED','PAUSED']},activeVersionId:{not:null}},select:{id:true,name:true,status:true},orderBy:{name:'asc'}})
     ]);
     return {channels:channels.map(channel=>({id:channel.id,displayName:channel.displayName,phoneNumber:channel.phoneNumber,status:channel.status,flowConfigs:channel.flowConfigs,keywords:channel.keywords})),playbooks};
