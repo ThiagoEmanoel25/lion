@@ -1,0 +1,16 @@
+.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;max-width:960px;align-items:start}
+.profile-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px}
+.profile-card h2{font:500 22px Georgia;margin:0 0 14px}
+.profile-card form{display:grid;gap:14px}
+.profile-facts{display:grid;gap:8px;margin:0 0 18px;background:#f2f7f1;border:1px solid #d6e5d9;border-radius:12px;padding:14px 16px;font-size:13px}
+.profile-facts div{display:flex;justify-content:space-between;gap:14px}
+.profile-facts dt{color:#5b6862}.profile-facts dd{margin:0;font-weight:700;text-align:right;word-break:break-word}
+.profile-note{font-size:13px;color:#3d4a43;line-height:1.5;margin:0 0 16px}
+.profile-primary{border:0;border-radius:10px;background:var(--green);color:#fff;padding:12px 18px;font-weight:800;min-height:44px;justify-self:start}
+.profile-primary:disabled{opacity:.55}
+.profile-primary:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+.profile-card .form-error{font-size:12px}
+.sidebar footer .profile-link{display:inline-block;margin-top:3px;font-size:10px;color:#cfe6a0;text-decoration:underline}
+@media(max-width:760px){.sidebar footer .profile-link{display:inline-flex;align-items:center;min-height:44px;font-size:13px}.profile-card{padding:18px}.profile-primary{justify-self:stretch}}
+/* O menu lateral é fixo e mais alto que telas baixas: sem rolagem o bloco do usuário (Meu perfil, Sair) ficava inalcançável. */
+@media(min-width:1101px){.shell:not(.collapsed) .sidebar{overflow-y:auto}}

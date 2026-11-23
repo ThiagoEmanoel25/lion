@@ -38,6 +38,16 @@ Prints em `e2e/screenshots/{desktop,mobile}/`; relatório em `e2e/report/`. Rode
 - PM2 grava em `logs/out.log` e `logs/err.log`. Rotação: `pm2 install pm2-logrotate && pm2 set pm2-logrotate:max_size 20M && pm2 set pm2-logrotate:retain 14`. Ver ao vivo: `pm2 logs`; filtrar: `pm2 logs nexo-api | jq 'select(.level>=50)'`.
 - Próximo passo opcional: enviar os logs a Loki/Grafana, Datadog ou Better Stack e criar alerta para `level>=50` e para `/ready` 503; não implementado.
 
+## Operador: criar cliente e redefinir senha
+O piloto é só por convite (sem cadastro aberto e sem e-mail automático): quem administra o servidor gera os links e os entrega ao cliente manualmente. Os links aparecem UMA vez na saída; no banco só fica o hash SHA-256. Requer `DATABASE_URL` e `PUBLIC_WEB_URL` (ou `WEB_ORIGIN`) no env. Todo comando que grava aceita `--dry-run`.
+```
+node scripts/operator.mjs --env-file .env create-workspace --name "Clínica X" --slug clinica-x --owner-email dono@x.com [--owner-name "Fulano"] [--invite-days 7]   # link <URL>/convite/<token>
+node scripts/operator.mjs --env-file .env reset-password --email x@y.com [--hours 2]                      # link <URL>/redefinir-senha/<token>; invalida links anteriores
+node scripts/operator.mjs --env-file .env reissue-invite --workspace-slug clinica-x --email dono@x.com    # novo link; revoga o convite anterior
+node scripts/operator.mjs --env-file .env list                                                             # workspaces, dono, convite e nº de membros
+```
+Regras: um e-mail pertence a uma única conta/workspace (recusa se já tem conta ou convite pendente em outro workspace); o workspace nasce com plano free (provider local), sem canais nem dados de demonstração. Confirmar a redefinição revoga todas as sessões do usuário. Ações ficam na auditoria (`operator.*`). Não compartilhe os links em canais públicos.
+
 ## Backup e restore
 
 **Por que importa:** as credenciais das sessões WhatsApp (Baileys) e as chaves Signal ficam no Postgres. Perder o banco derruba todas as sessões (todos os números precisam reescanear o QR). Backup do banco = backup das sessões.

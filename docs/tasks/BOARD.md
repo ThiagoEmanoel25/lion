@@ -49,6 +49,13 @@ Verificado por mim: 18 arquivos `*.flow.test.ts` em `apps/api/src/modules/*`; co
 | B-G | Novas rotas de API que a interface exige: criar cartão de kanban (H1-09); consentimento do contato para disparos, com campo e importação (H1-03, sem ele nenhum disparo tem público) | P0 | 3 (após B-B e B-D) | feita (prova: migração do zero; consent.flow 7, consent.isolation 5, cartões 3+5; isolamento 136; mutações derrubam os testes de cartão duplicado e de opt-out). UI ainda não usa as rotas |
 | PAG-0 | Cobrança desligada no piloto: tirar da interface os botões de checkout/portal/plano que dão 503 e mostrar aviso claro; código do gateway comentado | P1 | 3 | feita (prova: spec pag0 passa em desktop e mobile; sem botão de checkout/portal e sem requisição a eles) |
 
+## Fase 4: piloto, primeira leva (cadastro por convite)
+
+| # | Task | Classe | Etapa | Prova exigida | Status |
+|---|---|---|---|---|---|
+| P-1 | API e scripts do operador: consultar convite (`GET /v1/invitations/:token`), redefinir senha por token, trocar senha, editar nome; `scripts/operator.mjs` (criar workspace + dono + link, gerar link de redefinição) | BLOQUEIA | 1 | Testes com banco real; ciclo real: operador cria cliente, dono aceita, redefinição revoga sessões; migração do zero | feita (prova: migração do zero; 12 testes novos; isolamento 138; fluxos 126; ciclo real operador→aceite→login→reset→sessão antiga 401; token só em hash; reversão da revogação de sessões derruba o teste) |
+| P-2 | Telas: aceitar convite, redefinir senha, perfil; E2E da jornada do piloto | BLOQUEIA | 2 (após P-1) | E2E Playwright desktop e mobile com prints: operador cria o cliente, dono abre o link, define a senha, vê o onboarding, troca a senha, o operador redefine | em andamento |
+
 ## Fase 3: funcionalidades que faltam para o MVP (nenhuma iniciada)
 Fonte: análise de lacunas de 2026-11-23, com os pontos principais conferidos no código (sem signup, sem redefinição de senha, sem provedor de e-mail, checkout 503, sem DELETE de contato, sem termos/privacidade). Dependem de decisão do dono: gateway de pagamento e planos, provedor e domínio de e-mail, número de WhatsApp de teste, jurídico (termos e LGPD), signup aberto ou por convite, domínio de produção e suporte.
 
@@ -79,6 +86,9 @@ Ordem sugerida para o piloto: F-02, F-04, F-05, F-08, F-09, F-10, F-11 (F-01, F-
 - Canal (2026-11-23): o piloto roda só em Baileys (risco de bloqueio aceito); a Meta Cloud API oficial fica para depois (F-14). Quem fornece o número de teste: não definido.
 - Cadastro (2026-11-23): por convite no início (sem signup aberto). Faltam a tela de aceitar convite e um jeito de o operador criar o workspace do cliente (F-02 reformulada).
 
+- Grupos de WhatsApp (2026-11-23): confirmado, o bot NÃO responde em grupos (sem opção de configuração).
+- Piloto, primeira leva (2026-11-23): desbloquear o piloto com aceitar convite, script do operador, redefinição de senha pelo operador e perfil. Termos de uso e aceite no cadastro ficam para quando houver texto jurídico.
+
 ## Riscos aceitos
 
 - Assets (task 15): o upload agora recusa (415) tipos fora da lista, ex.: zip, rar, vcf, json, xml e áudios incomuns (amr, aiff, flac). Decisão de produto: ampliar a lista se esses envios forem necessários (2026-11-22).
@@ -98,3 +108,4 @@ Ordem sugerida para o piloto: F-02, F-04, F-05, F-08, F-09, F-10, F-11 (F-01, F-
 - Conhecimento (B-E): só arquivos de texto (txt, md, csv, json); URL, PDF e Office são recusados com 422 (buscar URL no servidor exige proteção contra SSRF, vira F-13).
 - Estado da API: 116 testes de fluxo e 136 de isolamento verdes; 0 bugs H2 abertos.
 - Interface: E2E completo com banco real = 78 de 78 (existente 10 + ui1 30 + ui2 10 + ui3 26 + pag0 2). Pendências de polimento: o nó adicionado por clique na paleta cai no canto e cobre o minimapa; no mobile o editor de fluxos não mostra "Alterações não salvas"; não há seleção múltipla nem ação em lote de consentimento na lista de contatos (a rota `POST /v1/contacts/consent` fica sem uso); não há exportar contatos nem Duplicar/Exportar fluxo (faltam as rotas na API); toasts transbordam à direita no mobile e o cabeçalho do chat fica apertado; `shared/api/client.ts` descarta o corpo dos erros 422 (UI-1 fez `fetch` próprio na importação de CSV).
+- Auth (P-1): o access token (JWT de 15 min) de sessões revogadas segue válido até expirar; só o refresh é cortado. O accept distingue 404/410/409 (o GET do convite é genérico). `GET /v1/auth/me` NÃO vaza a chave OpenAI cifrada (conferido: há um `omit` global no Prisma; só `openaiApiKeyLast4` sai).
