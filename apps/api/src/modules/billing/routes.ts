@@ -1,3 +1,4 @@
+// PAGAMENTO DESLIGADO NO PILOTO (decisão 2026-11-23): checkout e portal devolvem 503 de propósito até haver gateway.
 import type {FastifyPluginAsync} from 'fastify';import {DomainError} from '@nexo/domain';import {activeSubscription,quotaState,resolveLimits} from './service.js';
 const monthKey=(date:Date)=>date.toISOString().slice(0,7);
 export const billingRoutes:FastifyPluginAsync=async app=>{

@@ -6,7 +6,9 @@ import {audit} from '../../core/audit.js';
 const AudienceInput=z.object({
   tagIds:z.array(z.string().cuid()).max(20).default([]),
   stages:z.array(z.string().trim().min(1).max(40)).max(20).default([]),
-  contactIds:z.array(z.string().cuid()).max(BROADCAST_LIMITS.maxRecipients).default([])
+  contactIds:z.array(z.string().cuid()).max(BROADCAST_LIMITS.maxRecipients).default([]),
+  // Sem nenhum filtro o público seria a base inteira: isso só vale com confirmação explícita.
+  allContacts:z.boolean().default(false)
 });
 const BroadcastInput=z.object({
   name:z.string().trim().min(2).max(120),
@@ -28,8 +30,30 @@ const audienceWhere=(workspaceId:string,audience:z.output<typeof AudienceInput>)
   ...(audience.stages.length?{stage:{in:audience.stages}}:{})
 });
 
+const hasAudienceFilter=(audience:z.output<typeof AudienceInput>)=>audience.contactIds.length>0||audience.tagIds.length>0||audience.stages.length>0;
+const requireAudienceScope=(audience:z.output<typeof AudienceInput>)=>{
+  if(!hasAudienceFilter(audience)&&!audience.allContacts)throw new DomainError('AUDIENCE_FILTER_REQUIRED','Escolha ao menos um filtro (tags, etapas ou contatos). Para disparar para toda a base com consentimento, confirme com allContacts:true; use a prévia para ver quantos contatos entram.',422);
+};
+
+// Escalona só os pendentes, a partir de agora: respeita o intervalo, a cota das últimas 24 h e a ordem original.
+const replanPending=(count:number,pacing:{minIntervalSeconds:number;maxIntervalSeconds:number;dailyQuota:number},now:number,sentLast24h:number[])=>{
+  const DAY=86_400_000;const span=pacing.maxIntervalSeconds-pacing.minIntervalSeconds;
+  const window=[...sentLast24h].sort((a,b)=>a-b);
+  const lastSent=window.length?window[window.length-1]!:0;
+  let cursor=Math.max(now,lastSent?lastSent+pacing.minIntervalSeconds*1000:0);
+  const out:Date[]=[];
+  for(let index=0;index<count;index++){
+    // cota móvel: no máximo dailyQuota envios em qualquer janela de 24 h
+    while(window.length>=pacing.dailyQuota){const oldest=window[window.length-pacing.dailyQuota]!;if(oldest+DAY>cursor)cursor=oldest+DAY;else break}
+    out.push(new Date(cursor));window.push(cursor);
+    cursor+=(pacing.minIntervalSeconds+Math.floor(Math.random()*(span+1)))*1000;
+  }
+  return out;
+};
+
 const progress=(recipients:Array<{status:string}>)=>({
   total:recipients.length,
+  skipped:recipients.filter(item=>item.status==='SKIPPED').length,
   sent:recipients.filter(item=>item.status==='SENT').length,
   pending:recipients.filter(item=>item.status==='PENDING').length,
   failed:recipients.filter(item=>item.status==='FAILED').length,
@@ -57,7 +81,8 @@ export const broadcastRoutes:FastifyPluginAsync=async app=>{
       app.prisma.contact.count({where:{...where,consentAt:null}}),
       app.prisma.contact.count({where:{...where,optedOutAt:{not:null}}})
     ]);
-    return {matched,eligible,skipped:{noConsent,optedOut},limit:BROADCAST_LIMITS.maxRecipients};
+    // Sem filtro a prévia só informa: o disparo exige allContacts:true para essa base inteira.
+    return {matched,eligible,skipped:{noConsent,optedOut},limit:BROADCAST_LIMITS.maxRecipients,requiresAllContactsConfirmation:!hasAudienceFilter(audience)&&!audience.allContacts};
   });
 
   app.post('/v1/broadcasts',{preHandler:[app.requirePermission('workspace.manage')]},async(request,reply)=>{
@@ -68,6 +93,7 @@ export const broadcastRoutes:FastifyPluginAsync=async app=>{
     const channel=await app.prisma.channel.findFirst({where:{id:input.channelId,workspaceId:request.auth.workspaceId},select:{id:true,status:true}});
     if(!channel)throw new DomainError('NOT_FOUND','Conexão não encontrada.',404);
     if(channel.status!=='CONNECTED')throw new DomainError('CHANNEL_UNAVAILABLE','A conexão precisa estar conectada para criar um disparo.',409);
+    requireAudienceScope(input.audience);
     const contacts=await app.prisma.contact.findMany({
       where:{...audienceWhere(request.auth.workspaceId,input.audience),consentAt:{not:null},optedOutAt:null},
       select:{id:true},orderBy:{createdAt:'asc'},take:BROADCAST_LIMITS.maxRecipients
@@ -85,7 +111,7 @@ export const broadcastRoutes:FastifyPluginAsync=async app=>{
     });
     await audit(app.prisma,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'broadcast.create',targetType:'Broadcast',targetId:created.id,changes:{name:created.name,recipients:contacts.length}});
     reply.code(201);
-    return {...created,progress:{total:contacts.length,sent:0,pending:contacts.length,failed:0,cancelled:0}};
+    return {...created,progress:{total:contacts.length,sent:0,pending:contacts.length,failed:0,cancelled:0,skipped:0}};
   });
 
   app.get('/v1/broadcasts/:id',{preHandler:[app.requirePermission('conversation.read')]},async request=>{
@@ -109,7 +135,15 @@ export const broadcastRoutes:FastifyPluginAsync=async app=>{
     const channel=await app.prisma.channel.findFirst({where:{id:broadcast.channelId,workspaceId:broadcast.workspaceId},select:{status:true}});
     if(channel?.status!=='CONNECTED')throw new DomainError('CHANNEL_UNAVAILABLE','A conexão está desconectada.',409);
     await app.prisma.$transaction(async tx=>{
-      const pending=await tx.broadcastRecipient.findMany({where:{broadcastId:id,status:'PENDING'},select:{id:true,scheduledFor:true}});
+      const pending=await tx.broadcastRecipient.findMany({where:{broadcastId:id,status:'PENDING'},select:{id:true,scheduledFor:true},orderBy:[{scheduledFor:'asc'},{id:'asc'}]});
+      const now=Date.now();
+      // Horário planejado já passou (retomada ou início atrasado): reescalona os pendentes a partir de agora,
+      // senão todos viram "vencidos" e saem de uma vez, ignorando intervalo e cota diária.
+      if(pending.length&&pending[0]!.scheduledFor.getTime()<now){
+        const sent=await tx.broadcastRecipient.findMany({where:{broadcastId:id,status:'SENT',sentAt:{gte:new Date(now-86_400_000)}},select:{sentAt:true}});
+        const times=replanPending(pending.length,broadcast,now,sent.map(item=>item.sentAt!.getTime()));
+        for(const [index,recipient] of pending.entries()){recipient.scheduledFor=times[index]!;await tx.broadcastRecipient.update({where:{id:recipient.id},data:{scheduledFor:times[index]!}})}
+      }
       await tx.broadcast.update({where:{id},data:{status:'RUNNING',startedAt:broadcast.startedAt??new Date()}});
       for(const recipient of pending)await tx.outboxEvent.create({data:{
         workspaceId:broadcast.workspaceId,aggregate:'BroadcastRecipient',aggregateId:recipient.id,
