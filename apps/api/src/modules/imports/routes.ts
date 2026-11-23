@@ -70,6 +70,16 @@ export async function resolvePixels(tx:Prisma.TransactionClient,workspaceId:stri
   report.totals=totals(report.items);
 }
 
+// Files never travel with a share: nexo-asset:// ids from another workspace are reported as pending (validation also rejects them on save/publish).
+const ASSET_URL=/nexo-asset:\/\/([a-z0-9]{20,32})/gi;
+export async function resolveAssets(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
+  const refs=definition.nodes.map(node=>({node,ids:[...JSON.stringify(node.config).matchAll(ASSET_URL)].map(match=>match[1]!)})).filter(item=>item.ids.length);
+  if(!refs.length)return;
+  const own=new Set((await tx.playbookAsset.findMany({where:{workspaceId,id:{in:[...new Set(refs.flatMap(item=>item.ids))]}},select:{id:true}})).map(asset=>asset.id));
+  for(const {node,ids} of refs)if(ids.some(id=>!own.has(id)))report.items.push({sourceId:node.id,sourceType:'asset',status:'pending',message:`Reenvie o arquivo do bloco “${node.name}”: os arquivos não acompanham o compartilhamento.`.slice(0,500)});
+  report.totals=totals(report.items);
+}
+
 const importSourceOf=(value:unknown)=>value&&typeof value==='object'&&!Array.isArray(value)?value as {system?:unknown;flowId?:unknown}:{};
 export async function resolveFlowJumps(tx:Prisma.TransactionClient,workspaceId:string,definition:ReturnType<typeof convertLeonaFlow>['definition'],report:ImportReport){
   const nodes=definition.nodes.filter(item=>item.kind==='flow_jump');if(!nodes.length)return;
@@ -187,7 +197,7 @@ export const importRoutes:FastifyPluginAsync=async app=>{
     const input=ImportNexoShareInput.parse(request.body);const share=await app.prisma.flowShareCode.findUnique({where:{code:input.code}});
     if(!share||share.revokedAt||share.expiresAt<=new Date())throw new DomainError('SHARE_CODE_INVALID','Código inexistente, expirado ou revogado.',410);
     const definition=AutomationDefinitionSchema.parse(share.definition);const sourceReport=structuredClone(share.report) as ImportReport;
-    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);await resolveFlowJumps(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition,report:sourceReport});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
+    const playbook=await app.prisma.$transaction(async tx=>{await resolveTags(tx,request.auth.workspaceId,definition,sourceReport);await resolveKanban(tx,request.auth.workspaceId,definition,sourceReport);await resolvePixels(tx,request.auth.workspaceId,definition,sourceReport);await resolveAssets(tx,request.auth.workspaceId,definition,sourceReport);await resolveFlowJumps(tx,request.auth.workspaceId,definition,sourceReport);reportCompilerIssues(definition,sourceReport);const created=await createImportedPlaybook(tx,{workspaceId:request.auth.workspaceId,userId:request.auth.userId,name:`${share.sourceName} (cópia)`,definition,report:sourceReport});await audit(tx,{workspaceId:request.auth.workspaceId,actorId:request.auth.userId,action:'playbook.imported_from_nexo',targetType:'Playbook',targetId:created.id,changes:{sourceShareId:share.id}});return created});
     return reply.status(201).send({playbookId:playbook.id,report:sourceReport});
   });
 };
