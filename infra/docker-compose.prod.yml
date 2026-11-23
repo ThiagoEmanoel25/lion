@@ -1,0 +1,43 @@
+# Postgres (pgvector) + Redis de PRODUCAO na propria VPS. Sempre presos a 127.0.0.1 (nunca expostos).
+# Uso (a partir da raiz do repo; a senha vem do .env gerado pelo scripts/vps-bootstrap.sh):
+#   docker compose --env-file .env -f infra/docker-compose.prod.yml up -d
+# Variaveis: POSTGRES_PASSWORD (obrigatoria), POSTGRES_USER/POSTGRES_DB (default zunoflow),
+#   POSTGRES_PORT (default 5432) e REDIS_PORT (default 6379): so altere para testes locais.
+name: zuno-flow
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-zunoflow}
+      POSTGRES_DB: ${POSTGRES_DB:-zunoflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD (use --env-file .env)}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - zuno_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - zuno_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  zuno_postgres:
+  zuno_redis:
