@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import { DomainError } from '@nexo/domain';
 import { ZodError } from 'zod';
+import { isRetryableTxError } from './tx.js';
 
 /** Erros 4xx do próprio Fastify (parser de corpo, limite, content-type) -> resposta padrão sem detalhes internos. */
 const CLIENT_ERRORS: Record<number, { code: string; message: string }> = {
@@ -22,8 +23,9 @@ function fastifyClientStatus(error: unknown): number | undefined {
 
 export default fp(async app => {
   app.setErrorHandler((error, request, reply) => {
+    const tryAgain = !(error instanceof DomainError) && !(error instanceof ZodError) && isRetryableTxError(error);
     const clientStatus = error instanceof DomainError || error instanceof ZodError ? undefined : fastifyClientStatus(error);
-    const status = error instanceof DomainError ? error.status : error instanceof ZodError ? 422 : clientStatus ?? 500;
+    const status = error instanceof DomainError ? error.status : error instanceof ZodError ? 422 : clientStatus ?? (tryAgain ? 503 : 500);
     (status >= 500 ? request.log.error : request.log.warn).call(request.log, { err: error, requestId: request.id, status, code: (error as { code?: string }).code }, 'request failed');
     if (error instanceof DomainError) return reply.status(error.status).send({ code: error.code, message: error.message, details: error.details, requestId: request.id });
     if (error instanceof ZodError) return reply.status(422).send({ code: 'VALIDATION_ERROR', message: 'Os dados enviados são inválidos.', details: error.flatten(), requestId: request.id });
@@ -32,6 +34,7 @@ export default fp(async app => {
       const body = clientStatus === 400 && (/JSON|EMPTY_JSON/i.test(fastifyCode) || error instanceof SyntaxError) ? JSON_INVALID : CLIENT_ERRORS[clientStatus] ?? CLIENT_ERRORS[400]!;
       return reply.status(clientStatus).send({ code: body.code, message: body.message, requestId: request.id });
     }
+    if (tryAgain) return reply.header('retry-after', '1').status(503).send({ code: 'TRY_AGAIN', message: 'O sistema está ocupado. Tente novamente em instantes.', requestId: request.id });
     return reply.status(500).send({ code: 'INTERNAL_ERROR', message: 'Não foi possível concluir a solicitação.', requestId: request.id });
   });
 });

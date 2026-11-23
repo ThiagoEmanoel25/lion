@@ -65,7 +65,7 @@ describe.skipIf(!hasTestDb)('fluxo: broadcasts', () => {
     const bad: Array<Record<string, unknown>> = [
       { minIntervalSeconds: 0 }, { minIntervalSeconds: -5 }, { maxIntervalSeconds: 1 }, { dailyQuota: 0 }, { dailyQuota: -1 }, { dailyQuota: 1e9 },
       { name: ' ' }, { body: '' }, { body: 'x'.repeat(4097) }, { startAt: 'amanhã' }, { startAt: new Date(Date.now() - 864e5).toISOString() },
-      { channelId: 'xxx' }, { channelId: fx.channel.id.slice(0, -1) + 'z' }
+      { channelId: 'xxx' }, { channelId: fx.channel.id.slice(0, -1) + (fx.channel.id.endsWith('z') ? 'y' : 'z') }
     ];
     for (const over of bad) {
       const r = await t.as(t.A, 'POST', '/v1/broadcasts', body([c!.id], over));

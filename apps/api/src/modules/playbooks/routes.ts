@@ -22,6 +22,7 @@ import { kanbanReferenceIssues } from '../kanban/validation.js';
 import { pixelReferenceIssues } from '../pixels/validation.js';
 import {IntegrationUrlBlockedError,integrationTestRateLimit,testIntegrationRequest} from './integration-test.js';
 import { definitionChecksum } from './checksum.js';
+import { retrySerializable } from '../../core/tx.js';
 import { registerSimulationRoutes } from './simulation/routes.js';
 
 const node = (id: string, kind: AutomationDefinition['nodes'][number]['kind'], name: string, x: number, y: number, config: Record<string, unknown> = {}) => ({ id, kind, name, config, position: { x, y } });
@@ -188,7 +189,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     const { id } = request.params as { id: string };
     const { workspaceId, userId } = request.auth;
     const { confirmDetach } = ArchivePlaybookInput.parse(request.body ?? {});
-    return app.prisma.$transaction(async tx => {
+    return retrySerializable(() => app.prisma.$transaction(async tx => {
       const playbook = await tx.playbook.findFirst({ where: { id, workspaceId }, select: { id: true, status: true } });
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
       if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ALREADY_ARCHIVED', 'O fluxo já está arquivado.', 409);
@@ -203,7 +204,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       await tx.playbook.update({ where: { id }, data: { status: 'ARCHIVED', archivedAt: new Date(), activeVersionId: null } });
       await audit(tx, { workspaceId, actorId: userId, action: 'playbook.archived', targetType: 'Playbook', targetId: id, changes: { from: playbook.status, detached: { slots: impact.slots.length, keywords: impact.keywords.length, webhooks: impact.webhooks.length, flowJumpsLeftInvalid: impact.flowJumps.length } } });
       return { id, status: 'ARCHIVED' as const };
-    }, { isolationLevel: 'Serializable' });
+    }, { isolationLevel: 'Serializable' }), { attempts: 12, log: request.log, label: 'playbook.archive' });
   });
 
   app.post('/v1/playbooks/:id/unarchive', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
@@ -247,7 +248,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
     const validation = await validateForWorkspace(app.prisma,request.auth.workspaceId,input.definition);
     if (!validation.valid || !validation.definition) throw new DomainError('INVALID_AUTOMATION', 'A automação possui erros.', 422, validation.issues);
     try {
-      const version = await app.prisma.$transaction(async tx => {
+      const version = await retrySerializable(() => app.prisma.$transaction(async tx => {
         const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
         if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
         if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ARCHIVED', 'Fluxo arquivado é somente leitura. Desarquive para editar.', 409);
@@ -258,10 +259,10 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
         const created = await tx.playbookVersion.create({ data: { playbookId: id, version: current + 1, definition: json(validation.definition), checksum: nextChecksum, createdById: request.auth.userId } });
         await audit(tx, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'playbook.version_created', targetType: 'Playbook', targetId: id, changes: { version: created.version } });
         return created;
-      }, { isolationLevel: 'Serializable' });
+      }, { isolationLevel: 'Serializable' }), { attempts: 12, log: request.log, label: 'playbook.version' });
       return reply.status(201).send(version);
     } catch (error) {
-      if (typeof error === 'object' && error && 'code' in error && (error.code === 'P2002' || error.code === 'P2034')) throw new DomainError('VERSION_CONFLICT', 'Outra versão foi salva ao mesmo tempo. Recarregue antes de tentar novamente.', 409);
+      if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') throw new DomainError('VERSION_CONFLICT', 'Outra versão foi salva ao mesmo tempo. Recarregue antes de tentar novamente.', 409);
       throw error;
     }
   });
@@ -303,7 +304,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
   app.post('/v1/playbooks/:id/publish', { preHandler: [app.requirePermission('playbook.publish')] }, async request => {
     const { id } = request.params as { id: string };
     const input = PublishPlaybookInput.parse(request.body);
-    return app.prisma.$transaction(async tx => {
+    return retrySerializable(() => app.prisma.$transaction(async tx => {
       const playbook = await tx.playbook.findFirst({ where: { id, workspaceId: request.auth.workspaceId }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
       if (!playbook) throw new DomainError('NOT_FOUND', 'Automação não encontrada.', 404);
       if (playbook.status === 'ARCHIVED') throw new DomainError('PLAYBOOK_ARCHIVED', 'Fluxo arquivado não pode ser publicado. Desarquive primeiro.', 409);
@@ -322,7 +323,7 @@ export const playbookRoutes: FastifyPluginAsync = async app => {
       const published = await tx.playbook.update({ where: { id }, data: { activeVersionId: latest.id, status: 'PUBLISHED' }, include: { activeVersion: true } });
       await audit(tx, { workspaceId: request.auth.workspaceId, actorId: request.auth.userId, action: 'playbook.published', targetType: 'Playbook', targetId: id, changes: { version: input.expectedVersion, testCaseIds: input.testCaseIds } });
       return published;
-    }, { isolationLevel: 'Serializable' });
+    }, { isolationLevel: 'Serializable' }), { attempts: 12, log: request.log, label: 'playbook.publish' });
   });
 
   app.post('/v1/playbooks/:id/executions', { preHandler: [app.requirePermission('playbook.write')] }, async (request, reply) => {
