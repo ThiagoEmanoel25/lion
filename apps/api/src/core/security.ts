@@ -4,7 +4,8 @@ import { can, DomainError } from '@nexo/domain';
 import type { AuthContext } from '@nexo/contracts';
 
 export default fp(async app=>{
-  await app.register(jwt,{secret:process.env.JWT_SECRET!});
+  const jwtSecret=process.env.JWT_SECRET;if(!jwtSecret)throw new Error('JWT_SECRET is required');
+  await app.register(jwt,{secret:jwtSecret});
   app.decorateRequest('auth');
   app.decorate('authenticate',async function(request,reply){
     try{const payload=await request.jwtVerify<AuthContext>();const membership=await app.prisma.membership.findUnique({where:{workspaceId_userId:{workspaceId:payload.workspaceId,userId:payload.userId}}});if(!membership?.isActive)throw new Error('inactive_membership');request.auth={...payload,role:membership.role};{const ctx=request.log.child({userId:payload.userId,workspaceId:payload.workspaceId});request.log=ctx;reply.log=ctx}}catch{throw new DomainError('UNAUTHORIZED','Sessão inválida, expirada ou desativada.',401)}
