@@ -45,7 +45,8 @@ function LayoutShell(){
         <div><span>Execuções no mês</span><b>{executions?`${number(executions.used)}${executions.limit===null?'':` / ${number(executions.limit)}`}`:'—'}</b></div>
         <i><u style={{width:`${usedPercent??0}%`}}/></i>
         <small>{billing.data?`Plano ${billing.data.subscription.plan}`:'Carregando plano…'}</small>
-        <Link to="/billing" onClick={()=>setMenuOpen(false)}>Gerenciar plano</Link>
+        {/* PAGAMENTO DESLIGADO NO PILOTO (decisão 2026-11-23): reativar quando houver gateway; hoje o link só leva a uso e limites. */}
+        <Link to="/billing" onClick={()=>setMenuOpen(false)}>Ver uso e limites</Link>
       </div>
       <Link className="tutorial-link" to="/?tutorial=1" title="Rever tutorial" onClick={()=>setMenuOpen(false)}><span><HelpCircle size={18} aria-hidden="true"/></span>Rever tutorial</Link>
       <footer><span className="avatar">{session?.user.name.slice(0,2).toUpperCase()??'--'}</span><div><b>{session?.user.name}</b><small>{session?.workspace.role}</small></div><button type="button" aria-label="Sair da conta" onClick={()=>void logout()}>Sair</button></footer>
