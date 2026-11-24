@@ -50,6 +50,13 @@ describe('pixel', () => {
     expect(pixelOutcome(500, null)).toEqual({ port: 'failure', error: { status: 500, message: 'A Meta respondeu HTTP 500.' } });
     expect(pixelOutcome(null, null, 'timeout')).toEqual({ port: 'failure', error: { status: null, message: 'timeout' } });
   });
+  it('prefers the Meta user-facing message (error_user_title/msg) over the generic one', () => {
+    const body = { error: { message: 'Invalid parameter', code: 100, error_subcode: 2804116, error_user_title: 'Falta a identificação da Página', error_user_msg: 'Adicione page_id ou whatsapp_business_account_id em user_data.' } };
+    expect(pixelOutcome(400, body)).toEqual({ port: 'failure', error: { status: 400, message: 'Falta a identificação da Página. Adicione page_id ou whatsapp_business_account_id em user_data.' } });
+    expect(pixelOutcome(400, { error: { message: 'Invalid parameter', error_user_msg: 'Só a mensagem.' } }).error?.message).toBe('Só a mensagem.');
+    expect(pixelOutcome(400, { error: { message: 'Invalid parameter', error_user_title: '  ', error_user_msg: '' } }).error?.message).toBe('Invalid parameter');
+    expect(pixelOutcome(400, { error: { message: 'Invalid parameter', error_user_msg: 42 } }).error?.message).toBe('Invalid parameter');
+  });
   it('puts test_event_code at the top level when given', () => {
     expect(JSON.parse(pixelRequest('1', 'T', {}, 'TEST1').body).test_event_code).toBe('TEST1');
     expect(JSON.parse(pixelRequest('1', 'T', {}).body)).not.toHaveProperty('test_event_code');

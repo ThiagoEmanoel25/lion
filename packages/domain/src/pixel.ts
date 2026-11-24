@@ -27,8 +27,12 @@ export const pixelRequest = (pixelId: string, accessToken: string, event: object
 });
 
 export function pixelOutcome(status: number | null, body: unknown, error?: string): { port: 'success' | 'failure'; error?: { status: number | null; message: string } } {
-  const record = body && typeof body === 'object' ? body as { events_received?: unknown; error?: { message?: unknown } } : {};
+  const record = body && typeof body === 'object' ? body as { events_received?: unknown; error?: { message?: unknown; error_user_title?: unknown; error_user_msg?: unknown } } : {};
   if (!error && status !== null && status >= 200 && status <= 299 && typeof record.events_received === 'number' && record.events_received >= 1) return { port: 'success' };
-  const metaMessage = typeof record.error?.message === 'string' && record.error.message ? record.error.message : undefined;
+  // A Meta manda o texto para o usuário (error_user_title/error_user_msg) no idioma da conta; ele diz o que corrigir, ao contrário de "Invalid parameter".
+  const userMsg = typeof record.error?.error_user_msg === 'string' ? record.error.error_user_msg.trim() : '';
+  const userTitle = typeof record.error?.error_user_title === 'string' ? record.error.error_user_title.trim() : '';
+  const friendly = userMsg ? (userTitle ? `${userTitle}. ${userMsg}` : userMsg) : userTitle;
+  const metaMessage = friendly || (typeof record.error?.message === 'string' && record.error.message ? record.error.message : undefined);
   return { port: 'failure', error: { status, message: error ?? metaMessage ?? (status !== null && status >= 200 && status <= 299 ? 'A Meta não registrou o evento.' : `A Meta respondeu HTTP ${status}.`) } };
 }
