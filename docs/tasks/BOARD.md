@@ -63,8 +63,8 @@ Verificado por mim: 18 arquivos `*.flow.test.ts` em `apps/api/src/modules/*`; co
 | # | Task | Depende de | Prova exigida | Status |
 |---|---|---|---|---|
 | V-1 | Scripts de montagem da VPS (`scripts/vps-bootstrap.sh`, compose de produção, doc), testados num Ubuntu 24.04 em container | nada | idempotente (2 execuções), shellcheck limpo, segredos gerados e nunca impressos, `nginx -t` ok | em andamento |
-| V-2 | Montar a VPS real (usuário de deploy, firewall, Docker, Node, Nginx, certbot, banco, Redis, .env, backup agendado) | IP, usuário e chave autorizada; e-mail para o Let's Encrypt | `curl` HTTPS com certificado válido, `/api/ready` ok, só 22/80/443 abertas, backup do dia gravado | aguardando acesso |
-| V-3 | Primeiro deploy e CI: commit + push, secrets do GitHub, workflow de deploy | V-2 | CI verde, deploy com health ok, rollback simulado | pendente |
+| V-2 | Montar a VPS real (usuário de deploy, firewall, Docker, Node, Nginx, certbot, banco, Redis, .env, backup agendado) | IP, usuário e chave autorizada; e-mail para o Let's Encrypt | `curl` HTTPS com certificado válido, `/api/ready` ok, só 22/80/443 abertas, backup do dia gravado | feita (prova: VPS Ubuntu 24.04 montada à mão; HTTPS válido; /api/health e /api/ready 200) |
+| V-3 | Primeiro deploy e CI: commit + push, secrets do GitHub, workflow de deploy | V-2 | CI verde, deploy com health ok, rollback simulado | parcial: deploy feito pelo script na VPS (backup, migração, health ok, 2 deploys: b241813 e b903fa3); CI no GitHub NÃO testado (push dá 403; secrets sem prova); rollback não simulado na VPS |
 | V-4 | Criar o cliente piloto (operador) e conectar o número de WhatsApp | V-3 | login do dono pelo link, QR lido, mensagem recebida | pendente |
 
 ## Fase 6: redesign visual (menos "cara de IA")
@@ -78,7 +78,7 @@ Direção: base neutra e clara, um único verde de marca usado com parcimônia (
 | D-3 | Inbox, Kanban e Contatos | D-1 | prints antes/depois; E2E verde | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E completo 90 passaram, 2 pulados (r1 sem runtime), desktop+mobile, stack isolado; prints conferidos) |
 | D-4 | Configurações, Perfil, Fluxos (lista) e telas de convite/redefinição | D-1 | prints antes/depois; E2E verde | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E completo 90 passaram, 2 pulados (r1 sem runtime), desktop+mobile, stack isolado; prints conferidos) |
 | D-5 | Passada de contraste/acessibilidade e mobile; rodar a bateria E2E completa | D-2..D-4 | E2E completo verde; axe sem violação nova; prints | feita (E2E completo verde; falta axe e print das bolhas de mensagem do inbox, ver riscos) |
-| D-6 | Editor de fluxos (canvas, paleta, nós, painel de edição, simulador) | D-1 | prints antes/depois desktop+mobile; E2E que abrem o editor verdes | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E 90 passaram, 2 pulados, desktop+mobile, stack isolado; prints conferidos em /tmp/design/d6) |
+| D-6 | Editor de fluxos (canvas, paleta, nós, painel de edição, simulador) | D-1 | prints antes/depois desktop+mobile; E2E que abrem o editor verdes | feita (prova: typecheck/lint 0 erros/build; front 107/107; E2E 90 passaram, 2 pulados; prints conferidos por amostragem; no ar na VPS em b903fa3) |
 
 ## Fase 3: funcionalidades que faltam para o MVP (nenhuma iniciada)
 Fonte: análise de lacunas de 2026-11-23, com os pontos principais conferidos no código (sem signup, sem redefinição de senha, sem provedor de e-mail, checkout 503, sem DELETE de contato, sem termos/privacidade). Dependem de decisão do dono: gateway de pagamento e planos, provedor e domínio de e-mail, número de WhatsApp de teste, jurídico (termos e LGPD), signup aberto ou por convite, domínio de produção e suporte.
