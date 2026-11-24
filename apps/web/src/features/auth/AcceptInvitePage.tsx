@@ -19,11 +19,11 @@ export function AcceptInvitePage(){
   const [name,setName]=useState<string|null>(null);const [password,setPassword]=useState('');const [confirm,setConfirm]=useState('');
   const [errors,setErrors]=useState<Errors>({});const [banner,setBanner]=useState('');const [expired,setExpired]=useState(false);const [busy,setBusy]=useState(false);
 
-  if(invite.isLoading)return <AuthShell eyebrow="CONVITE" title="Aceitar convite"><LoadingState label="Verificando o convite…" lines={3}/></AuthShell>;
-  if(invite.isError&&(invite.error as {status?:number}).status===429)return <AuthShell eyebrow="CONVITE" title="Aceitar convite"><p className="form-error" role="alert">{MSG_RATE_LIMIT}</p><button type="button" className="auth-secondary" onClick={()=>void invite.refetch()}>Tentar de novo</button></AuthShell>;
-  if(invite.isError||!invite.data||expired)return <AuthShell eyebrow="CONVITE" title="Link inválido"><p className="auth-note" role="status">{MSG_INVITE_INVALID}</p><p className="auth-links"><Link to="/login">Ir para o login</Link></p></AuthShell>;
+  if(invite.isLoading)return <AuthShell title="Aceitar convite"><LoadingState label="Verificando o convite…" lines={3}/></AuthShell>;
+  if(invite.isError&&(invite.error as {status?:number}).status===429)return <AuthShell title="Aceitar convite"><p className="form-error" role="alert">{MSG_RATE_LIMIT}</p><button type="button" className="auth-secondary" onClick={()=>void invite.refetch()}>Tentar de novo</button></AuthShell>;
+  if(invite.isError||!invite.data||expired)return <AuthShell title="Link inválido"><p className="auth-note" role="status">{MSG_INVITE_INVALID}</p><p className="auth-links"><Link to="/login">Ir para o login</Link></p></AuthShell>;
   const data=invite.data;
-  if(session&&session.user.email.toLowerCase()!==data.email.toLowerCase())return <AuthShell eyebrow="CONVITE" title="Aceitar convite"><p className="auth-note warn" role="status">Você está conectado como {session.user.email}. Para aceitar este convite, saia dessa conta primeiro.</p><button type="button" className="auth-secondary" onClick={()=>void logout()}>Sair e continuar</button></AuthShell>;
+  if(session&&session.user.email.toLowerCase()!==data.email.toLowerCase())return <AuthShell title="Aceitar convite"><p className="auth-note warn" role="status">Você está conectado como {session.user.email}. Para aceitar este convite, saia dessa conta primeiro.</p><button type="button" className="auth-secondary" onClick={()=>void logout()}>Sair e continuar</button></AuthShell>;
 
   const currentName=name??data.name??'';
   async function submit(event:FormEvent<HTMLFormElement>){
@@ -43,7 +43,7 @@ export function AcceptInvitePage(){
       if(mapped.name||mapped.password){setErrors(mapped);((form.elements.namedItem(mapped.name?'name':'password')) as HTMLElement|null)?.focus()}else setBanner(t.message);
     }finally{setBusy(false)}
   }
-  return <AuthShell eyebrow="CONVITE" title="Aceitar convite" subtitle="Defina seu nome e uma senha para entrar.">
+  return <AuthShell title="Aceitar convite" subtitle="Defina seu nome e uma senha para entrar.">
     <dl className="auth-summary"><div><dt>Workspace</dt><dd>{data.workspaceName}</dd></div><div><dt>Seu papel</dt><dd>{roleLabel(data.role)}</dd></div></dl>
     <form onSubmit={event=>void submit(event)} noValidate>
       <div className="auth-field"><label htmlFor="invite-email">E-mail</label><input id="invite-email" name="email" type="email" value={data.email} readOnly autoComplete="username"/></div>

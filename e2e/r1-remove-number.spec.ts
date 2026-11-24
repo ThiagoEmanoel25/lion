@@ -17,7 +17,7 @@ test.describe('R-1 Remover número', () => {
     expect(created.status).toBe(202);
     const id = created.body.id as string;
     await page.goto('/settings?tab=channels');
-    const card = page.locator('article.channel', { hasText: 'R1 Teste' });
+    const card = page.locator('li.channel-row', { hasText: 'R1 Teste' });
     await expect(card).toBeVisible();
     await card.getByRole('button', { name: 'Sessão' }).click();
     const qr = page.locator('.session-modal svg');
@@ -56,7 +56,7 @@ test.describe('R-1 Remover número', () => {
       return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'CHANNEL_IN_USE', message: 'x' }) });
     });
     await page.goto('/settings?tab=channels');
-    const card = page.locator('article.channel', { hasText: 'Comercial' });
+    const card = page.locator('li.channel-row', { hasText: 'Comercial' });
     await expect(card.getByRole('button', { name: 'Desconectar' })).toBeVisible();
     await expect(card.getByRole('button', { name: 'Remover número' })).toBeVisible();
     await expect(card).toContainText('mantém o pareamento');

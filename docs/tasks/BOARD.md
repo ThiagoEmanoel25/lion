@@ -67,6 +67,19 @@ Verificado por mim: 18 arquivos `*.flow.test.ts` em `apps/api/src/modules/*`; co
 | V-3 | Primeiro deploy e CI: commit + push, secrets do GitHub, workflow de deploy | V-2 | CI verde, deploy com health ok, rollback simulado | pendente |
 | V-4 | Criar o cliente piloto (operador) e conectar o número de WhatsApp | V-3 | login do dono pelo link, QR lido, mensagem recebida | pendente |
 
+## Fase 6: redesign visual (menos "cara de IA")
+
+Direção: base neutra e clara, um único verde de marca usado com parcimônia (sem verde-limão como preenchimento), títulos em sans (sem serifa), texto base 14–15 px e mínimo 12 px, cartões planos com borda de 1 px (sem sombra e sem rabiscos decorativos), cor só para estado (não para enfeite), menu lateral claro.
+
+| # | Task | Depende de | Prova exigida | Status |
+|---|---|---|---|---|
+| D-1 | Base: tokens (cor, tipografia, raio, espaço), menu lateral, topo e login | nada | prints antes/depois desktop+mobile; Playwright verde (specs existentes sem trocar seletor) | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E completo 90 passaram, 2 pulados (r1 sem runtime), desktop+mobile, stack isolado; prints conferidos) |
+| D-2 | Dashboard e onboarding | D-1 | prints antes/depois; E2E dashboard/onboarding verde | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E completo 90 passaram, 2 pulados (r1 sem runtime), desktop+mobile, stack isolado; prints conferidos) |
+| D-3 | Inbox, Kanban e Contatos | D-1 | prints antes/depois; E2E verde | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E completo 90 passaram, 2 pulados (r1 sem runtime), desktop+mobile, stack isolado; prints conferidos) |
+| D-4 | Configurações, Perfil, Fluxos (lista) e telas de convite/redefinição | D-1 | prints antes/depois; E2E verde | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E completo 90 passaram, 2 pulados (r1 sem runtime), desktop+mobile, stack isolado; prints conferidos) |
+| D-5 | Passada de contraste/acessibilidade e mobile; rodar a bateria E2E completa | D-2..D-4 | E2E completo verde; axe sem violação nova; prints | feita (E2E completo verde; falta axe e print das bolhas de mensagem do inbox, ver riscos) |
+| D-6 | Editor de fluxos (canvas, paleta, nós, painel de edição, simulador) | D-1 | prints antes/depois desktop+mobile; E2E que abrem o editor verdes | feita (prova: typecheck 0 erros; lint 0 erros/43 avisos; build ok; testes do front 107/107; E2E 90 passaram, 2 pulados, desktop+mobile, stack isolado; prints conferidos em /tmp/design/d6) |
+
 ## Fase 3: funcionalidades que faltam para o MVP (nenhuma iniciada)
 Fonte: análise de lacunas de 2026-11-23, com os pontos principais conferidos no código (sem signup, sem redefinição de senha, sem provedor de e-mail, checkout 503, sem DELETE de contato, sem termos/privacidade). Dependem de decisão do dono: gateway de pagamento e planos, provedor e domínio de e-mail, número de WhatsApp de teste, jurídico (termos e LGPD), signup aberto ou por convite, domínio de produção e suporte.
 

@@ -51,6 +51,6 @@ function LayoutShell(){
       <Link className="tutorial-link" to="/?tutorial=1" title="Rever tutorial" onClick={()=>setMenuOpen(false)}><span><HelpCircle size={18} aria-hidden="true"/></span>Rever tutorial</Link>
       <footer><span className="avatar">{session?.user.name.slice(0,2).toUpperCase()??'--'}</span><div><b>{session?.user.name}</b><small>{session?.workspace.role}</small><Link className="profile-link" to="/perfil" onClick={()=>setMenuOpen(false)}>Meu perfil</Link></div><button type="button" aria-label="Sair da conta" onClick={()=>void logout()}>Sair</button></footer>
     </aside>
-    <main id="conteudo" tabIndex={-1}><div className="topbar"><button className="mobile-menu-button" aria-label="Abrir menu" aria-expanded={menuOpen} aria-controls="menu-lateral" onClick={()=>setMenuOpen(true)}><Menu size={22} aria-hidden="true"/></button><span>{session?.workspace.name}</span><div><i/> Sessão protegida</div></div><Outlet/></main>
+    <main id="conteudo" tabIndex={-1}><div className="topbar"><button className="mobile-menu-button" aria-label="Abrir menu" aria-expanded={menuOpen} aria-controls="menu-lateral" onClick={()=>setMenuOpen(true)}><Menu size={22} aria-hidden="true"/></button><span>{session?.workspace.name}</span></div><Outlet/></main>
   </div>
 }

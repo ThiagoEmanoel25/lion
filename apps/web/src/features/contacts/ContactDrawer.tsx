@@ -45,7 +45,7 @@ export function ContactDrawer({contact,meta,onClose}:Props){
   const status=contact?consentStatus(current):null;
   const showSource=optedOut?form.reconsent:form.consentGiven;
   return <div className="contact-overlay" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section className="contact-drawer" role="dialog" aria-modal="true" aria-label={contact?'Editar contato':'Novo contato'}>
-    <header><div><small>{contact?'EDITAR CONTATO':'NOVO CONTATO'}</small><h2>{contact?.name||'Dados do contato'}</h2></div><button type="button" aria-label="Fechar" onClick={onClose}>×</button></header>
+    <header><div><small>{contact?'Editar contato':'Novo contato'}</small><h2>{contact?.name||'Dados do contato'}</h2></div><button type="button" aria-label="Fechar" onClick={onClose}>×</button></header>
     <form ref={formRef} onSubmit={event=>void save(event)} noValidate>
       <div className="field"><label htmlFor="contact-name">Nome</label><input {...fieldProps('name')} name="name" autoComplete="off" value={form.name} onChange={event=>set('name',event.target.value)}/>{err('name')}</div>
       <div className="field"><label htmlFor="contact-phone">Telefone</label><input {...fieldProps('phone')} name="phone" inputMode="tel" autoComplete="off" placeholder="+55 71 99999-9999" value={form.phone} onChange={event=>set('phone',event.target.value)}/>{err('phone')}</div>

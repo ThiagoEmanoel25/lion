@@ -22,13 +22,13 @@ export function RemoveNumberDialog({phone,pending,onCancel,onConfirm}:{phone:str
     document.addEventListener('keydown',onKey,true);
     return()=>{document.removeEventListener('keydown',onKey,true);origin?.focus?.()};
   },[]);
-  return <div className="remove-number-backdrop" role="presentation" onMouseDown={event=>{if(event.currentTarget===event.target&&!pending)onCancel()}}>
-    <div className="remove-number-dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-number-title" aria-describedby="remove-number-text" ref={box} tabIndex={-1}>
+  return <div className="remove-number-backdrop ui-dialog-backdrop" role="presentation" onMouseDown={event=>{if(event.currentTarget===event.target&&!pending)onCancel()}}>
+    <div className="remove-number-dialog ui-dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-number-title" aria-describedby="remove-number-text" ref={box} tabIndex={-1}>
       <h2 id="remove-number-title">Remover número</h2>
       <p id="remove-number-text">Remover o número {asInternational(phone)}? O aparelho será desvinculado do WhatsApp, as credenciais serão apagadas e o canal deixará de contar no seu plano. O histórico de conversas continua disponível. Esta ação não pode ser desfeita.</p>
-      <div className="remove-number-actions">
-        <button type="button" data-autofocus disabled={pending} onClick={onCancel}>Cancelar</button>
-        <button type="button" className="remove-number-confirm" disabled={pending} onClick={onConfirm}>{pending?'Removendo…':'Remover número'}</button>
+      <div className="remove-number-actions ui-dialog-actions">
+        <button type="button" className="ui-btn" data-autofocus disabled={pending} onClick={onCancel}>Cancelar</button>
+        <button type="button" className="ui-btn remove-number-confirm" disabled={pending} onClick={onConfirm}>{pending?'Removendo…':'Remover número'}</button>
       </div>
     </div>
   </div>

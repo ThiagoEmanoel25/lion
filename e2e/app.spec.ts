@@ -43,7 +43,7 @@ async function shot(page: Page, project: string, name: string) {
 test.describe('Zuno Flow web', () => {
   test('login: tela e entrada com credenciais válidas', async ({ page }, info) => {
     await page.goto('/login');
-    await expect(page.getByRole('heading', { name: 'Entre no Zuno Flow' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible();
     await shot(page, info.project.name, '00-login');
     await page.getByLabel('E-mail').fill(email);
     await page.getByLabel('Senha').fill(password);

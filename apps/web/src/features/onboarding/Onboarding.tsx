@@ -74,6 +74,7 @@ export function Onboarding(){
   const channels=useChannels(),playbooks=usePlaybooks(),contacts=useContacts({}),agents=useAgents(),providers=useProviderStatus();
   const items=useMemo(()=>buildChecklist({channels:channels.data,playbooks:playbooks.data,contactCount:contacts.data?.items.length,agents:agents.data,providers:providers.data?.providers}),[channels.data,playbooks.data,contacts.data,agents.data,providers.data]);
   const summary=summarize(items);
+  const nextId=items.find(item=>!item.done)?.id;
   if(!workspaceId||!userId)return null;
   const showWelcome=forceOpen||!state.welcomeSeen;
   const closeWelcome=()=>{setForceOpen(false);update({welcomeSeen:true})};
@@ -85,11 +86,11 @@ export function Onboarding(){
         <div className="onb-actions"><button type="button" className="onb-link" onClick={()=>setForceOpen(true)}>Rever tutorial</button><button type="button" className="onb-link" onClick={()=>update({dismissed:true})}>Dispensar</button></div>
       </header>
       <div className="onb-progress"><div role="progressbar" aria-label="Progresso dos primeiros passos" aria-valuemin={0} aria-valuemax={100} aria-valuenow={summary.percent}><u style={{width:`${summary.percent}%`}}/></div><b>{summary.done} de {summary.total}</b></div>
-      <ul>{items.map(item=><li key={item.id} className={item.done?'done':''} data-done={item.done}>
+      <ul>{items.map(item=>{const next=!item.done&&item.id===nextId;return <li key={item.id} className={item.done?'done':next?'next':''} data-done={item.done}>
         <span className="onb-check" aria-hidden="true">{item.done?'✓':''}</span>
-        <div><b>{item.title}</b><small>{item.description}</small></div>
-        {item.done?<em>Concluído</em>:<Link className="onb-cta" to={item.to}>{item.cta}</Link>}
-      </li>)}</ul>
+        <div><b>{item.title}</b>{!item.done&&<small>{item.description}</small>}</div>
+        {item.done?<em>Concluído</em>:next?<Link className="onb-cta" to={item.to}>{item.cta}</Link>:null}
+      </li>})}</ul>
     </section>}
     {state.dismissed&&<button type="button" className="onb-reopen" onClick={()=>update({dismissed:false})}>Mostrar primeiros passos</button>}
   </>

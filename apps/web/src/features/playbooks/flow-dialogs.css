@@ -1,0 +1,41 @@
+/* Diálogos de fluxos (pasta, importar, compartilhar, arquivar): papel, 1px, sem blur nem sombra pesada. */
+.flow-dialog-backdrop{background:rgba(21,23,28,.5);backdrop-filter:none}
+.flow-dialog-backdrop .flow-import-dialog{border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-surface);padding:24px;color:var(--color-text);box-shadow:none}
+.flow-dialog-backdrop .flow-import-dialog>h2{margin:0 36px 14px 0;font:600 18px/1.3 var(--font-display);color:var(--color-text)}
+.flow-dialog-backdrop .flow-import-dialog .dialog-close{right:12px;top:12px;width:36px;height:36px;border-radius:var(--radius-sm);background:transparent;color:var(--color-text-muted);font-size:22px}
+.flow-dialog-backdrop .flow-import-dialog .dialog-close:hover{background:var(--color-surface-muted);color:var(--color-text)}
+.flow-dialog-backdrop .flow-import-dialog p{color:var(--color-text-muted);font-size:14px;line-height:1.55}
+.flow-dialog-backdrop .flow-import-dialog .import-tabs{background:var(--color-surface-muted);border-radius:var(--radius-sm)}
+.flow-dialog-backdrop .flow-import-dialog .import-tabs button{border-radius:6px;color:var(--color-text-muted);font-weight:600;font-size:14px}
+.flow-dialog-backdrop .flow-import-dialog .import-tabs button.active{background:#fff;color:var(--color-text);box-shadow:none;outline:1px solid var(--color-border-strong)}
+.flow-dialog-backdrop .flow-import-dialog .import-order-tip{border:1px solid #ecd9a0;border-radius:var(--radius-sm);background:var(--color-warning-bg);color:var(--color-warning)}
+.flow-dialog-backdrop .flow-import-dialog .import-order-tip b{font-size:13px}
+.flow-dialog-backdrop .flow-import-dialog .import-order-tip span{font-size:13px;color:var(--color-warning)}
+.flow-dialog-backdrop .flow-import-dialog .import-pane>p,.flow-dialog-backdrop .share-dialog>p{font-size:14px;color:var(--color-text-muted)}
+.flow-dialog-backdrop .flow-import-dialog .import-pane ol{font-size:14px;color:var(--color-text-muted)}
+.flow-dialog-backdrop .flow-import-dialog .import-pane label{font-size:13px;color:var(--color-text);font-weight:600}
+.flow-dialog-backdrop .flow-import-dialog .import-pane input{border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);background:#fff;color:var(--color-text)}
+.flow-dialog-backdrop .flow-import-dialog .import-code{border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);background:var(--color-surface-muted)}
+.flow-dialog-backdrop .flow-import-dialog .import-code small{font-size:13px;letter-spacing:0;font-weight:500;color:var(--color-text-muted)}
+.flow-dialog-backdrop .flow-import-dialog .import-code strong{color:var(--color-text)}
+.flow-dialog-backdrop .flow-import-dialog .import-code span{font-size:13px;color:var(--color-text-muted)}
+.flow-dialog-backdrop .flow-import-dialog .bookmarklet-button,.flow-dialog-backdrop .flow-import-dialog .import-pane>.primary,.flow-dialog-backdrop .flow-import-dialog.share-dialog>.primary{border-radius:var(--radius-sm);background:var(--color-brand);color:#fff;font-size:14px;font-weight:600;border:0}
+.flow-dialog-backdrop .flow-import-dialog .import-status{border-radius:var(--radius-sm);background:var(--color-surface-muted);color:var(--color-text-muted);font-size:13px;font-weight:500}
+.flow-dialog-backdrop .flow-import-dialog .import-status.completed{background:var(--color-success-bg);color:var(--color-success)}
+.flow-dialog-backdrop .flow-import-dialog .import-status.expired{background:var(--color-danger-bg);color:var(--color-danger)}
+.flow-dialog-backdrop .flow-import-dialog .import-totals span{border-radius:6px;font-size:13px;font-weight:600;background:var(--color-surface-muted);color:var(--color-text-muted)}
+.flow-dialog-backdrop .flow-import-dialog .import-totals .converted{background:var(--color-success-bg);color:var(--color-success)}
+.flow-dialog-backdrop .flow-import-dialog .import-totals .adjusted{background:var(--color-warning-bg);color:var(--color-warning)}
+.flow-dialog-backdrop .flow-import-dialog .import-totals .pending{background:var(--color-danger-bg);color:var(--color-danger)}
+.flow-dialog-backdrop .flow-import-dialog .flow-import-report>p{border-radius:var(--radius-sm);font-size:13px;color:var(--color-text);background:var(--color-warning-bg);border-color:#ecd9a0}
+.flow-dialog-backdrop .flow-import-dialog .flow-import-report>p.pending{background:var(--color-danger-bg);border-color:#fecdca}
+.flow-dialog-backdrop .flow-import-dialog .flow-import-report>p b{font-size:13px;text-transform:none;color:var(--color-text)}
+.flow-dialog-backdrop .flow-import-dialog.archive-dialog ul{font-size:14px;color:var(--color-text-muted)}
+.flow-dialog-backdrop .flow-import-dialog .form-error{margin:0 0 12px;padding:10px 12px;border:1px solid #fecdca;border-radius:var(--radius-sm);background:var(--color-danger-bg);font-size:13px}
+.flow-dialog-backdrop .flow-import-dialog footer{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap}
+.flow-dialog-backdrop .flow-import-dialog .ui-btn{font:600 14px/1.2 var(--font-sans);min-height:36px;padding:0 14px;border-radius:var(--radius-sm)}
+.flow-dialog-backdrop .flow-import-dialog .ui-btn.primary{background:var(--color-brand);border-color:var(--color-brand);color:#fff}
+.flow-dialog-backdrop .flow-import-dialog .ui-btn.danger-action{background:var(--color-danger);border-color:var(--color-danger)}
+.flow-dialog-backdrop .flow-small-dialog label{font-size:13px;font-weight:600}
+.flow-dialog-backdrop .flow-small-dialog input{border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:14px;padding:9px 12px;background:#fff;color:var(--color-text)}
+@media(max-width:700px){.flow-dialog-backdrop .flow-import-dialog .ui-btn{min-height:44px;flex:1 1 auto}}

@@ -7,7 +7,7 @@ export function ImportDialog({close,onDone}:{close:()=>void;onDone:(created:numb
   const mutation=useImportContacts();const [fileName,setFileName]=useState('');const [csv,setCsv]=useState('');
   async function select(file?:File){if(!file)return;setFileName(file.name);setCsv(await file.text());mutation.reset()}
   const report=mutation.data;
-  return <div className="contact-overlay" role="presentation"><section className="contact-drawer import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title"><header><div><small>IMPORTAÇÃO</small><h2 id="import-title">Importar contatos por CSV</h2></div><button type="button" aria-label="Fechar" onClick={close}>×</button></header>
+  return <div className="contact-overlay" role="presentation"><section className="contact-drawer import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title"><header><div><small>Importação</small><h2 id="import-title">Importar contatos por CSV</h2></div><button type="button" aria-label="Fechar" onClick={close}>×</button></header>
     <div className="import-content">
       <p>Use as colunas <b>nome, telefone, email, origem, etapa e tags</b>. Telefone é obrigatório; etiquetas podem ser separadas por ponto e vírgula. Outras colunas viram campos personalizados.</p>
       <p className="import-consent"><b>Coluna opcional “consentimento” (sim/não).</b> Com “sim”, o contato passa a poder receber disparos (origem: csv); com “não”, o consentimento é revogado. Sem essa coluna, ninguém é marcado e os disparos não alcançam esses contatos. Quem pediu para sair nunca é reativado por CSV.</p>

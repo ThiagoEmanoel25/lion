@@ -1,16 +1,20 @@
-.login-page{min-height:100vh;display:grid;grid-template-columns:minmax(320px,.9fr) minmax(420px,1.1fr);background:#f5f7f3}.login-brand{background:#14271f;color:#fff;padding:clamp(40px,8vw,110px);display:flex;flex-direction:column;justify-content:center}.login-brand .logo{width:52px;height:52px;font-size:29px;margin-bottom:30px}.login-brand h1{font:500 clamp(38px,5vw,66px)/1.02 Georgia;margin:0;max-width:600px;letter-spacing:-2px}.login-brand p{max-width:470px;color:#abc0b6;font-size:14px;line-height:1.7}.login-card{width:min(430px,calc(100% - 40px));margin:auto;background:#fff;border:1px solid var(--line);border-radius:20px;padding:34px;box-shadow:0 24px 70px rgba(20,39,31,.08)}.login-card>small{color:#75827b;font-size:8px;letter-spacing:1.4px;font-weight:800}.login-card h2{font:500 30px Georgia;margin:10px 0 6px}.login-card>p{font-size:11px;color:var(--muted);margin:0 0 24px}.login-card form{display:grid;gap:15px}.login-card label{display:grid;gap:7px;font-size:10px;font-weight:700}.login-card input{border:1px solid var(--line);border-radius:10px;padding:12px;outline:none}.login-card input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(23,118,91,.1)}.login-card form button{border:0;border-radius:10px;background:var(--green);color:#fff;padding:12px;font-weight:800}.login-card form button:disabled{opacity:.6}.login-card>em{display:block;margin-top:18px;color:#8b9691;font-size:8px;font-style:normal;text-align:center}.form-error{background:#fff0ed;color:#a3473c;border-radius:9px;padding:10px;font-size:9px}@media(max-width:760px){.login-page{grid-template-columns:1fr}.login-brand{display:none}.login-card{padding:26px}}
-
-/* Base de UX: foco visível, contraste AA e alvos de toque. */
-.login-card input{min-height:44px;font-size:14px}
-.login-card input:focus-visible{border-color:var(--green);box-shadow:0 0 0 3px rgba(23,118,91,.3)}
-.login-card form button{min-height:44px}
-.login-card form button:focus-visible{outline:2px solid var(--green);outline-offset:3px}
-.login-card>small,.login-card>em{color:#5b6862}
-.login-card>p{color:#5b6862}
-.login-card label{font-size:12px}
-.form-error{font-size:12px;color:#8f3329}
-.login-brand p{color:#c0d1c9}
-
-
-.login-card-brand{display:none}
-@media(max-width:760px){.login-card-brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}.login-card-brand .logo{width:44px;height:44px;font-size:24px;flex:none}.login-card-brand b{display:block;font-size:17px}.login-card-brand small{display:block;color:#5b6862;font-size:12px}.login-card{margin:24px auto}}
+.login-page{min-height:100vh;display:grid;place-items:center;padding:24px 16px;background:var(--color-bg)}
+.login-brand{display:none}
+.login-card{width:min(400px,100%);margin:0 auto;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:32px}
+.login-card-brand{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+.login-card-brand .logo{width:32px;height:32px;font-size:17px}
+.login-card-brand b{display:block;font-size:15px;font-weight:600;line-height:1.2}
+.login-card-brand small{display:block;color:var(--color-text-muted);font-size:12px}
+.login-card h2{font:600 24px/1.25 var(--font-display);letter-spacing:-.01em;margin:0 0 6px}
+.login-card>p{font-size:14px;color:var(--color-text-muted);margin:0 0 24px}
+.login-card form{display:grid;gap:16px}
+.login-card label{display:grid;gap:6px;font-size:13px;font-weight:500}
+.login-card input{border:1px solid var(--color-border-strong);border-radius:8px;padding:10px 12px;min-height:44px;font-size:14px;background:#fff;color:var(--color-text);outline:none}
+.login-card input:focus,.login-card input:focus-visible{border-color:var(--color-brand);box-shadow:0 0 0 2px var(--color-brand-ring);outline:none}
+.login-card form button{border:0;border-radius:8px;background:var(--color-brand);color:#fff;min-height:44px;padding:10px 12px;font-size:14px;font-weight:600}
+.login-card form button:hover:not(:disabled){background:var(--color-brand-strong)}
+.login-card form button:disabled{opacity:.6;cursor:default}
+.login-card form button:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}
+.login-card>em{display:block;margin-top:16px;color:var(--color-text-muted);font-size:12px;font-style:normal;text-align:center}
+.form-error{background:var(--color-danger-bg);color:var(--color-danger);border:1px solid #fecdca;border-radius:8px;padding:10px 12px;font-size:13px}
+@media(max-width:760px){.login-page{place-items:start center;padding-top:32px}.login-card{padding:24px}}

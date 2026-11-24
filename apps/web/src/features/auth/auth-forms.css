@@ -1,32 +1,36 @@
-.pw-field{display:grid;gap:7px}
-.pw-field>label,.auth-field>label{font-size:12px;font-weight:700}
+/* Convite, redefinição de senha e campos de senha: mesma linguagem do login (coluna única, 1px, tinta). */
+.pw-field{display:grid;gap:6px}
+.pw-field>label,.auth-field>label{font-size:13px;font-weight:500}
 .pw-row{position:relative;display:flex}
-.pw-row input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px 52px 12px 12px;min-height:44px;font-size:14px;outline:none;background:#fff}
-.pw-row input:focus-visible{border-color:var(--green);box-shadow:0 0 0 3px rgba(23,118,91,.3)}
-.pw-row input[aria-invalid=true]{border-color:#a3473c}
-.login-card form .pw-toggle,.pw-toggle{position:absolute;right:0;top:0;bottom:0;width:48px;min-height:44px;border:0;background:none;color:#5b6862;border-radius:0 10px 10px 0;display:grid;place-items:center;cursor:pointer}
-.pw-toggle:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
-.pw-hint{color:#5b6862;font-size:12px}
-.auth-field{display:grid;gap:7px}
-.auth-field input{border:1px solid var(--line);border-radius:10px;padding:12px;min-height:44px;font-size:14px;outline:none;background:#fff}
-.auth-field input:focus-visible{border-color:var(--green);box-shadow:0 0 0 3px rgba(23,118,91,.3)}
-.auth-field input[readonly]{background:#f2f5f1;color:#3d4a43}
-.auth-field input[aria-invalid=true]{border-color:#a3473c}
-.auth-summary{display:grid;gap:8px;background:#f2f7f1;border:1px solid #d6e5d9;border-radius:12px;padding:14px 16px;margin:0 0 18px;font-size:13px}
-.auth-summary div{display:flex;justify-content:space-between;gap:14px}
-.auth-summary dt{color:#5b6862}.auth-summary dd{margin:0;font-weight:700;text-align:right;word-break:break-word}
-.auth-note{font-size:13px;color:#3d4a43;line-height:1.5;margin:0 0 16px}
-.auth-note.warn{background:#fff8e6;border:1px solid #ecd9a0;border-radius:10px;padding:12px}
-.auth-links{margin-top:18px;font-size:13px}
-.auth-links a,.login-help a,.auth-linkbtn{color:var(--green);font-weight:700}
-.login-help{margin:16px 0 0;font-size:12px;color:#5b6862;line-height:1.5;text-align:center}
-.auth-ok{background:#eef8ef;border:1px solid #c5e3ca;color:#1f5b33;border-radius:10px;padding:14px;font-size:14px;margin:0 0 14px}
-.login-card form .auth-secondary,.auth-secondary{border:1px solid var(--green);background:#fff;color:var(--green);border-radius:10px;padding:12px;font-weight:800;min-height:44px}
-.auth-link-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:10px;background:var(--green);color:#fff;font-weight:800;text-decoration:none}
-
-.login-card form .pw-toggle{background:none;color:#5b6862;padding:0;font-weight:400}
+.pw-row input{flex:1;min-width:0;border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);padding:10px 52px 10px 12px;min-height:44px;font-size:14px;outline:none;background:#fff;color:var(--color-text)}
+.pw-row input:focus-visible{border-color:var(--color-brand);box-shadow:0 0 0 2px var(--color-brand-ring)}
+.pw-row input[aria-invalid=true]{border-color:var(--color-danger)}
+.login-card form .pw-toggle,.pw-toggle{position:absolute;right:0;top:0;bottom:0;width:48px;min-height:44px;border:0;background:none;color:var(--color-text-muted);border-radius:0 var(--radius-sm) var(--radius-sm) 0;display:grid;place-items:center;cursor:pointer;padding:0;font-weight:400}
+.pw-toggle:hover{color:var(--color-text)}
+.pw-toggle:focus-visible{outline:2px solid var(--color-brand);outline-offset:-2px}
+.pw-hint{color:var(--color-text-muted);font-size:13px}
+.auth-field{display:grid;gap:6px}
+.auth-field input{border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);padding:10px 12px;min-height:44px;font-size:14px;outline:none;background:#fff;color:var(--color-text)}
+.auth-field input:focus-visible{border-color:var(--color-brand);box-shadow:0 0 0 2px var(--color-brand-ring)}
+.auth-field input[readonly]{background:var(--color-surface-muted);color:var(--color-text-muted)}
+.auth-field input[aria-invalid=true]{border-color:var(--color-danger)}
+.auth-summary{display:grid;margin:0 0 20px;border-top:1px solid var(--color-border);font-size:14px}
+.auth-summary div{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--color-border)}
+.auth-summary dt{color:var(--color-text-muted)}
+.auth-summary dd{margin:0;font-weight:600;text-align:right;overflow-wrap:anywhere}
+.auth-note{font-size:14px;color:var(--color-text);line-height:1.5;margin:0 0 16px}
+.auth-note.warn{background:var(--color-warning-bg);border:1px solid #ecd9a0;color:var(--color-warning);border-radius:var(--radius-sm);padding:12px}
+.auth-links{margin-top:16px;font-size:14px}
+.auth-links a,.login-help a,.auth-linkbtn{color:var(--color-text);font-weight:600;text-decoration:underline;text-underline-offset:2px}
+.login-help{margin:16px 0 0;font-size:13px;color:var(--color-text-muted);line-height:1.5;text-align:center}
+.auth-ok{background:var(--color-success-bg);border:1px solid #cfe3d8;color:var(--color-success);border-radius:var(--radius-sm);padding:12px;font-size:14px;margin:0 0 16px}
+.login-card form .auth-secondary,.auth-secondary{border:1px solid var(--color-border-strong);background:#fff;color:var(--color-text);border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;font-weight:600;min-height:44px;width:100%}
+.auth-secondary:hover{background:var(--color-surface-muted)}
+.auth-link-button{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:var(--radius-sm);background:var(--color-brand);color:#fff;font-weight:600;font-size:14px;text-decoration:none}
+.auth-link-button:hover{background:var(--color-brand-strong)}
+.auth-link-button:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}
+.login-card form .pw-toggle{background:none;color:var(--color-text-muted);padding:0;font-weight:400}
 @media(max-width:760px){.auth-links a{display:inline-flex;align-items:center;min-height:44px}}
-.auth-links{margin-top:14px}
-.login-card>p.login-help{margin:16px 0 0;color:#5b6862}
-.login-card>p.auth-links{margin:16px 0 0;color:#3d4a43}
+.login-card>p.login-help{margin:16px 0 0;color:var(--color-text-muted)}
+.login-card>p.auth-links{margin:16px 0 0;color:var(--color-text)}
 .login-card>p.auth-note{margin:0 0 16px}

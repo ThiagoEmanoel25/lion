@@ -13,11 +13,11 @@ export function LoginPage(){
     const first=errors.email?'email':errors.password?'password':null;if(first){(form.elements.namedItem(first) as HTMLElement|null)?.focus();return}
     try{await login(email.trim(),password)}catch(reason){setError(reason instanceof Error?reason.message:'Não foi possível entrar.')}
   }
-  return <main className="login-page"><section className="login-brand"><span className="logo">{APP_NAME[0]}</span><h1>Conversas que avançam.</h1><p>Atendimento humano e inteligência artificial trabalhando com o mesmo contexto.</p></section><section className="login-card"><div className="login-card-brand"><span className="logo">{APP_NAME[0]}</span><div><b>{APP_NAME}</b><small>{APP_TAGLINE}</small></div></div><small>ACESSO À OPERAÇÃO</small><h2>Entre no {APP_NAME}</h2><p>Use sua conta para acessar o workspace.</p>
+  return <main className="login-page"><section className="login-card"><div className="login-card-brand"><span className="logo">{APP_NAME[0]}</span><div><b>{APP_NAME}</b><small>{APP_TAGLINE}</small></div></div><h2>Entrar</h2><p>Use sua conta para acessar o workspace.</p>
     <form onSubmit={event=>void submit(event)} noValidate>
       <label>E-mail<input name="email" type="email" value={email} onChange={e=>{setEmail(e.target.value);setFieldErrors(state=>({...state,email:undefined}))}} autoComplete="email" aria-invalid={Boolean(fieldErrors.email)||undefined}/></label>{fieldErrors.email&&<div className="form-error" role="alert">{fieldErrors.email}</div>}
       <label>Senha<input name="password" type="password" value={password} onChange={e=>{setPassword(e.target.value);setFieldErrors(state=>({...state,password:undefined}))}} autoComplete="current-password" aria-invalid={Boolean(fieldErrors.password)||undefined}/></label>{fieldErrors.password&&<div className="form-error" role="alert">{fieldErrors.password}</div>}
       {error&&<div className="form-error" role="alert">{error}</div>}<button disabled={loading}>{loading?'Entrando…':'Entrar'}</button></form>
     <p className="login-help">Esqueceu a senha? Peça um novo link de acesso ao administrador da sua conta.</p>
-    {import.meta.env.DEV&&<em>Ambiente local de desenvolvimento</em>}</section></main>
+    {!import.meta.env.PROD&&<em>Ambiente local de desenvolvimento</em>}</section></main>
 }

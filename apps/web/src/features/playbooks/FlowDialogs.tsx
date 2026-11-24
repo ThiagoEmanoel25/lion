@@ -1,4 +1,6 @@
 import {useEffect,useId,useRef,useState,type FormEvent,type KeyboardEvent,type ReactNode} from 'react';
+import '../../shared/ui/page-kit.css';
+import './flow-dialogs.css';
 
 const FOCUSABLE='button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[href],[tabindex]:not([tabindex="-1"])';
 type BaseProps={title:string;confirmLabel?:string;cancelLabel?:string;danger?:boolean;busy?:boolean;error?:string;onConfirm:()=>void;onCancel:()=>void;children?:ReactNode;confirmDisabled?:boolean};
@@ -27,7 +29,7 @@ export function FlowDialog({title,confirmLabel='Confirmar',cancelLabel='Cancelar
         <h2 id={titleId}>{title}</h2>
         {children}
         {error&&<p className="form-error" role="alert">{error}</p>}
-        <footer><button type="button" onClick={onCancel}>{cancelLabel}</button><button type="submit" className={danger?'primary danger-action':'primary'} disabled={busy||confirmDisabled}>{busy?'Aguarde…':confirmLabel}</button></footer>
+        <footer><button type="button" className="ui-btn" onClick={onCancel}>{cancelLabel}</button><button type="submit" className={danger?'ui-btn primary danger-action':'ui-btn primary'} disabled={busy||confirmDisabled}>{busy?'Aguarde…':confirmLabel}</button></footer>
       </form>
     </section>
   </div>;

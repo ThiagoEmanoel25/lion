@@ -5,6 +5,7 @@ import {readSession,writeSession} from '../../shared/auth/session-storage';
 import {PasswordField} from '../auth/PasswordField';
 import {PASSWORD_MIN,roleLabel,translateChangePasswordError,validateConfirmation,validateName,validateNewPassword} from '../auth/passwordRules';
 import {useToast} from '../../shared/ui/Toast';
+import '../../shared/ui/page-kit.css';
 import './profile.css';
 
 type Me={role:string;user:{id:string;name:string;email:string};workspace:{id:string;name:string}};
@@ -12,8 +13,8 @@ type Me={role:string;user:{id:string;name:string;email:string};workspace:{id:str
 export function ProfilePage(){
   const {session}=useSession();const toast=useToast();
   if(!session)return null;
-  return <div className="page profile-page">
-    <div className="heading"><div><small>CONTA</small><h1>Meu perfil</h1></div></div>
+  return <div className="page ui-page profile-page">
+    <header className="ui-head"><div><h1>Meu perfil</h1><p>Seus dados de acesso e a senha desta conta.</p></div></header>
     <div className="profile-grid">
       <NameCard name={session.user.name} email={session.user.email} role={session.workspace.role} workspace={session.workspace.name} onSaved={()=>toast.success('Nome atualizado.')}/>
       <PasswordCard onChanged={()=>toast.success('Senha alterada.')}/>
@@ -37,9 +38,9 @@ function NameCard({name,email,role,workspace,onSaved}:{name:string;email:string;
     <h2 id="perfil-dados">Seus dados</h2>
     <dl className="profile-facts"><div><dt>Workspace</dt><dd>{workspace}</dd></div><div><dt>Papel</dt><dd>{roleLabel(role)}</dd></div></dl>
     <form onSubmit={event=>void submit(event)} noValidate>
-      <div className="auth-field"><label htmlFor="perfil-email">E-mail</label><input id="perfil-email" value={email} readOnly/></div>
-      <div className="auth-field"><label htmlFor="perfil-nome">Nome</label><input id="perfil-nome" ref={input} name="name" value={value} onChange={e=>{setValue(e.target.value);setError('')}} autoComplete="name" aria-invalid={Boolean(error)||undefined} aria-describedby={error?'perfil-nome-err':undefined}/>{error&&<div id="perfil-nome-err" className="form-error" role="alert">{error}</div>}</div>
-      <button className="profile-primary" disabled={busy||value.trim()===name}>{busy?'Salvando…':'Salvar nome'}</button>
+      <div className="ui-field"><label htmlFor="perfil-email">E-mail</label><input id="perfil-email" value={email} readOnly/></div>
+      <div className="ui-field"><label htmlFor="perfil-nome">Nome</label><input id="perfil-nome" ref={input} name="name" value={value} onChange={e=>{setValue(e.target.value);setError('')}} autoComplete="name" aria-invalid={Boolean(error)||undefined} aria-describedby={error?'perfil-nome-err':undefined}/>{error&&<div id="perfil-nome-err" className="form-error" role="alert">{error}</div>}</div>
+      <button className="ui-btn primary profile-primary" disabled={busy||value.trim()===name}>{busy?'Salvando…':'Salvar nome'}</button>
     </form>
   </section>
 }
@@ -73,7 +74,7 @@ function PasswordCard({onChanged}:{onChanged:()=>void}){
       <PasswordField label="Nova senha" name="newPassword" value={next} onChange={v=>{setNext(v);setErrors(s=>({...s,newPassword:undefined}))}} error={errors.newPassword} hint={`Regra: mínimo de ${PASSWORD_MIN} caracteres.`} autoComplete="new-password" toggleLabel="a nova senha" disabled={busy}/>
       <PasswordField label="Confirmar nova senha" name="confirm" value={confirm} onChange={v=>{setConfirm(v);setErrors(s=>({...s,confirm:undefined}))}} error={errors.confirm} autoComplete="new-password" toggleLabel="a confirmação da nova senha" disabled={busy}/>
       {banner&&<div className="form-error" role="alert">{banner}</div>}
-      <button className="profile-primary" disabled={busy}>{busy?'Trocando…':'Trocar senha'}</button>
+      <button className="ui-btn primary profile-primary" disabled={busy}>{busy?'Trocando…':'Trocar senha'}</button>
     </form>
   </section>
 }

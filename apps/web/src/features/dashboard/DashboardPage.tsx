@@ -1,13 +1,22 @@
 import {useState} from 'react';
 import {Link} from 'react-router-dom';
-import {MetricCard} from '../../components/MetricCard';
 import {useSession} from '../../app/providers/SessionProvider';
-import {AnalyticsState,ChannelBreakdown,ChannelSelect,DailyChart,HourChart,PeriodSelect,currency,duration,percent,trend} from '../analytics/components';
+import {AnalyticsState,ChannelBreakdown,ChannelSelect,DailyChart,HourChart,PeriodSelect,duration,percent,trend} from '../analytics/components';
 import '../analytics/analytics.css';
 import {Onboarding} from '../onboarding/Onboarding';
 import {useDashboard,type AnalyticsPeriod} from './api/queries';
+import './dashboard.css';
 
-const initials=(name:string|null)=>name?.split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()||'CT';
+const waiting=(iso:string)=>{
+  const minutes=Math.max(0,Math.round((Date.now()-new Date(iso).getTime())/60000));
+  if(minutes<1)return 'agora';
+  if(minutes<60)return `há ${minutes} min`;
+  const hours=Math.floor(minutes/60);
+  if(hours<24)return `há ${hours} h`;
+  const days=Math.floor(hours/24);
+  return `há ${days} dia${days===1?'':'s'}`;
+};
+const tone=(value:number|null)=>value===null||value===0?'':value>0?'up':'down';
 
 export function DashboardPage(){
   const [days,setDays]=useState<AnalyticsPeriod>(7);
@@ -20,13 +29,39 @@ export function DashboardPage(){
   if(query.isLoading)return <div className="page"><AnalyticsState kind="loading"/></div>;
   if(query.isError||!query.data)return <div className="page"><AnalyticsState kind="error" onRetry={()=>query.refetch()}/></div>;
   const data=query.data;
+  const s=data.summary;
   const channelName=channelId?data.channels.find(channel=>channel.id===channelId)?.name:undefined;
-  return <div className="page">
-    <div className="heading"><div><small>{date}</small><h1>{greeting}, {session?.user.name.split(' ')[0]||'equipe'}.</h1><p>{data.summary.conversations?`${channelName?`${channelName}: `:'A operação registrou '}${data.summary.conversations} conversa${data.summary.conversations===1?'':'s'} e ${data.summary.outcomes} desfecho${data.summary.outcomes===1?'':'s'} no período.`:'Ainda não houve conversas neste período.'}</p></div><div className="heading-filters"><ChannelSelect channels={data.channels} value={channelId} onChange={setChannelId}/><PeriodSelect value={days} onChange={setDays}/></div></div>
+  const queueSize=data.attention.length;
+  const plural=(n:number)=>n===1?'':'s';
+  return <div className="page dash">
+    <div className="heading"><div><small>{date}</small><h1>{greeting}, {session?.user.name.split(' ')[0]||'equipe'}.</h1><p>{s.conversations?`${channelName?`${channelName}: `:'A operação registrou '}${s.conversations} conversa${plural(s.conversations)} e ${s.outcomes} desfecho${plural(s.outcomes)} no período.`:'Ainda não houve conversas neste período.'}</p></div><div className="heading-filters"><ChannelSelect channels={data.channels} value={channelId} onChange={setChannelId}/><PeriodSelect value={days} onChange={setDays}/></div></div>
+
+    <section className="dash-block" aria-labelledby="dash-attention"><header><h2 id="dash-attention">Precisam de atenção</h2><p>Conversas que esperam por uma pessoa</p></header>
+      {queueSize?<ul className="dash-queue">{data.attention.map(item=><li key={item.id}>
+        <div><b>{item.contact.name||item.contact.phone}</b><small>{item.reason}</small></div>
+        <time dateTime={item.updatedAt} title={new Date(item.updatedAt).toLocaleString('pt-BR')}>{waiting(item.updatedAt)}</time>
+        <Link className="dash-open" to={`/inbox?conversation=${item.id}`} aria-label={`Abrir conversa com ${item.contact.name||item.contact.phone}`}>Abrir</Link>
+      </li>)}</ul>:<div className="analytics-empty"><b>Nenhuma conversa prioritária</b><p>A fila não possui pendências que exijam atenção imediata.</p></div>}
+    </section>
+
     <Onboarding/>
-    <div className="metrics six"><MetricCard label="Leads novos" value={String(data.summary.leads)} trend={trend(data.summary.trends.leads,'vs. período anterior')} tone="blue"/><MetricCard label="Taxa de conversão" value={percent(data.summary.outcomeRate)} trend={`${data.summary.conversations} conversa${data.summary.conversations===1?'':'s'} no período`}/><MetricCard label="Desfechos úteis" value={String(data.summary.outcomes)} trend={trend(data.summary.trends.outcomes,'vs. período anterior')}/><MetricCard label="Conversas abertas" value={String(data.summary.open)} trend="Fila atual do workspace" tone="orange"/><MetricCard label="1ª resposta média" value={duration(data.summary.averageFirstResponseSeconds)} trend={`${data.summary.conversations} conversa${data.summary.conversations===1?'':'s'} no período`} tone="blue"/><MetricCard label="Custo por desfecho" value={currency(data.summary.costPerOutcomeCents)} trend={`${currency(data.summary.costCents)} no período`} tone="purple"/></div>
-    <div className="dashboard-grid"><section className="panel"><header><div><h2>Conversas e desfechos</h2><p>Resultado diário da operação</p></div><span className="legend">● Conversas　<span>● Desfechos</span></span></header><DailyChart series={data.series}/></section><section className="panel health"><header><div><h2>Saúde da operação</h2><p>Indicadores agregados, atualizados automaticamente</p></div></header><div className="score"><b>{data.health.score}</b><span><em>{data.health.label}</em><small>Visão operacional do workspace.</small></span></div>{data.health.signals.map(signal=><div className="health-row" key={signal.key}><i className={signal.status==='warning'?'warn':''}/><span>{signal.label}<small>{signal.detail}</small></span><b>{signal.status==='operational'?'Operacional':'Atenção'}</b></div>)}</section></div>
-    <div className="dashboard-grid equal"><section className="panel"><header><div><h2>Movimento por horário</h2><p>Quando as conversas chegam, no fuso do workspace</p></div></header><HourChart hours={data.hours}/></section><section className="panel"><header><div><h2>Por conexão</h2><p>Conversas abertas no período, em todas as conexões</p></div></header><ChannelBreakdown rows={data.byChannel}/></section></div>
-    <div className="dashboard-grid equal"><section className="panel"><header><div><h2>Precisam de atenção</h2><p>Intervenção humana recomendada</p></div></header>{data.attention.length?data.attention.map(item=><Link className="attention attention-link" to={`/inbox?conversation=${item.id}`} key={item.id}><span className="avatar">{initials(item.contact.name)}</span><div><b>{item.contact.name||item.contact.phone}</b><small>{item.reason}</small></div><em>Revisar</em></Link>):<div className="analytics-empty"><b>Nenhuma conversa prioritária</b><p>A fila não possui pendências que exijam atenção imediata.</p></div>}</section><section className="panel"><header><div><h2>Playbooks ativos</h2><p>Desempenho das versões publicadas</p></div></header>{data.playbooks.length?data.playbooks.map(item=><div className="flow-row" key={item.id}><span>✦</span><div><b>{item.name}</b><small>v{item.version} · {item.executions} execuções · {percent(item.successRate)} concluídas</small></div><em>ATIVO</em></div>):<div className="analytics-empty"><b>Nenhum playbook publicado</b><p>Publique um fluxo para acompanhar seu desempenho aqui.</p></div>}</section></div>
+
+    <div className="dash-kpis" role="group" aria-label="Números do período">
+      <div><strong>{s.open}</strong><span>Conversas abertas</span><small>Fila atual do workspace</small></div>
+      <div><strong>{queueSize>=5?'5+':queueSize}</strong><span>Aguardando atendimento</span><small>Precisam de resposta humana</small></div>
+      <div><strong>{duration(s.averageFirstResponseSeconds)}</strong><span>1ª resposta média</span><small>{s.conversations} conversa{plural(s.conversations)} no período</small></div>
+      <div><strong>{s.leads}</strong><span>Leads novos</span><small className={tone(s.trends.leads)}>{trend(s.trends.leads,'vs. período anterior')}</small></div>
+    </div>
+
+    <div className="dash-pair">
+      <section className="dash-block"><header><h2>Conversas por dia</h2><p>Novas conversas no período, maior dia em destaque</p></header><DailyChart series={data.series}/></section>
+      <section className="dash-block"><header><h2>Movimento por horário</h2><p>Quando as conversas chegam, no fuso do workspace</p></header><HourChart hours={data.hours}/></section>
+    </div>
+
+    <div className="dash-trio">
+      <section className="dash-block"><header><h2>Por conexão</h2><p>Conversas abertas no período, em todas as conexões</p></header><ChannelBreakdown rows={data.byChannel}/></section>
+      <section className="dash-block"><header><h2>Playbooks ativos</h2><p>Desempenho das versões publicadas</p></header>{data.playbooks.length?<ul className="dash-list">{data.playbooks.map(item=><li key={item.id}><div><b>{item.name}</b><small>v{item.version} · {item.executions} execuções · {percent(item.successRate)} concluídas</small></div><span className="dash-state">Ativo</span></li>)}</ul>:<div className="analytics-empty"><b>Nenhum playbook publicado</b><p>Publique um fluxo para acompanhar seu desempenho aqui.</p></div>}</section>
+      <section className="dash-block"><header><h2>Saúde da operação</h2><p>Indicadores atualizados automaticamente</p></header><p className="dash-score"><strong>{data.health.score}</strong><span>{data.health.label}</span></p><ul className="dash-list">{data.health.signals.map(signal=><li key={signal.key}><div><b>{signal.label}</b><small>{signal.detail}</small></div><span className={signal.status==='operational'?'dash-state':'dash-state warn'}>{signal.status==='operational'?'Operacional':'Atenção'}</span></li>)}</ul></section>
+    </div>
   </div>
 }

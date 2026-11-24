@@ -36,7 +36,7 @@ export function SimulatorPanel({playbookId,definition,variablesText,onVariablesT
   const staleLive=live;const changed=Boolean(session.current)&&session.current?.key!==keyOf();
   return <aside className="sim-panel" style={{width}} aria-label="Simulador do fluxo">
     <div className="sim-resize" role="separator" aria-orientation="vertical" aria-label="Redimensionar simulador" tabIndex={0} onPointerDown={event=>event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={resize} onKeyDown={resizeKey}/>
-    <header className="sim-head"><div><small>SIMULADOR</small><b>Conversa de teste</b></div><button type="button" onClick={()=>void restart()} disabled={busy} title="Reiniciar"><RotateCcw size={15} aria-hidden="true"/> Reiniciar</button><button type="button" className="sim-close" onClick={onClose} aria-label="Fechar simulador"><X size={17} aria-hidden="true"/></button></header>
+    <header className="sim-head"><div><b>Simulador</b><small>Conversa de teste</small></div><button type="button" onClick={()=>void restart()} disabled={busy} title="Reiniciar"><RotateCcw size={15} aria-hidden="true"/> Reiniciar</button><button type="button" className="sim-close" onClick={onClose} aria-label="Fechar simulador"><X size={17} aria-hidden="true"/></button></header>
     {liveSession&&<div className="sim-live">Execução real ligada: IA e Integração rodam de verdade e podem gerar custo.</div>}
     <div className="sim-chat" role="log" aria-live="polite">
       {!view&&!problem&&<p className="sim-empty">Iniciando a conversa…</p>}
