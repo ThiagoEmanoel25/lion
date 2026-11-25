@@ -1,8 +1,14 @@
 /* Lista de fluxos: tabela simples (nome, estado, atualizado), pastas à esquerda. Sobrepõe as regras legadas de flow-builder.css. */
-.playbooks-page.ui-page{max-width:1120px}
+.playbooks-page.ui-page{max-width:1280px;--fl-accent:#a3e635;--fl-accent-strong:#84cc16;--fl-accent-soft:#ecfccb;--fl-deep:#1f3d1a;--fl-ring:rgba(132,204,22,.35);--fl-soft:#f4f7f1;--fl-line:#e6e9e4;--fl-line-strong:#d9ddd6}
+/* Verde só nesta tela (pedido do usuário); o resto do app segue a identidade preta. */
+main:has(>.playbooks-page){background:radial-gradient(900px 380px at 0 0,#eef9dc 0,transparent 70%),#f6f7f5}
 .playbooks-page .ui-btn{font:600 14px/1.2 var(--font-sans);padding:0 14px;border-radius:var(--radius-sm);min-height:36px}
 .playbooks-page .ui-btn.sm{min-height:32px;padding:0 10px;font-size:13px}
-.playbooks-page .heading-actions{display:flex;gap:8px;flex-wrap:wrap}
+.playbooks-page .heading-actions{display:flex;gap:10px;flex-wrap:wrap}
+.playbooks-page .ui-head h1{font-size:30px;font-weight:700;letter-spacing:-.02em}
+.playbooks-page .heading-actions>.ui-btn{min-height:42px;border-radius:12px;padding:0 18px;gap:8px}
+.playbooks-page .heading-actions>.ui-btn.primary{background:linear-gradient(180deg,#b5ef4f,var(--fl-accent-strong));border:1px solid #7cb518;color:#1a2e05;box-shadow:0 4px 14px rgba(132,204,22,.35)}
+.playbooks-page .heading-actions>.ui-btn.primary:hover{background:linear-gradient(180deg,#a3e635,#76b812)}
 .playbooks-page .heading-actions>.ui-btn:not(.primary){color:var(--color-text);border:1px solid var(--color-border-strong);background:var(--color-surface);font-weight:600}
 .playbooks-page .heading-actions>.ui-btn:not(.primary):hover{background:var(--color-surface-muted)}
 
@@ -26,53 +32,96 @@
 .playbooks-page .flow-empty.error{border:0;border-top:1px solid var(--color-border);border-bottom:1px solid var(--color-border);color:var(--color-danger)}
 .playbooks-page .flow-empty .ui-btn{margin-top:12px}
 
-.playbooks-page .flows-search{display:flex;align-items:center;gap:8px;max-width:420px;min-height:40px;padding:0 12px;background:#fff;border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);color:var(--color-text-muted)}
-.playbooks-page .flows-search input{flex:1;width:100%;min-height:38px;padding:0;border:0;outline:0;background:transparent;color:var(--color-text);font-size:14px}
-.playbooks-page .flows-search:focus-within{border-color:var(--color-brand);box-shadow:0 0 0 2px var(--color-brand-ring)}
-.playbooks-page .flows-chips{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 24px}
-.playbooks-page .flows-chips button{display:inline-flex;align-items:center;border:1px solid var(--color-border-strong);background:var(--color-surface);border-radius:var(--radius-sm);padding:0 10px;min-height:32px;font-size:13px;font-weight:600;color:var(--color-text)}
-.playbooks-page .flows-chips button.active{background:var(--color-brand-soft);border-color:var(--color-brand);color:var(--color-text)}
+/* Toolbar dentro do card da tabela: filtros, busca e ordenação na mesma linha. */
+.playbooks-page .flows-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 20px;border-bottom:1px solid var(--fl-line)}
+.playbooks-page .flows-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0;flex:1 1 auto}
+.playbooks-page .flows-chips button{display:inline-flex;align-items:center;border:1px solid var(--fl-line-strong);background:#fff;border-radius:10px;padding:0 14px;min-height:36px;font-size:14px;font-weight:600;color:var(--color-text)}
+.playbooks-page .flows-chips button:hover{background:var(--fl-soft)}
+.playbooks-page .flows-chips button.active{background:var(--fl-deep);border-color:var(--fl-deep);color:#fff}
+.playbooks-page .flows-search{display:flex;align-items:center;gap:8px;flex:0 1 300px;min-height:38px;padding:0 12px;background:#fff;border:1px solid var(--fl-line-strong);border-radius:10px;color:var(--color-text-muted)}
+.playbooks-page .flows-search input{flex:1;width:100%;min-height:36px;padding:0;border:0;outline:0;background:transparent;color:var(--color-text);font-size:14px}
+.playbooks-page .flows-search:focus-within,.playbooks-page .flows-sort:focus{border-color:var(--fl-deep);box-shadow:0 0 0 3px var(--fl-ring);outline:0}
+.playbooks-page .flows-sort{min-height:38px;padding:0 32px 0 12px;border:1px solid var(--fl-line-strong);border-radius:10px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%2315171c' stroke-width='2'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E") no-repeat right 12px center;appearance:none;font:500 14px var(--font-sans);color:var(--color-text);cursor:pointer}
 
-.playbooks-page .flows-layout{grid-template-columns:200px minmax(0,1fr);gap:40px}
-.playbooks-page .flows-folders{background:transparent;border:0;border-radius:0;padding:0;gap:2px;align-content:start}
-.playbooks-page .flows-folders-title{margin:0 0 6px;padding:0 10px;font:600 13px/1.3 var(--font-sans);color:var(--color-text-muted)}
-.playbooks-page .flows-folders button{padding:7px 10px;font-size:14px;font-weight:500;color:var(--color-text-muted);border-radius:var(--radius-sm)}
-.playbooks-page .flows-folders button:hover{background:var(--color-surface-muted);color:var(--color-text)}
-.playbooks-page .flows-folders em{background:none;padding:0;font-size:13px;color:var(--color-text-muted)}
-.playbooks-page .flows-folders>button.active,.playbooks-page .flows-folder.active{background:var(--color-brand-soft);box-shadow:none;color:var(--color-text)}
-.playbooks-page .flows-folders>button.active,.playbooks-page .flows-folder.active>button:first-child{color:var(--color-text);font-weight:600}
-.playbooks-page .flows-folder{border-radius:var(--radius-sm)}
-.playbooks-page .flows-folder .flows-folder-more{padding:7px 8px;color:var(--color-text-muted)}
+/* Cards de resumo */
+.playbooks-page .flows-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:0 0 24px}
+.playbooks-page .flows-stat{--tint:#84cc16;--tint-bg:#ecfccb;position:relative;overflow:hidden;display:flex;align-items:center;gap:14px;padding:20px;background:#fff;border:1px solid var(--fl-line);border-radius:16px;box-shadow:0 1px 2px rgba(16,24,16,.04)}
+.playbooks-page .flows-stat::after{content:"";position:absolute;right:-30px;bottom:-46px;width:190px;height:90px;border-radius:50%;background:var(--tint-bg);opacity:.75;pointer-events:none}
+.playbooks-page .flows-stat.active{--tint:#16a34a;--tint-bg:#dcfce7}
+.playbooks-page .flows-stat.paused{--tint:#d97706;--tint-bg:#fef3c7}
+.playbooks-page .flows-stat.archived{--tint:#64748b;--tint-bg:#eef0f3}
+.playbooks-page .flows-stat-icon{position:relative;z-index:1;display:grid;place-items:center;width:44px;height:44px;flex:none;border-radius:12px;background:var(--tint-bg);color:var(--tint)}
+.playbooks-page .flows-stat.total .flows-stat-icon{color:#3f6212}
+.playbooks-page .flows-stat>div{position:relative;z-index:1;display:grid;gap:2px}
+.playbooks-page .flows-stat small{font-size:13px;color:var(--color-text-muted);font-weight:500}
+.playbooks-page .flows-stat strong{font:700 26px/1.1 var(--font-display);color:var(--color-text);font-variant-numeric:tabular-nums}
 
-.playbooks-page .flows-table{background:transparent;border:0;border-radius:0}
-.playbooks-page .flows-table h2{font:600 18px/1.3 var(--font-display);padding:0 0 12px;border:0;margin:0}
-.playbooks-page .flows-table table{font-size:14px;border-top:1px solid var(--color-border)}
-.playbooks-page .flows-table th{text-align:left;font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--color-text-muted);background:transparent;padding:10px 12px 10px 0;border-bottom:1px solid var(--color-border)}
-.playbooks-page .flows-table td{padding:10px 12px 10px 0;border-bottom:1px solid var(--color-border);color:var(--color-text)}
+/* Pastas e tabela em cards */
+.playbooks-page .flows-layout{grid-template-columns:240px minmax(0,1fr);gap:20px;align-items:stretch}
+.playbooks-page .flows-folders{display:flex;flex-direction:column;gap:2px;background:#fff;border:1px solid var(--fl-line);border-radius:16px;padding:16px 12px;box-shadow:0 1px 2px rgba(16,24,16,.04)}
+.playbooks-page .flows-folders-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px 10px 8px}
+.playbooks-page .flows-folders-title{margin:0;font:700 16px/1.3 var(--font-display);color:var(--color-text)}
+.playbooks-page .flows-folders .flows-folder-add{width:32px;height:32px;padding:0;display:grid;place-items:center;border:1px solid var(--fl-line-strong);border-radius:9px;color:var(--color-text);background:#fff}
+.playbooks-page .flows-folders .flows-folder-add:hover{background:var(--fl-soft)}
+.playbooks-page .flows-folders button{padding:9px 10px;font-size:14px;font-weight:500;color:var(--color-text);border-radius:10px}
+.playbooks-page .flows-folders button svg{color:var(--color-text-muted);flex:none}
+.playbooks-page .flows-folders button:hover{background:var(--fl-soft)}
+.playbooks-page .flows-folders em{background:#f1f3f2;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-text-muted)}
+.playbooks-page .flows-folders>button.active,.playbooks-page .flows-folder.active{background:var(--fl-accent-soft);box-shadow:none}
+.playbooks-page .flows-folders>button.active,.playbooks-page .flows-folder.active>button:first-child{color:var(--fl-deep);font-weight:600}
+.playbooks-page .flows-folders>button.active svg,.playbooks-page .flows-folder.active svg{color:var(--fl-deep)}
+.playbooks-page .flows-folders>button.active em,.playbooks-page .flows-folder.active em{background:#fff;color:var(--fl-deep)}
+.playbooks-page .flows-folder{border-radius:10px}
+.playbooks-page .flows-folder>button:first-child{flex:1 1 auto;min-width:0;width:auto}
+.playbooks-page .flows-folder .flows-folder-more{flex:none;width:32px;padding:7px 0;justify-content:center;color:var(--color-text-muted)}
+
+.playbooks-page .flows-table{background:#fff;border:1px solid var(--fl-line);border-radius:16px;box-shadow:0 1px 2px rgba(16,24,16,.04);min-height:420px}
+.playbooks-page .flows-table table{font-size:14px;border-top:0}
+.playbooks-page .flows-table th{text-align:left;font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--color-text-muted);background:transparent;padding:14px 12px;border-bottom:1px solid var(--fl-line)}
+.playbooks-page .flows-table td{padding:16px 12px;border-bottom:1px solid var(--fl-line);color:var(--color-text)}
+.playbooks-page .flows-table th:first-child,.playbooks-page .flows-table td:first-child{padding-left:20px}
+.playbooks-page .flows-table th:last-child,.playbooks-page .flows-table td:last-child{padding-right:16px}
 .playbooks-page .flows-table tbody tr td:first-child{box-shadow:none}
-.playbooks-page .flows-table tbody tr:hover{background:var(--color-surface-muted)}
-.playbooks-page .flows-table td a{color:var(--color-text);font-weight:600;text-decoration:none}
+.playbooks-page .flows-table tbody tr:hover{background:#f8fbf3}
+.playbooks-page .flows-table td a{color:var(--color-text);font-weight:700;text-decoration:none}
 .playbooks-page .flows-table td a:hover{text-decoration:underline}
-.playbooks-page .flows-blocks{display:inline-flex;align-items:center;gap:6px;color:var(--color-text-muted);font-weight:500}
+.playbooks-page .flows-table .ui-status{padding:3px 10px;border-radius:999px;background:#f1f3f2;font-size:13px}
+.playbooks-page .flows-table tr.active .ui-status{background:#dcfce7}
+.playbooks-page .flows-table tr.paused .ui-status{background:#fef3c7}
+.playbooks-page .flows-blocks{display:inline-flex;align-items:center;gap:6px;color:var(--color-text);font-weight:500}
 .playbooks-page .flows-blocks svg{color:var(--color-text-muted)}
-.playbooks-page .flows-actions{width:44px}
-.playbooks-page .flows-actions>button{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;border-radius:var(--radius-sm);color:var(--color-text-muted)}
-.playbooks-page .flows-actions>button:hover{background:var(--color-surface-muted);color:var(--color-text)}
-.playbooks-page .flows-none td{text-align:left;color:var(--color-text-muted);padding:16px 0}
+.playbooks-page .flows-actions{width:52px;text-align:right}
+.playbooks-page .flows-actions>button{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;border-radius:9px;color:var(--color-text-muted)}
+.playbooks-page .flows-actions>button:hover{background:var(--fl-soft);color:var(--color-text)}
+.playbooks-page .flows-none td{text-align:left;color:var(--color-text-muted);padding:20px}
+.playbooks-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .playbooks-page .flows-menu{border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow-float);padding:4px;min-width:180px}
 .playbooks-page .flows-menu button{padding:8px 10px;font-size:14px;font-weight:500;color:var(--color-text);border-radius:6px}
 .playbooks-page .flows-menu button:hover{background:var(--color-surface-muted)}
 .playbooks-page .flows-menu button.danger{color:var(--color-danger)}
 .playbooks-page .flows-menu select{border:1px solid var(--color-border-strong);border-radius:6px;padding:7px;font-size:14px;margin:2px}
 
+@media(max-width:1000px){
+  .playbooks-page .flows-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .playbooks-page .flows-search{flex:1 1 220px}
+}
 @media(max-width:720px){
-  .playbooks-page .flows-layout{grid-template-columns:minmax(0,1fr);gap:16px}
+  .playbooks-page .flows-layout{grid-template-columns:minmax(0,1fr);gap:12px}
+  .playbooks-page .flows-folders{display:none}
+  .playbooks-page .flows-stats{gap:10px;margin-bottom:16px}
+  .playbooks-page .flows-stat{padding:14px;gap:10px}
+  .playbooks-page .flows-stat-icon{width:36px;height:36px}
+  .playbooks-page .flows-stat strong{font-size:22px}
+  .playbooks-page .flows-toolbar{padding:12px}
+  .playbooks-page .flows-search,.playbooks-page .flows-sort{flex:1 1 100%;min-height:44px}
+  .playbooks-page .flows-table{min-height:0}
   .playbooks-page .template-options{grid-template-columns:1fr}
-  .playbooks-page .flows-folder-select{border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);padding:9px 12px;min-height:44px;font-size:16px;background:#fff}
+  .playbooks-page .flows-folder-select{border:1px solid var(--fl-line-strong);border-radius:12px;padding:9px 12px;min-height:44px;font-size:16px;background:#fff}
   .playbooks-page .flows-search input{font-size:16px}
   .playbooks-page .flows-chips button{min-height:44px}
   .playbooks-page .heading-actions{width:100%}
   .playbooks-page .heading-actions>.ui-btn{flex:1 1 auto}
   .playbooks-page .flows-actions>button{width:44px;height:44px}
   .playbooks-page .flows-table td{padding-right:8px}
+  .playbooks-page .flows-sort{font-size:16px}
 }

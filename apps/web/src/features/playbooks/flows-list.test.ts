@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterFlows, formatUpdated } from './flows-list';
+import { filterFlows, formatUpdated, sortFlows } from './flows-list';
 
 const flows = [
   { name: 'Qualificação Comercial', status: 'PUBLISHED' as const, folderId: null },
@@ -26,5 +26,24 @@ describe('filterFlows', () => {
 describe('formatUpdated', () => {
   it('usa dd/mm/aaaa, hh:mm', () => {
     expect(formatUpdated(new Date(2026, 9, 8, 7, 5).toISOString())).toBe('08/10/2026, 07:05');
+  });
+});
+
+describe('sortFlows', () => {
+  const items = [
+    { name: 'Beta', updatedAt: '2026-11-01T10:00:00.000Z' },
+    { name: 'Ágil', updatedAt: '2026-11-20T10:00:00.000Z' },
+    { name: 'Casa', updatedAt: '2026-11-24T10:00:00.000Z' }
+  ];
+  it('mais recentes primeiro', () => {
+    expect(sortFlows(items, 'recent').map(item => item.name)).toEqual(['Casa', 'Ágil', 'Beta']);
+  });
+  it('por nome, respeitando acentos', () => {
+    expect(sortFlows(items, 'name').map(item => item.name)).toEqual(['Ágil', 'Beta', 'Casa']);
+  });
+  it('não altera a lista original', () => {
+    const copy = [...items];
+    sortFlows(items, 'name');
+    expect(items).toEqual(copy);
   });
 });

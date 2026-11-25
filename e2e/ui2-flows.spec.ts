@@ -16,7 +16,7 @@ async function login(page: Page) {
 
 async function createFlow(page: Page, name: string) {
   await page.goto('/playbooks');
-  await page.getByRole('button', { name: '+ Novo fluxo' }).first().click();
+  await page.getByRole('button', { name: 'Novo fluxo' }).first().click();
   await page.getByLabel('Nome').fill(name);
   await page.getByRole('button', { name: 'Criar fluxo' }).click();
   await expect(page).toHaveURL(/\/editor/);
