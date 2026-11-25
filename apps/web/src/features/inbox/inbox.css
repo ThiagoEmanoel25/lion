@@ -173,7 +173,7 @@ div.inbox{grid-template-columns:340px minmax(0,1fr) 296px;background:var(--color
 .inbox-modal button{border:1px solid var(--color-border-strong);background:var(--color-surface);color:var(--color-text);border-radius:8px;padding:8px 14px;font-size:14px;font-weight:500}
 .inbox-modal header button{border:0;font-size:20px;line-height:1;padding:4px 8px}
 .inbox-modal footer{justify-content:flex-end}
-.inbox-modal button.primary{background:var(--color-brand);color:#fff;border-color:var(--color-brand);font-weight:600}
+.inbox-modal button.primary{background:var(--primary-bg);color:var(--color-accent-ink);border-color:var(--color-accent-border);font-weight:600}
 .inbox-modal button.primary:disabled{opacity:.6}
 .inbox-modal .field-error{color:var(--color-danger);font-size:12px;font-weight:600}
 .inbox-modal [aria-invalid=true]{border-color:var(--color-danger);background:var(--color-danger-bg)}

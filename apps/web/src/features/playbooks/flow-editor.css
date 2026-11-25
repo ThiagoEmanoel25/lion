@@ -21,8 +21,8 @@
 .flow-editor-toolbar button:hover:not(:disabled),.flow-editor-actions button:hover:not(:disabled){background:var(--color-surface-muted)}
 .flow-editor-toolbar button.active{background:var(--color-brand-soft);border-color:var(--color-brand)}
 .flow-editor-toolbar button:disabled,.flow-editor-actions button:disabled{opacity:.5;cursor:not-allowed}
-.flow-editor-actions .primary{background:var(--color-brand);border-color:var(--color-brand);color:#fff}
-.flow-editor-actions .primary:hover:not(:disabled){background:var(--color-brand-strong);border-color:var(--color-brand-strong)}
+.flow-editor-actions .primary{background:var(--primary-bg);border-color:var(--color-accent-border);color:var(--color-accent-ink)}
+.flow-editor-actions .primary:hover:not(:disabled){background:var(--primary-bg-hover);border-color:var(--color-accent-border)}
 .flow-editor-actions>span{font-size:13px;color:var(--color-text-muted);white-space:nowrap}
 .flow-editor-actions .unsaved{color:var(--color-warning)}
 .flow-editor-toolbar .lbl-mobile{display:none}
@@ -147,8 +147,8 @@
 .menu-actions{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--ed-line)}
 .menu-actions button,.add-button-option,.menu-add,.message-add button,.ai-section-head button,.integration-mapping-head>button,.integration-test,.pixel-test .ui-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 14px;border:1px solid var(--ed-line-strong);border-radius:var(--radius-sm);background:var(--color-surface);color:var(--color-text);font:600 14px/1.2 var(--font-sans);cursor:pointer;white-space:nowrap}
 .menu-actions button:hover:not(:disabled),.add-button-option:hover,.menu-add:hover:not(:disabled),.message-add button:hover,.ai-section-head button:hover:not(:disabled),.integration-mapping-head>button:hover:not(:disabled),.integration-test:hover:not(:disabled){background:var(--color-surface-muted)}
-.menu-actions button.primary{background:var(--color-brand);border-color:var(--color-brand);color:#fff}
-.menu-actions button.primary:hover:not(:disabled){background:var(--color-brand-strong)}
+.menu-actions button.primary{background:var(--primary-bg);border-color:var(--color-accent-border);color:var(--color-accent-ink)}
+.menu-actions button.primary:hover:not(:disabled){background:var(--primary-bg-hover)}
 .menu-actions button:disabled,.menu-add:disabled,.ai-section-head button:disabled,.integration-test:disabled,.integration-mapping-head>button:disabled{opacity:.5;cursor:not-allowed}
 .menu-actions button:focus-visible,.menu-add:focus-visible,.integration-test:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}
 .integration-test{background:var(--color-brand);border-color:var(--color-brand);color:#fff}

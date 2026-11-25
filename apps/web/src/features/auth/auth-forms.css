@@ -26,8 +26,8 @@
 .auth-ok{background:var(--color-success-bg);border:1px solid #cfe3d8;color:var(--color-success);border-radius:var(--radius-sm);padding:12px;font-size:14px;margin:0 0 16px}
 .login-card form .auth-secondary,.auth-secondary{border:1px solid var(--color-border-strong);background:#fff;color:var(--color-text);border-radius:var(--radius-sm);padding:10px 12px;font-size:14px;font-weight:600;min-height:44px;width:100%}
 .auth-secondary:hover{background:var(--color-surface-muted)}
-.auth-link-button{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:var(--radius-sm);background:var(--color-brand);color:#fff;font-weight:600;font-size:14px;text-decoration:none}
-.auth-link-button:hover{background:var(--color-brand-strong)}
+.auth-link-button{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:var(--radius-sm);background:var(--primary-bg);color:var(--color-accent-ink);font-weight:600;font-size:14px;text-decoration:none}
+.auth-link-button:hover{background:var(--primary-bg-hover)}
 .auth-link-button:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}
 .login-card form .pw-toggle{background:none;color:var(--color-text-muted);padding:0;font-weight:400}
 @media(max-width:760px){.auth-links a{display:inline-flex;align-items:center;min-height:44px}}

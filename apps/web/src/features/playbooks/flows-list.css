@@ -1,7 +1,5 @@
 /* Lista de fluxos: tabela simples (nome, estado, atualizado), pastas à esquerda. Sobrepõe as regras legadas de flow-builder.css. */
 .playbooks-page.ui-page{max-width:1280px;--fl-accent:#a3e635;--fl-accent-strong:#84cc16;--fl-accent-soft:#ecfccb;--fl-deep:#1f3d1a;--fl-ring:rgba(132,204,22,.35);--fl-soft:#f4f7f1;--fl-line:#e6e9e4;--fl-line-strong:#d9ddd6}
-/* Verde só nesta tela (pedido do usuário); o resto do app segue a identidade preta. */
-main:has(>.playbooks-page){background:radial-gradient(900px 380px at 0 0,#eef9dc 0,transparent 70%),#f6f7f5}
 .playbooks-page .ui-btn{font:600 14px/1.2 var(--font-sans);padding:0 14px;border-radius:var(--radius-sm);min-height:36px}
 .playbooks-page .ui-btn.sm{min-height:32px;padding:0 10px;font-size:13px}
 .playbooks-page .heading-actions{display:flex;gap:10px;flex-wrap:wrap}

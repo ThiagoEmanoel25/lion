@@ -10,8 +10,8 @@
 .onb-modal footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px}
 .onb-modal footer>span{display:flex;gap:8px}
 .onb-primary,.onb-secondary,.onb-cta{border-radius:var(--radius-sm);padding:0 16px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;min-height:40px;display:inline-flex;align-items:center;justify-content:center}
-.onb-primary,.onb-cta{background:var(--color-brand);color:#fff;border:1px solid var(--color-brand)}
-.onb-primary:hover,.onb-cta:hover{background:var(--color-brand-strong)}
+.onb-primary,.onb-cta{background:var(--primary-bg);color:var(--color-accent-ink);border:1px solid var(--color-accent-border)}
+.onb-primary:hover,.onb-cta:hover{background:var(--primary-bg-hover)}
 .onb-secondary{background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border-strong)}
 .onb-link{background:none;border:0;color:var(--color-text);text-decoration:underline;text-underline-offset:3px;font:inherit;font-size:14px;font-weight:500;cursor:pointer;padding:0 8px;min-height:40px}
 .onb-primary:focus-visible,.onb-secondary:focus-visible,.onb-link:focus-visible,.onb-cta:focus-visible,.onb-reopen:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}

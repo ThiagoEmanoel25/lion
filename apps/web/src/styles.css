@@ -1,4 +1,4 @@
-/* Zuno Flow: base visual. Tinta e sinal: primário em tinta, verde só como estado, Figtree auto-hospedada. */
+/* Zuno Flow: base visual. Verde: ação principal em lima, estados ativos em verde-escuro, Figtree auto-hospedada. */
 :root {
   font-family:var(--font-sans);
   line-height:1.5;
@@ -17,10 +17,18 @@
   --color-text:#15171c;
   --color-text-muted:#555b66;
   --color-text-subtle:#69707c;
-  --color-brand:#15171c;
-  --color-brand-strong:#000;
-  --color-brand-soft:#eceef1;
-  --color-brand-ring:rgba(21,23,28,.35);
+  /* Verde do projeto: tinta verde-escura para estados ativos e texto de marca; lima para ação principal e seleção. */
+  --color-brand:#1f3d1a;
+  --color-brand-strong:#142a10;
+  --color-brand-soft:#ecfccb;
+  --color-brand-ring:rgba(132,204,22,.4);
+  --color-accent:#a3e635;
+  --color-accent-strong:#84cc16;
+  --color-accent-border:#7cb518;
+  --color-accent-ink:#1a2e05;
+  --primary-bg:linear-gradient(180deg,#b5ef4f,#84cc16) #a3e635;
+  --primary-bg-hover:linear-gradient(180deg,#a3e635,#76b812) #8fd11e;
+  --primary-shadow:0 4px 14px rgba(132,204,22,.3);
   --color-danger:#c2362b;
   --color-danger-bg:#fef3f2;
   --color-success:#1b7a4b;
@@ -311,9 +319,9 @@ table,.metric strong,.stage-cards b,.score b,.quota,time {
 }
 
 .heading .primary,.primary {
-  background:var(--green);
-  color:#fff;
-  border-color:var(--green);
+  background:var(--primary-bg);
+  color:var(--color-accent-ink);
+  border-color:var(--color-accent-border);
 }
 
 .metrics {
@@ -1342,8 +1350,8 @@ main:focus {
 }
 
 .async-action.primary {
-  background:var(--color-brand);
-  color:#fff;
+  background:var(--primary-bg);
+  color:var(--color-accent-ink);
 }
 
 .async-action:hover {
@@ -1351,7 +1359,7 @@ main:focus {
 }
 
 .async-action.primary:hover {
-  background:var(--color-brand-strong);
+  background:var(--primary-bg-hover);
 }
 
 .async-state.loading {
@@ -1496,14 +1504,14 @@ main:focus {
 }
 
 .heading .primary,.primary {
-  background:var(--color-brand);
-  border-color:var(--color-brand);
-  color:#fff;
+  background:var(--primary-bg);
+  border-color:var(--color-accent-border);
+  color:var(--color-accent-ink);
 }
 
 .heading .primary:hover,.primary:hover,.panel button.primary:hover,.cards button.primary:hover {
-  background:var(--color-brand-strong);
-  border-color:var(--color-brand-strong);
+  background:var(--primary-bg-hover);
+  border-color:var(--color-accent-border);
 }
 
 .panel,.cards article,.stage-cards article,.channel {
@@ -1631,3 +1639,6 @@ main:focus {
   min-width:0;
   overflow-wrap:anywhere;
 }
+
+/* Fundo com leve brilho verde no canto da área de conteúdo. */
+main#conteudo{background:radial-gradient(900px 380px at 0 0,#eef9dc 0,transparent 70%),var(--color-bg)}

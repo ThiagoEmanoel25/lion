@@ -13,8 +13,8 @@
 .kanban-page button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--color-border-strong);background:var(--color-surface);color:var(--color-text);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer}
 .kanban-page button:hover:not(:disabled){background:var(--color-surface-muted)}
 .kanban-page button:disabled{opacity:.4;cursor:not-allowed}
-.kanban-page button.primary{border-color:var(--color-brand);background:var(--color-brand);color:#fff}
-.kanban-page button.primary:hover:not(:disabled){background:var(--color-brand-strong)}
+.kanban-page button.primary{border-color:var(--color-accent-border);background:var(--primary-bg);color:var(--color-accent-ink)}
+.kanban-page button.primary:hover:not(:disabled){background:var(--primary-bg-hover)}
 .kanban-page button.danger{color:var(--color-danger)}
 
 /* Barra do quadro: linha simples, sem caixa */

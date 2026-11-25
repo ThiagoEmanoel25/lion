@@ -11,8 +11,8 @@
 .login-card label{display:grid;gap:6px;font-size:13px;font-weight:500}
 .login-card input{border:1px solid var(--color-border-strong);border-radius:8px;padding:10px 12px;min-height:44px;font-size:14px;background:#fff;color:var(--color-text);outline:none}
 .login-card input:focus,.login-card input:focus-visible{border-color:var(--color-brand);box-shadow:0 0 0 2px var(--color-brand-ring);outline:none}
-.login-card form button{border:0;border-radius:8px;background:var(--color-brand);color:#fff;min-height:44px;padding:10px 12px;font-size:14px;font-weight:600}
-.login-card form button:hover:not(:disabled){background:var(--color-brand-strong)}
+.login-card form button{border:0;border-radius:8px;background:var(--primary-bg);color:var(--color-accent-ink);min-height:44px;padding:10px 12px;font-size:14px;font-weight:600}
+.login-card form button:hover:not(:disabled){background:var(--primary-bg-hover)}
 .login-card form button:disabled{opacity:.6;cursor:default}
 .login-card form button:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}
 .login-card>em{display:block;margin-top:16px;color:var(--color-text-muted);font-size:12px;font-style:normal;text-align:center}

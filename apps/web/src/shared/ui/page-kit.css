@@ -11,8 +11,8 @@
 .ui-btn:hover:not(:disabled){background:var(--color-surface-muted)}
 .ui-btn:focus-visible{outline:2px solid var(--color-brand);outline-offset:2px}
 .ui-btn:disabled{opacity:.55;cursor:not-allowed}
-.ui-btn.primary{background:var(--color-brand);border-color:var(--color-brand);color:#fff}
-.ui-btn.primary:hover:not(:disabled){background:var(--color-brand-strong);border-color:var(--color-brand-strong)}
+.ui-btn.primary{background:var(--primary-bg);box-shadow:var(--primary-shadow);border-color:var(--color-accent-border);color:var(--color-accent-ink)}
+.ui-btn.primary:hover:not(:disabled){background:var(--primary-bg-hover);border-color:var(--color-accent-border)}
 .ui-btn.quiet{border-color:transparent;background:transparent}
 .ui-btn.quiet:hover:not(:disabled){background:var(--color-surface-muted)}
 .ui-btn.danger{border-color:transparent;background:transparent;color:var(--color-danger)}

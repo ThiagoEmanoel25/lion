@@ -13,7 +13,7 @@
 .template-options button small{font-size:8px;letter-spacing:0;line-height:1.4}
 .create-flow-panel>footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .create-flow-panel>footer button,.flow-empty button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 14px;font-size:9px;font-weight:700}
-.create-flow-panel>footer .primary,.flow-empty .primary{background:var(--green);border-color:var(--green);color:#fff}
+.create-flow-panel>footer .primary,.flow-empty .primary{background:var(--primary-bg);border-color:var(--color-accent-border);color:var(--color-accent-ink)}
 .form-error{color:#9f493e;font-size:9px}
 .flow-empty{border:1px dashed #cad5ce;background:#f9fbf8;border-radius:17px;padding:40px;text-align:center;color:#738078;font-size:10px}
 .flow-empty>span{font-size:30px;color:#3e8066}

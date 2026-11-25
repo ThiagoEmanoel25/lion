@@ -2,8 +2,8 @@
 .contacts-page .contact-actions{display:flex;gap:8px;flex-wrap:wrap}
 .contacts-page .contact-actions button,.contacts-page .contact-filters button,.contact-drawer button,.tag-panel .tag-creator-row button{border:1px solid var(--color-border-strong);background:var(--color-surface);color:var(--color-text);border-radius:8px;padding:8px 14px;font-size:14px;font-weight:500}
 .contacts-page .contact-actions button:hover,.contacts-page .contact-filters button:hover,.contact-drawer button:hover,.tag-panel .tag-creator-row button:hover{background:var(--color-surface-muted)}
-.contacts-page .contact-actions .primary,.contact-drawer .primary{background:var(--color-brand);color:#fff;border-color:var(--color-brand);font-weight:600}
-.contacts-page .contact-actions .primary:hover,.contact-drawer .primary:hover{background:var(--color-brand-strong)}
+.contacts-page .contact-actions .primary,.contact-drawer .primary{background:var(--primary-bg);color:var(--color-accent-ink);border-color:var(--color-accent-border);font-weight:600}
+.contacts-page .contact-actions .primary:hover,.contact-drawer .primary:hover{background:var(--primary-bg-hover)}
 .contact-drawer button:disabled{opacity:.6;cursor:not-allowed}
 
 /* Filtro por etapa: segmentado simples com contagem em texto */
