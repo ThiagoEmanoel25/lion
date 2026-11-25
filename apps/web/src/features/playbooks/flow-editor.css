@@ -516,3 +516,23 @@
 .flow-canvas:has(.canvas-empty) .react-flow__minimap{display:none}
 .integration-basics>*+*,.integration-grid+label{margin-top:12px}
 .integration-grid{margin-bottom:12px}
+
+/* Cores por grupo de bloco (pedido do usuário): faixa no topo, ícone tingido e ponto do tipo. */
+.node-group-start{--node-c:#16a34a;--node-c-bg:#e9f7ee}
+.node-group-message{--node-c:#2563eb;--node-c-bg:#eaf1fe}
+.node-group-logic{--node-c:#7c3aed;--node-c-bg:#f2edfe}
+.node-group-ai{--node-c:#db2777;--node-c-bg:#fdecf4}
+.node-group-action{--node-c:#ea580c;--node-c-bg:#fdf0e7}
+.node-group-end{--node-c:#0f766e;--node-c-bg:#e7f4f2}
+.automation-node[class*="node-group-"]{--node-dot:var(--node-c);border-top:3px solid var(--node-c)}
+.automation-node[class*="node-group-"] .automation-node-icon{width:28px;height:28px;border-radius:6px;background:var(--node-c-bg);color:var(--node-c)}
+.automation-node[class*="node-group-"] .automation-node-head small{color:var(--node-c);font-weight:500}
+.palette-icon[class*="node-group-"]{width:28px;height:28px;border-radius:6px;background:var(--node-c-bg);color:var(--node-c)}
+.palette-group>button{grid-template-columns:28px minmax(0,1fr)}
+/* Cabeçalho do painel com botão de recolher */
+.palette-head{flex:none;display:flex;align-items:center;justify-content:space-between;padding:8px 8px 0 14px}
+.palette-head b{font:600 14px/1.3 var(--font-sans);color:var(--color-text)}
+.palette-collapse{display:inline-grid;place-items:center;width:32px;height:32px;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;color:var(--color-text-muted);cursor:pointer}
+.palette-collapse:hover{background:var(--color-surface-muted);color:var(--color-text)}
+.palette-collapse:focus-visible{outline:2px solid var(--color-brand);outline-offset:1px}
+@media (max-width:720px){.palette-collapse{width:40px;height:40px}}
