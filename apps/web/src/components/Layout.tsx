@@ -5,6 +5,7 @@ import {useBillingOverview} from '../features/billing/api/queries';
 import {ToastProvider} from '../shared/ui/Toast';
 import {Bot,BookOpen,Menu,X,Megaphone,ChevronDown,Columns3,CreditCard,HelpCircle,LayoutDashboard,MessageSquare,PanelLeftClose,PanelLeftOpen,Plug,Settings,TrendingUp,Users,Webhook,Workflow} from 'lucide-react';
 import {APP_NAME,APP_TAGLINE} from '../shared/brand';
+import {label,PLAN_LABELS} from '../features/settings/labels';
 import './layout.css';
 
 const groups=[
@@ -44,7 +45,7 @@ function LayoutShell(){
       <div className="quota">
         <div><span>Execuções no mês</span><b>{executions?`${number(executions.used)}${executions.limit===null?'':` / ${number(executions.limit)}`}`:'—'}</b></div>
         <i><u style={{width:`${usedPercent??0}%`}}/></i>
-        <small>{billing.data?`Plano ${billing.data.subscription.plan}`:'Carregando plano…'}</small>
+        <small>{billing.data?`Plano ${label(PLAN_LABELS,billing.data.subscription.plan)}`:'Carregando plano…'}</small>
         {/* PAGAMENTO DESLIGADO NO PILOTO (decisão 2026-11-23): reativar quando houver gateway; hoje o link só leva a uso e limites. */}
         <Link to="/billing" onClick={()=>setMenuOpen(false)}>Ver uso e limites</Link>
       </div>

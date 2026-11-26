@@ -3,7 +3,7 @@ export const label=(map:Record<string,string>,value:string|null|undefined)=>valu
 
 export const ROLE_LABELS:Record<string,string>={OWNER:'Proprietário',ADMIN:'Administrador',SUPERVISOR:'Supervisor',AGENT:'Agente',VIEWER:'Leitor'};
 export const INVITE_STATUS_LABELS:Record<string,string>={PENDING:'Pendente',ACCEPTED:'Aceito',REVOKED:'Revogado',EXPIRED:'Expirado'};
-export const PLAN_LABELS:Record<string,string>={free:'Gratuito',starter:'Starter',growth:'Growth',scale:'Scale',enterprise:'Enterprise'};
+export const PLAN_LABELS:Record<string,string>={free:'Gratuito',starter:'Starter',growth:'Growth',scale:'Scale',enterprise:'Enterprise',unlimited:'Ilimitado'};
 export const SUBSCRIPTION_STATUS_LABELS:Record<string,string>={active:'Ativa',trialing:'Em teste',past_due:'Pagamento em atraso',canceled:'Cancelada',cancelled:'Cancelada',incomplete:'Incompleta',paused:'Pausada'};
 export const PROVIDER_LABELS:Record<string,string>={local:'Gerenciado localmente',stripe:'Stripe',asaas:'Asaas'};
 

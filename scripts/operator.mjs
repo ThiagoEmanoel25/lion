@@ -5,7 +5,8 @@
  *
  *   node scripts/operator.mjs [--env-file .env] <comando> [opções]
  *
- *   create-workspace --name "Clínica X" --slug clinica-x --owner-email dono@x.com [--owner-name "Fulano"] [--invite-days 7] [--dry-run]
+ *   create-workspace --name "Clínica X" --slug clinica-x --owner-email dono@x.com [--owner-name "Fulano"] [--invite-days 7] [--plan free|growth|scale|unlimited] [--dry-run]
+ *   set-plan         --workspace-slug clinica-x --plan unlimited [--dry-run]
  *   reset-password   --email x@y.com [--hours 2] [--dry-run]
  *   reissue-invite   --workspace-slug clinica-x --email dono@x.com [--invite-days 7] [--dry-run]
  *   list
@@ -22,8 +23,11 @@ import path from 'node:path';
 const HELP = `Uso: node scripts/operator.mjs [--env-file .env] <comando> [opções]
 
 Comandos:
-  create-workspace --name "Clínica X" --slug clinica-x --owner-email dono@x.com [--owner-name "Fulano"] [--invite-days 7] [--dry-run]
-      Cria o workspace (plano free, provider local) e um convite OWNER; imprime o link /convite/<token> uma única vez.
+  create-workspace --name "Clínica X" --slug clinica-x --owner-email dono@x.com [--owner-name "Fulano"] [--invite-days 7] [--plan free|growth|scale|unlimited] [--dry-run]
+      Cria o workspace (plano free por padrão, provider local) e um convite OWNER; imprime o link /convite/<token> uma única vez.
+      --plan unlimited: sem limite de contatos, membros, conexões e execuções.
+  set-plan --workspace-slug clinica-x --plan unlimited [--dry-run]
+      Troca o plano de um workspace existente (encerra a assinatura local ativa e cria outra no plano novo).
   reset-password --email x@y.com [--hours 2] [--dry-run]
       Gera link /redefinir-senha/<token> (invalida os anteriores não usados).
   reissue-invite --workspace-slug clinica-x --email dono@x.com [--invite-days 7] [--dry-run]
@@ -46,7 +50,7 @@ for (let i = 0; i < argv.length; i++) {
 function fail(msg, code = 2) { console.error(`Erro: ${msg}`); process.exit(code); }
 const command = rest[0];
 if (flags.help || !command) { console.log(HELP); process.exit(flags.help ? 0 : 2); }
-if (!['create-workspace', 'reset-password', 'reissue-invite', 'list'].includes(command)) fail(`Comando desconhecido: ${command}. Use --help.`);
+if (!['create-workspace', 'set-plan', 'reset-password', 'reissue-invite', 'list'].includes(command)) fail(`Comando desconhecido: ${command}. Use --help.`);
 
 if (flags['env-file']) {
   let text; try { text = readFileSync(flags['env-file'], 'utf8'); } catch { fail('Não foi possível ler o arquivo de env informado.'); }
@@ -73,7 +77,10 @@ const num = (name, fallback, max) => { if (flags[name] === undefined) return fal
 const need = name => { const v = flags[name]?.trim(); if (!v) fail(`Falta --${name}. Use --help.`); return v; };
 const emailOf = name => { const v = need(name).toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) fail(`--${name} não é um e-mail válido.`); return v; };
 const dry = Boolean(flags.dryRun);
-const FREE_LIMITS = { contacts: 250, members: 2, channels: 1, executionsMonthly: 500 }; // = planDefaults.free (billing/service.ts)
+// = planDefaults (apps/api/src/modules/billing/service.ts). unlimited grava {}: sem número = sem limite.
+const PLAN_LIMITS = { free: { contacts: 250, members: 2, channels: 1, executionsMonthly: 500 }, growth: { contacts: 10000, members: 10, channels: 2, executionsMonthly: 5000 }, scale: { contacts: 100000, members: 50, channels: 10, executionsMonthly: 50000 }, unlimited: {} };
+const planOf = () => { const plan = (flags.plan ?? 'free').trim().toLowerCase(); if (!(plan in PLAN_LIMITS)) fail(`--plan inválido. Use: ${Object.keys(PLAN_LIMITS).join(', ')}.`); return plan; };
+const monthPeriod = (now = new Date()) => ({ currentPeriodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), currentPeriodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)) });
 
 const logDry = msg => console.log(`[dry-run] ${msg}`);
 const refuse = msg => { console.error(`Recusado: ${msg}`); process.exitCode = 1; };
@@ -82,26 +89,41 @@ async function createWorkspace() {
   const name = need('name'); const slug = need('slug').toLowerCase(); const email = emailOf('owner-email');
   if (name.length < 2 || name.length > 100) fail('--name deve ter 2 a 100 caracteres.');
   if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(slug)) fail('--slug deve ser minúsculo (a-z, 0-9, hífen), até 64 caracteres.');
-  const ownerName = flags['owner-name']?.trim() || null; const days = num('invite-days', 7, 90);
+  const ownerName = flags['owner-name']?.trim() || null; const days = num('invite-days', 7, 90); const plan = planOf();
   const url = baseUrl();
   if (await prisma.workspace.findUnique({ where: { slug } })) return refuse(`o slug "${slug}" já existe.`);
   if (await prisma.user.findUnique({ where: { email } })) return refuse('o e-mail do dono já possui conta (um e-mail = um workspace).');
   const pending = await prisma.workspaceInvite.findFirst({ where: { email, status: 'PENDING', expiresAt: { gt: new Date() } }, include: { workspace: { select: { slug: true } } } });
   if (pending) return refuse(`o e-mail do dono já tem convite pendente no workspace "${pending.workspace.slug}".`);
   const { token, hash } = newToken(); const expiresAt = new Date(Date.now() + days * 864e5);
-  if (dry) { logDry(`criaria workspace "${name}" (${slug}), assinatura free/local, convite OWNER para ${email} válido até ${expiresAt.toISOString()}. Nada gravado.`); return; }
-  const now = new Date();
+  if (dry) { logDry(`criaria workspace "${name}" (${slug}), assinatura ${plan}/local, convite OWNER para ${email} válido até ${expiresAt.toISOString()}. Nada gravado.`); return; }
   const ws = await prisma.$transaction(async tx => {
     const workspace = await tx.workspace.create({ data: { name, slug } });
-    await tx.subscription.create({ data: { workspaceId: workspace.id, provider: 'local', plan: 'free', status: 'active', limits: FREE_LIMITS, currentPeriodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), currentPeriodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)) } });
+    await tx.subscription.create({ data: { workspaceId: workspace.id, provider: 'local', plan, status: 'active', limits: PLAN_LIMITS[plan], ...monthPeriod() } });
     const invite = await tx.workspaceInvite.create({ data: { workspaceId: workspace.id, email, name: ownerName, role: 'OWNER', tokenHash: hash, expiresAt, createdById: 'operator' } });
-    await tx.auditLog.create({ data: { workspaceId: workspace.id, action: 'operator.workspace_created', targetType: 'Workspace', targetId: workspace.id, changes: { slug, ownerEmail: email, inviteId: invite.id, inviteDays: days, plan: 'free' } } });
+    await tx.auditLog.create({ data: { workspaceId: workspace.id, action: 'operator.workspace_created', targetType: 'Workspace', targetId: workspace.id, changes: { slug, ownerEmail: email, inviteId: invite.id, inviteDays: days, plan } } });
     return workspace;
   });
-  console.log(`Workspace criado: ${ws.name} (${ws.slug})`);
+  console.log(`Workspace criado: ${ws.name} (${ws.slug}), plano ${plan}`);
   console.log(`Convite OWNER para ${email}, válido até ${expiresAt.toISOString()}.`);
   console.log('Link (exibido uma única vez; entregue ao cliente):');
   console.log(`${url}/convite/${token}`);
+}
+
+async function setPlan() {
+  const slug = need('workspace-slug').toLowerCase(); if (!flags.plan) fail('Falta --plan. Use --help.'); const plan = planOf();
+  const ws = await prisma.workspace.findUnique({ where: { slug } });
+  if (!ws) return refuse(`workspace "${slug}" não existe.`);
+  const current = await prisma.subscription.findMany({ where: { workspaceId: ws.id, status: { in: ['active', 'trialing'] } } });
+  const external = current.filter(item => item.provider !== 'local');
+  if (external.length) return refuse(`o workspace tem assinatura ativa no provedor ${external[0].provider}; troque o plano por lá.`);
+  if (dry) { logDry(`encerraria ${current.length} assinatura(s) local(is) de "${slug}" (${current.map(item => item.plan).join(', ') || 'nenhuma'}) e criaria uma ativa no plano ${plan}. Nada gravado.`); return; }
+  await prisma.$transaction(async tx => {
+    await tx.subscription.updateMany({ where: { id: { in: current.map(item => item.id) } }, data: { status: 'canceled' } });
+    const created = await tx.subscription.create({ data: { workspaceId: ws.id, provider: 'local', plan, status: 'active', limits: PLAN_LIMITS[plan], ...monthPeriod() } });
+    await tx.auditLog.create({ data: { workspaceId: ws.id, action: 'operator.plan_changed', targetType: 'Subscription', targetId: created.id, changes: { from: current.map(item => item.plan), to: plan } } });
+  });
+  console.log(`Plano de ${ws.name} (${slug}) agora é ${plan}.`);
 }
 
 async function resetPassword() {
@@ -145,19 +167,19 @@ async function reissueInvite() {
 }
 
 async function list() {
-  const rows = await prisma.workspace.findMany({ orderBy: { createdAt: 'asc' }, select: { name: true, slug: true, createdAt: true, memberships: { where: { isActive: true }, select: { role: true, user: { select: { email: true } } } }, invites: { where: { role: 'OWNER' }, orderBy: { createdAt: 'desc' }, take: 1, select: { status: true, expiresAt: true, email: true } } } });
+  const rows = await prisma.workspace.findMany({ orderBy: { createdAt: 'asc' }, select: { name: true, slug: true, createdAt: true, subscriptions: { where: { status: { in: ['active', 'trialing'] } }, orderBy: { currentPeriodEnd: 'desc' }, take: 1, select: { plan: true } }, memberships: { where: { isActive: true }, select: { role: true, user: { select: { email: true } } } }, invites: { where: { role: 'OWNER' }, orderBy: { createdAt: 'desc' }, take: 1, select: { status: true, expiresAt: true, email: true } } } });
   if (!rows.length) { console.log('Nenhum workspace.'); return; }
   const now = new Date();
   const out = rows.map(w => {
     const owner = w.memberships.find(m => m.role === 'OWNER')?.user.email ?? w.invites[0]?.email ?? '-';
     const inv = w.invites[0]; const status = !inv ? '-' : inv.status === 'PENDING' && inv.expiresAt <= now ? 'EXPIRED' : inv.status;
-    return { slug: w.slug, nome: w.name, dono: owner, convite: status, membros: w.memberships.length, criado: w.createdAt.toISOString().slice(0, 10) };
+    return { slug: w.slug, nome: w.name, plano: w.subscriptions[0]?.plan ?? 'free', dono: owner, convite: status, membros: w.memberships.length, criado: w.createdAt.toISOString().slice(0, 10) };
   });
   console.table(out);
 }
 
 try {
-  await { 'create-workspace': createWorkspace, 'reset-password': resetPassword, 'reissue-invite': reissueInvite, list }[command]();
+  await { 'create-workspace': createWorkspace, 'set-plan': setPlan, 'reset-password': resetPassword, 'reissue-invite': reissueInvite, list }[command]();
 } catch (error) {
   console.error(`Falha: ${error?.code ?? error?.name ?? 'erro'} ${String(error?.message ?? '').split('\n').pop()}`); process.exitCode = 1;
 } finally { await prisma.$disconnect(); }

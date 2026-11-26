@@ -9,6 +9,7 @@ describe('rótulos pt-BR',()=>{
     expect(label(INVITE_STATUS_LABELS,'PENDING')).toBe('Pendente');
     expect(label(SUBSCRIPTION_STATUS_LABELS,'active')).toBe('Ativa');
     expect(label(PLAN_LABELS,'growth')).toBe('Growth');
+    expect(label(PLAN_LABELS,'unlimited')).toBe('Ilimitado');
     expect(label(PLAN_LABELS,'plano_novo')).toBe('plano_novo');
   });
   it('auditoria vira frase e mantém código desconhecido',()=>{
